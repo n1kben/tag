@@ -4,6 +4,50 @@ import {
   COLOR_PLAYER, TAG_COOLDOWN, TAG_SHAKE_DURATION, TAG_SHAKE_INTENSITY,
   TAG_PARTICLE_COUNT, TAG_PARTICLE_SPEED, TAG_PARTICLE_LIFE, TAG_PARTICLE_SIZE,
 } from './constants';
+import { camera } from './scene';
+
+/**
+ * Clamp player to the camera frustum using frustum planes.
+ * This handles the tilted perspective correctly — frustum planes are flat,
+ * so sliding along them feels natural (no diagonal drift).
+ */
+function clampToFrustum(
+  pos: THREE.Vector3,
+  vel: THREE.Vector2,
+  margin: number,
+  cam: THREE.PerspectiveCamera,
+): void {
+  const frustum = new THREE.Frustum();
+  const mat = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+  frustum.setFromProjectionMatrix(mat);
+
+  // Frustum planes: 0=right, 1=left, 2=bottom, 3=top, 4=far, 5=near
+  // We only care about the 4 side planes (0-3)
+  for (let i = 0; i < 4; i++) {
+    const plane = frustum.planes[i];
+    const dist = plane.distanceToPoint(pos) - margin;
+
+    if (dist < 0) {
+      // Player is outside this plane — push back along the plane normal projected to XZ
+      const nx = plane.normal.x;
+      const nz = plane.normal.z;
+      const lenSq = nx * nx + nz * nz;
+      if (lenSq < 0.0001) continue;
+
+      // Move position back onto the plane (ground-projected)
+      const pushT = -dist / lenSq;
+      pos.x += nx * pushT;
+      pos.z += nz * pushT;
+
+      // Zero velocity component going into this plane
+      const velDot = vel.x * nx + vel.y * nz;
+      if (velDot < 0) {
+        vel.x -= velDot * nx / lenSq;
+        vel.y -= velDot * nz / lenSq;
+      }
+    }
+  }
+}
 
 export interface PlayerKeys {
   up: string;
@@ -33,7 +77,6 @@ export class Player {
   private keys: PlayerKeys;
   private altKeys: PlayerKeys | null;
   private pressed: Set<string>;
-  private halfSize: number;
   private scene: THREE.Scene;
   private color: number;
 
@@ -46,6 +89,7 @@ export class Player {
   private particles: Particle[] = [];
   private tagPressed = false;
 
+
   constructor(
     scene: THREE.Scene,
     keys: PlayerKeys,
@@ -57,7 +101,6 @@ export class Player {
     this.keys = keys;
     this.altKeys = altKeys;
     this.pressed = pressed;
-    this.halfSize = PLAYER_SIZE / 2;
     this.scene = scene;
     this.color = color;
 
@@ -170,7 +213,7 @@ export class Player {
     }
   }
 
-  update(dt: number, walls: THREE.Box3[]): void {
+  update(dt: number, _walls: THREE.Box3[]): void {
     // Remove previous shake offset before physics
     this.mesh.position.x -= this.shakeOffsetX;
     this.mesh.position.z -= this.shakeOffsetZ;
@@ -210,46 +253,12 @@ export class Player {
       this.velocity.set(0, 0);
     }
 
-    // 5. AABB collision — axis-separated resolution
+    // 5. Move freely, clamp to visible screen edges
     const pos = this.mesh.position;
+    pos.x += this.velocity.x * dt;
+    pos.z += this.velocity.y * dt;
 
-    // Try X axis
-    const newX = pos.x + this.velocity.x * dt;
-    const playerBoxX = new THREE.Box3(
-      new THREE.Vector3(newX - this.halfSize, 0, pos.z - this.halfSize),
-      new THREE.Vector3(newX + this.halfSize, PLAYER_SIZE, pos.z + this.halfSize),
-    );
-    let collidedX = false;
-    for (const wall of walls) {
-      if (playerBoxX.intersectsBox(wall)) {
-        collidedX = true;
-        break;
-      }
-    }
-    if (!collidedX) {
-      pos.x = newX;
-    } else {
-      this.velocity.x = 0;
-    }
-
-    // Try Z axis
-    const newZ = pos.z + this.velocity.y * dt;
-    const playerBoxZ = new THREE.Box3(
-      new THREE.Vector3(pos.x - this.halfSize, 0, newZ - this.halfSize),
-      new THREE.Vector3(pos.x + this.halfSize, PLAYER_SIZE, newZ + this.halfSize),
-    );
-    let collidedZ = false;
-    for (const wall of walls) {
-      if (playerBoxZ.intersectsBox(wall)) {
-        collidedZ = true;
-        break;
-      }
-    }
-    if (!collidedZ) {
-      pos.z = newZ;
-    } else {
-      this.velocity.y = 0;
-    }
+    clampToFrustum(pos, this.velocity, PLAYER_SIZE / 2, camera);
 
     // Rotate to face movement direction
     if (this.velocity.length() > 0.1) {
