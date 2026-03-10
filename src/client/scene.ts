@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
-  ARENA_WIDTH, ARENA_HEIGHT, CAMERA_FOV, CAMERA_TILT_DEG, CAMERA_PADDING,
-} from './constants';
+  ARENA_HEIGHT, CAMERA_FOV, CAMERA_TILT_DEG, CAMERA_PADDING,
+} from '../shared/constants';
 
 export let scene: THREE.Scene;
 export let camera: THREE.PerspectiveCamera;
