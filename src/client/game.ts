@@ -33,29 +33,29 @@ export function startGame(): void {
   let lastStateTime = 0;
   let serverTickMs = 0;
 
-  const lobby = new LobbyUI({
-    onCreateRoom: () => {
+  function connectAndSend(sendFn: () => void): void {
+    if (!network.connected) {
       network.connect();
       const check = setInterval(() => {
         if (network.connected) {
           clearInterval(check);
-          network.send({ type: 'create_room' });
+          sendFn();
         }
       }, 100);
+    } else {
+      sendFn();
+    }
+  }
+
+  function joinRoom(code: string): void {
+    connectAndSend(() => network.send({ type: 'join_room', roomId: code }));
+  }
+
+  const lobby = new LobbyUI({
+    onCreateRoom: () => {
+      connectAndSend(() => network.send({ type: 'create_room' }));
     },
-    onJoinRoom: (code) => {
-      if (!network.connected) {
-        network.connect();
-        const check = setInterval(() => {
-          if (network.connected) {
-            clearInterval(check);
-            network.send({ type: 'join_room', roomId: code });
-          }
-        }, 100);
-      } else {
-        network.send({ type: 'join_room', roomId: code });
-      }
-    },
+    onJoinRoom: joinRoom,
     onRename: (name) => {
       network.send({ type: 'rename', name });
     },
@@ -67,6 +67,7 @@ export function startGame(): void {
       network.disconnect();
       gameState = 'title';
       myPlayerId = -1;
+      history.replaceState(null, '', location.pathname);
       lobby.showTitle();
     },
   });
@@ -74,18 +75,12 @@ export function startGame(): void {
   function handleMessage(msg: ServerMessage): void {
     switch (msg.type) {
       case 'room_created':
-        myPlayerId = msg.playerId;
-        myName = msg.name;
-        roomId = msg.roomId;
-        gameState = 'lobby';
-        lobby.showRoomLobby(msg.roomId, msg.name);
-        break;
-
       case 'room_joined':
         myPlayerId = msg.playerId;
         myName = msg.name;
         roomId = msg.roomId;
         gameState = 'lobby';
+        history.replaceState(null, '', `#${msg.roomId}`);
         lobby.showRoomLobby(msg.roomId, msg.name);
         break;
 
@@ -211,4 +206,10 @@ export function startGame(): void {
   }
 
   requestAnimationFrame(loop);
+
+  // Auto-join room from URL hash
+  const hashRoom = location.hash.slice(1);
+  if (hashRoom) {
+    joinRoom(hashRoom);
+  }
 }
