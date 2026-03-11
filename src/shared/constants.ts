@@ -33,6 +33,9 @@ export const COLOR_WALLS = 0x6457a6;
 export const COLOR_BORDER = 0xffe347;
 export const COLOR_GROUND = 0x2a2a4a;
 
+// Collision
+export const BUMP_RECOIL = 12;
+
 // Game
 export const GAME_DURATION = 60;
 export const TICK_RATE = 60;

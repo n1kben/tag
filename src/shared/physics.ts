@@ -1,6 +1,6 @@
 import {
   PLAYER_ACCELERATION, PLAYER_MAX_SPEED, PLAYER_FRICTION,
-  ARENA_WIDTH, ARENA_HEIGHT, PLAYER_SIZE,
+  ARENA_WIDTH, ARENA_HEIGHT, PLAYER_SIZE, BUMP_RECOIL,
 } from './constants';
 
 export interface PhysicsState {
@@ -63,4 +63,49 @@ export function stepPhysics(state: PhysicsState, input: InputState, dt: number):
   if (speed > 0.1) {
     state.facingAngle = Math.atan2(-state.vx, -state.vz);
   }
+}
+
+/**
+ * Resolve overlap between two players with position separation and recoil velocity.
+ * Call after both players have been stepped.
+ */
+export function resolvePlayerCollision(a: PhysicsState, b: PhysicsState): void {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const distSq = dx * dx + dz * dz;
+  const minDist = PLAYER_SIZE; // diameter = two radii touching
+
+  if (distSq >= minDist * minDist || distSq < 0.0001) return;
+
+  const dist = Math.sqrt(distSq);
+  const nx = dx / dist;
+  const nz = dz / dist;
+
+  // Separate equally
+  const overlap = minDist - dist;
+  const half = overlap / 2;
+  a.x -= nx * half;
+  a.z -= nz * half;
+  b.x += nx * half;
+  b.z += nz * half;
+
+  // Recoil: push both players apart along the collision normal
+  // Scale by how much relative velocity is going into the collision
+  const relVx = a.vx - b.vx;
+  const relVz = a.vz - b.vz;
+  const relDot = relVx * nx + relVz * nz;
+
+  // Only apply if players are moving towards each other
+  if (relDot > 0) {
+    a.vx -= nx * relDot;
+    a.vz -= nz * relDot;
+    b.vx += nx * relDot;
+    b.vz += nz * relDot;
+  }
+
+  // Always add a bump impulse so it feels punchy
+  a.vx -= nx * BUMP_RECOIL;
+  a.vz -= nz * BUMP_RECOIL;
+  b.vx += nx * BUMP_RECOIL;
+  b.vz += nz * BUMP_RECOIL;
 }

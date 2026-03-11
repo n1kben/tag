@@ -8,7 +8,7 @@ import { LobbyUI } from './lobby-ui';
 import { ARENA_WIDTH, COLOR_PLAYER1, COLOR_PLAYER2 } from '../shared/constants';
 import type { ServerMessage } from '../shared/protocol';
 
-type GameState = 'lobby' | 'countdown' | 'playing' | 'game_over';
+type GameState = 'title' | 'lobby' | 'countdown' | 'playing';
 
 export function startGame(): void {
   initScene();
@@ -18,8 +18,10 @@ export function startGame(): void {
   window.addEventListener('keydown', (e) => pressed.add(e.code));
   window.addEventListener('keyup', (e) => pressed.delete(e.code));
 
-  let gameState: GameState = 'lobby';
+  let gameState: GameState = 'title';
   let myPlayerId = -1;
+  let myName = '';
+  let roomId = '';
   let localPlayer: LocalPlayer | null = null;
   let remotePlayer: RemotePlayer | null = null;
   let p1Name = '';
@@ -28,28 +30,40 @@ export function startGame(): void {
   const network = new Network(handleMessage);
 
   const lobby = new LobbyUI({
-    onCreateRoom: (name) => {
+    onCreateRoom: () => {
       network.connect();
-      // Wait for connection, then send
       const check = setInterval(() => {
         if (network.connected) {
           clearInterval(check);
-          network.send({ type: 'create_room', name });
+          network.send({ type: 'create_room' });
         }
       }, 100);
     },
-    onJoinRoom: (roomId, name) => {
+    onJoinRoom: (code) => {
       if (!network.connected) {
         network.connect();
         const check = setInterval(() => {
           if (network.connected) {
             clearInterval(check);
-            network.send({ type: 'join_room', roomId, name });
+            network.send({ type: 'join_room', roomId: code });
           }
         }, 100);
       } else {
-        network.send({ type: 'join_room', roomId, name });
+        network.send({ type: 'join_room', roomId: code });
       }
+    },
+    onRename: (name) => {
+      network.send({ type: 'rename', name });
+    },
+    onReady: () => {
+      network.send({ type: 'ready' });
+    },
+    onLeave: () => {
+      network.send({ type: 'leave' });
+      network.disconnect();
+      gameState = 'title';
+      myPlayerId = -1;
+      lobby.showTitle();
     },
   });
 
@@ -57,20 +71,39 @@ export function startGame(): void {
     switch (msg.type) {
       case 'room_created':
         myPlayerId = msg.playerId;
-        lobby.showRoomCode(msg.roomId);
+        myName = msg.name;
+        roomId = msg.roomId;
+        gameState = 'lobby';
+        lobby.showRoomLobby(msg.roomId, msg.name);
         break;
 
       case 'room_joined':
         myPlayerId = msg.playerId;
-        p1Name = myPlayerId === 0 ? 'You' : msg.opponent;
-        p2Name = myPlayerId === 1 ? 'You' : msg.opponent;
+        myName = msg.name;
+        roomId = msg.roomId;
+        gameState = 'lobby';
+        lobby.showRoomLobby(msg.roomId, msg.name);
         break;
 
-      case 'opponent_joined':
-        if (myPlayerId === 0) {
-          p1Name = 'You';
-          p2Name = msg.opponent;
+      case 'lobby_state':
+        if (gameState === 'playing' || gameState === 'countdown') {
+          // Game just ended, transition back to lobby
+          gameState = 'lobby';
+          cleanupPlayers();
+          lobby.showRoomLobby(roomId, myName);
         }
+        // Update player names from lobby state
+        if (msg.players[0]) p1Name = msg.players[0].name;
+        if (msg.players[1]) p2Name = msg.players[1].name;
+        // Update my name in case server had it
+        if (msg.players[myPlayerId]) {
+          myName = msg.players[myPlayerId]!.name;
+        }
+        lobby.updateLobbyState(
+          msg.players,
+          myPlayerId,
+          msg.lastResult,
+        );
         break;
 
       case 'countdown':
@@ -84,40 +117,39 @@ export function startGame(): void {
 
       case 'state':
         if (!localPlayer || !remotePlayer) return;
-        // Reconcile local player
         localPlayer.reconcile(msg.p[myPlayerId], msg.seq);
-
-        // Push remote player state
+        localPlayer.setRemoteState(msg.p[1 - myPlayerId]);
+        localPlayer.setIsIt(msg.it === myPlayerId);
         remotePlayer.pushState(msg.p[1 - myPlayerId]);
-
-        // Update HUD
         lobby.showHUD(p1Name, p2Name, msg.it, msg.time, myPlayerId);
         break;
 
-      case 'tag_event':
-        if (localPlayer && msg.tagger === myPlayerId) {
-          localPlayer.triggerTagEffect();
-        }
-        if (remotePlayer && msg.tagger !== myPlayerId) {
+      case 'tag_attempt':
+        if (remotePlayer && msg.player !== myPlayerId) {
           remotePlayer.triggerTagEffect();
         }
         break;
 
+      case 'tag_event':
+        break;
+
       case 'game_over':
-        gameState = 'game_over';
-        const winnerName = msg.winner === myPlayerId ? 'You' : (myPlayerId === 0 ? p2Name : p1Name);
-        lobby.showGameOver(winnerName, msg.stats);
-        cleanupPlayers();
+        // Don't transition yet — lobby_state will arrive next and handle it
+        lobby.hideHUD();
         break;
 
       case 'opponent_left':
-        gameState = 'game_over';
-        lobby.showOpponentLeft();
-        cleanupPlayers();
+        if (gameState === 'playing' || gameState === 'countdown') {
+          cleanupPlayers();
+        }
+        gameState = 'lobby';
+        lobby.hideHUD();
+        lobby.showRoomLobby(roomId, myName);
+        lobby.setLobbyMsg('Opponent left the room');
         break;
 
       case 'error':
-        lobby.setStatus(msg.msg);
+        lobby.setTitleStatus(msg.msg);
         break;
     }
   }
@@ -136,7 +168,6 @@ export function startGame(): void {
     localPlayer = new LocalPlayer(localVisuals, network, pressed, localStartX, 0);
     remotePlayer = new RemotePlayer(remoteVisuals);
 
-    // Set initial positions
     remoteVisuals.setPosition(remoteStartX, 0);
   }
 
@@ -147,7 +178,6 @@ export function startGame(): void {
     remotePlayer = null;
   }
 
-  // Game loop
   let lastTime = 0;
 
   function loop(time: number): void {

@@ -1,20 +1,28 @@
+import type { LobbyPlayer } from '../shared/protocol';
+
 export interface LobbyCallbacks {
-  onCreateRoom: (name: string) => void;
-  onJoinRoom: (roomId: string, name: string) => void;
+  onCreateRoom: () => void;
+  onJoinRoom: (roomId: string) => void;
+  onRename: (name: string) => void;
+  onReady: () => void;
+  onLeave: () => void;
 }
 
 export class LobbyUI {
-  private overlay: HTMLDivElement;
-  private statusDiv: HTMLDivElement;
+  private titleScreen: HTMLDivElement;
+  private roomLobby: HTMLDivElement;
   private countdownDiv: HTMLDivElement;
   private hudDiv: HTMLDivElement;
-  private gameOverDiv: HTMLDivElement;
+  private callbacks: LobbyCallbacks;
+  private statusDiv: HTMLDivElement;
 
   constructor(callbacks: LobbyCallbacks) {
-    // Main lobby overlay
-    this.overlay = document.createElement('div');
-    this.overlay.id = 'lobby-overlay';
-    this.overlay.innerHTML = `
+    this.callbacks = callbacks;
+
+    // ── Title screen ──
+    this.titleScreen = document.createElement('div');
+    this.titleScreen.id = 'title-screen';
+    this.titleScreen.innerHTML = `
       <div style="
         position: fixed; inset: 0;
         display: flex; flex-direction: column;
@@ -26,39 +34,103 @@ export class LobbyUI {
         <h1 style="font-size: 3em; margin-bottom: 0.3em; color: #23f0c7;">TAG!</h1>
         <p style="color: #aaa; margin-bottom: 2em;">Online Multiplayer</p>
 
-        <div style="margin-bottom: 1.5em;">
-          <label style="display: block; margin-bottom: 0.5em; color: #ccc;">Your Name</label>
-          <input id="lobby-name" type="text" maxlength="16" placeholder="Player"
-            style="padding: 0.6em 1em; font-size: 1.1em; border: 2px solid #6457a6;
-            background: #2a2a4a; color: white; border-radius: 8px; width: 220px; text-align: center;" />
-        </div>
-
-        <div style="display: flex; gap: 1em; margin-bottom: 1.5em;">
-          <button id="lobby-create" style="
-            padding: 0.8em 1.5em; font-size: 1.1em; font-weight: bold;
-            background: #23f0c7; color: #1a1a2e; border: none; border-radius: 8px;
-            cursor: pointer;
-          ">Create Game</button>
-        </div>
+        <button id="title-create" style="
+          padding: 0.8em 2em; font-size: 1.1em; font-weight: bold;
+          background: #23f0c7; color: #1a1a2e; border: none; border-radius: 8px;
+          cursor: pointer; margin-bottom: 1.5em; min-width: 220px;
+        ">Create Game</button>
 
         <div style="display: flex; gap: 0.5em; align-items: center;">
-          <input id="lobby-code" type="text" maxlength="6" placeholder="ROOM CODE"
+          <input id="title-code" type="text" maxlength="6" placeholder="ROOM CODE"
             style="padding: 0.6em 1em; font-size: 1.1em; border: 2px solid #6457a6;
             background: #2a2a4a; color: white; border-radius: 8px; width: 150px;
             text-align: center; text-transform: uppercase; letter-spacing: 2px;" />
-          <button id="lobby-join" style="
+          <button id="title-join" style="
             padding: 0.8em 1.5em; font-size: 1.1em; font-weight: bold;
             background: #ff6b9d; color: white; border: none; border-radius: 8px;
             cursor: pointer;
           ">Join</button>
         </div>
 
-        <div id="lobby-status" style="margin-top: 1.5em; color: #ffe347; min-height: 1.5em;"></div>
+        <div id="title-status" style="margin-top: 1.5em; color: #ffe347; min-height: 1.5em;"></div>
       </div>
     `;
-    document.body.appendChild(this.overlay);
+    document.body.appendChild(this.titleScreen);
+    this.statusDiv = this.titleScreen.querySelector('#title-status')!;
 
-    // Countdown overlay
+    // ── Room lobby ──
+    this.roomLobby = document.createElement('div');
+    this.roomLobby.id = 'room-lobby';
+    this.roomLobby.style.display = 'none';
+    this.roomLobby.innerHTML = `
+      <div style="
+        position: fixed; inset: 0;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        background: rgba(26, 26, 46, 0.95);
+        font-family: 'Segoe UI', sans-serif; color: white;
+        z-index: 100;
+      ">
+        <h2 style="color: #23f0c7; margin-bottom: 0.3em;">Room</h2>
+        <p id="lobby-room-code" style="
+          font-size: 2em; font-weight: bold; letter-spacing: 4px;
+          color: #ffe347; margin-bottom: 1.5em;
+        "></p>
+
+        <div id="lobby-last-result" style="
+          margin-bottom: 1.5em; text-align: center; display: none;
+        "></div>
+
+        <div style="
+          display: flex; gap: 2em; margin-bottom: 2em;
+          align-items: stretch;
+        ">
+          <!-- Player 1 card -->
+          <div id="lobby-p0" style="
+            background: #2a2a4a; border: 2px solid #6457a6; border-radius: 12px;
+            padding: 1.5em; min-width: 200px; text-align: center;
+          ">
+            <div style="color: #23f0c7; font-size: 0.9em; margin-bottom: 0.5em;">Player 1</div>
+            <div id="lobby-p0-name" style="font-size: 1.3em; font-weight: bold; margin-bottom: 0.8em;">—</div>
+            <div id="lobby-p0-status" style="color: #aaa; font-size: 0.9em;"></div>
+          </div>
+          <!-- Player 2 card -->
+          <div id="lobby-p1" style="
+            background: #2a2a4a; border: 2px solid #6457a6; border-radius: 12px;
+            padding: 1.5em; min-width: 200px; text-align: center;
+          ">
+            <div style="color: #ff6b9d; font-size: 0.9em; margin-bottom: 0.5em;">Player 2</div>
+            <div id="lobby-p1-name" style="font-size: 1.3em; font-weight: bold; margin-bottom: 0.8em;">—</div>
+            <div id="lobby-p1-status" style="color: #aaa; font-size: 0.9em;"></div>
+          </div>
+        </div>
+
+        <!-- Name input -->
+        <div style="margin-bottom: 1em;">
+          <label style="display: block; margin-bottom: 0.4em; color: #ccc; font-size: 0.9em;">Your Name</label>
+          <input id="lobby-name-input" type="text" maxlength="16"
+            style="padding: 0.5em 1em; font-size: 1.1em; border: 2px solid #6457a6;
+            background: #2a2a4a; color: white; border-radius: 8px; width: 200px; text-align: center;" />
+        </div>
+
+        <div style="display: flex; gap: 1em;">
+          <button id="lobby-ready-btn" style="
+            padding: 0.8em 2em; font-size: 1.1em; font-weight: bold;
+            background: #23f0c7; color: #1a1a2e; border: none; border-radius: 8px;
+            cursor: pointer; min-width: 160px;
+          ">Start</button>
+          <button id="lobby-leave-btn" style="
+            padding: 0.8em 1.5em; font-size: 1.1em; font-weight: bold;
+            background: #6457a6; color: white; border: none; border-radius: 8px;
+            cursor: pointer;
+          ">Leave</button>
+        </div>
+        <div id="lobby-msg" style="margin-top: 1em; color: #ffe347; min-height: 1.5em;"></div>
+      </div>
+    `;
+    document.body.appendChild(this.roomLobby);
+
+    // ── Countdown overlay ──
     this.countdownDiv = document.createElement('div');
     this.countdownDiv.id = 'countdown-overlay';
     this.countdownDiv.style.cssText = `
@@ -71,7 +143,7 @@ export class LobbyUI {
     `;
     document.body.appendChild(this.countdownDiv);
 
-    // HUD
+    // ── HUD ──
     this.hudDiv = document.createElement('div');
     this.hudDiv.id = 'game-hud';
     this.hudDiv.style.cssText = `
@@ -83,41 +155,27 @@ export class LobbyUI {
     `;
     document.body.appendChild(this.hudDiv);
 
-    // Game over overlay
-    this.gameOverDiv = document.createElement('div');
-    this.gameOverDiv.id = 'gameover-overlay';
-    this.gameOverDiv.style.cssText = `
-      position: fixed; inset: 0;
-      display: none; flex-direction: column;
-      align-items: center; justify-content: center;
-      background: rgba(26, 26, 46, 0.9);
-      font-family: 'Segoe UI', sans-serif; color: white;
-      z-index: 100;
-    `;
-    document.body.appendChild(this.gameOverDiv);
+    // ── Event listeners ──
+    this.setupTitleEvents();
+    this.setupLobbyEvents();
+  }
 
-    // Status div reference
-    this.statusDiv = this.overlay.querySelector('#lobby-status')!;
-
-    // Event listeners
-    const createBtn = this.overlay.querySelector('#lobby-create') as HTMLButtonElement;
-    const joinBtn = this.overlay.querySelector('#lobby-join') as HTMLButtonElement;
-    const nameInput = this.overlay.querySelector('#lobby-name') as HTMLInputElement;
-    const codeInput = this.overlay.querySelector('#lobby-code') as HTMLInputElement;
+  private setupTitleEvents(): void {
+    const createBtn = this.titleScreen.querySelector('#title-create') as HTMLButtonElement;
+    const joinBtn = this.titleScreen.querySelector('#title-join') as HTMLButtonElement;
+    const codeInput = this.titleScreen.querySelector('#title-code') as HTMLInputElement;
 
     createBtn.addEventListener('click', () => {
-      const name = nameInput.value.trim() || 'Player';
-      callbacks.onCreateRoom(name);
+      this.callbacks.onCreateRoom();
     });
 
     joinBtn.addEventListener('click', () => {
-      const name = nameInput.value.trim() || 'Player';
       const code = codeInput.value.trim().toUpperCase();
       if (code.length < 4) {
-        this.setStatus('Enter a valid room code');
+        this.setTitleStatus('Enter a valid room code');
         return;
       }
-      callbacks.onJoinRoom(code, name);
+      this.callbacks.onJoinRoom(code);
     });
 
     codeInput.addEventListener('keydown', (e) => {
@@ -125,24 +183,135 @@ export class LobbyUI {
     });
   }
 
-  setStatus(text: string): void {
+  private setupLobbyEvents(): void {
+    const readyBtn = this.roomLobby.querySelector('#lobby-ready-btn') as HTMLButtonElement;
+    const leaveBtn = this.roomLobby.querySelector('#lobby-leave-btn') as HTMLButtonElement;
+    const nameInput = this.roomLobby.querySelector('#lobby-name-input') as HTMLInputElement;
+
+    let renameTimeout: ReturnType<typeof setTimeout> | null = null;
+    nameInput.addEventListener('input', () => {
+      if (renameTimeout) clearTimeout(renameTimeout);
+      renameTimeout = setTimeout(() => {
+        const name = nameInput.value.trim();
+        if (name) this.callbacks.onRename(name);
+      }, 300);
+    });
+
+    readyBtn.addEventListener('click', () => {
+      this.callbacks.onReady();
+    });
+
+    leaveBtn.addEventListener('click', () => {
+      this.callbacks.onLeave();
+    });
+  }
+
+  // ── Title screen ──
+
+  setTitleStatus(text: string): void {
     this.statusDiv.textContent = text;
   }
 
-  showRoomCode(code: string): void {
-    this.setStatus(`Room code: ${code} — Waiting for opponent...`);
+  showTitle(): void {
+    this.titleScreen.style.display = '';
+    this.roomLobby.style.display = 'none';
+    this.hudDiv.style.display = 'none';
+    this.countdownDiv.style.display = 'none';
+    // Clear code input
+    const codeInput = this.titleScreen.querySelector('#title-code') as HTMLInputElement;
+    codeInput.value = '';
+    this.statusDiv.textContent = '';
   }
 
-  hide(): void {
-    this.overlay.style.display = 'none';
+  // ── Room lobby ──
+
+  showRoomLobby(roomId: string, myName: string): void {
+    this.titleScreen.style.display = 'none';
+    this.roomLobby.style.display = '';
+    this.hudDiv.style.display = 'none';
+    this.countdownDiv.style.display = 'none';
+
+    (this.roomLobby.querySelector('#lobby-room-code') as HTMLElement).textContent = roomId;
+    (this.roomLobby.querySelector('#lobby-name-input') as HTMLInputElement).value = myName;
+    (this.roomLobby.querySelector('#lobby-last-result') as HTMLElement).style.display = 'none';
+    (this.roomLobby.querySelector('#lobby-msg') as HTMLElement).textContent = '';
   }
 
-  show(): void {
-    this.overlay.style.display = '';
+  updateLobbyState(players: (LobbyPlayer | null)[], myIdx: number, lastResult?: {
+    winnerIdx: number;
+    stats: {
+      player1Name: string;
+      player2Name: string;
+      player1SurvivalMs: number;
+      player2SurvivalMs: number;
+    };
+  }): void {
+    for (let i = 0; i < 2; i++) {
+      const nameEl = this.roomLobby.querySelector(`#lobby-p${i}-name`) as HTMLElement;
+      const statusEl = this.roomLobby.querySelector(`#lobby-p${i}-status`) as HTMLElement;
+      const cardEl = this.roomLobby.querySelector(`#lobby-p${i}`) as HTMLElement;
+
+      if (players[i]) {
+        const isMe = i === myIdx;
+        nameEl.textContent = players[i]!.name + (isMe ? ' (you)' : '');
+        if (players[i]!.ready) {
+          statusEl.textContent = 'Ready!';
+          statusEl.style.color = '#23f0c7';
+          cardEl.style.borderColor = '#23f0c7';
+        } else {
+          statusEl.textContent = isMe ? '' : 'Not ready';
+          statusEl.style.color = '#aaa';
+          cardEl.style.borderColor = '#6457a6';
+        }
+      } else {
+        nameEl.textContent = 'Waiting...';
+        statusEl.textContent = '';
+        statusEl.style.color = '#aaa';
+        cardEl.style.borderColor = '#6457a6';
+      }
+    }
+
+    // Update ready button text
+    const readyBtn = this.roomLobby.querySelector('#lobby-ready-btn') as HTMLButtonElement;
+    const myPlayer = players[myIdx];
+    if (myPlayer?.ready) {
+      readyBtn.textContent = 'Cancel';
+      readyBtn.style.background = '#ff6b9d';
+    } else {
+      readyBtn.textContent = 'Start';
+      readyBtn.style.background = '#23f0c7';
+    }
+
+    // Show last game result if available
+    const resultEl = this.roomLobby.querySelector('#lobby-last-result') as HTMLElement;
+    if (lastResult) {
+      resultEl.style.display = '';
+      const winnerName = lastResult.winnerIdx === 0
+        ? lastResult.stats.player1Name
+        : lastResult.stats.player2Name;
+      resultEl.innerHTML = `
+        <p style="color: #ffe347; font-size: 1.2em; font-weight: bold; margin-bottom: 0.3em;">
+          ${winnerName} won the last round!
+        </p>
+        <p style="color: #ccc; font-size: 0.9em;">
+          ${lastResult.stats.player1Name}: ${(lastResult.stats.player1SurvivalMs / 1000).toFixed(1)}s survival &nbsp;|&nbsp;
+          ${lastResult.stats.player2Name}: ${(lastResult.stats.player2SurvivalMs / 1000).toFixed(1)}s survival
+        </p>
+      `;
+    } else {
+      resultEl.style.display = 'none';
+    }
   }
+
+  setLobbyMsg(text: string): void {
+    (this.roomLobby.querySelector('#lobby-msg') as HTMLElement).textContent = text;
+  }
+
+  // ── Countdown ──
 
   showCountdown(seconds: number): void {
-    this.hide();
+    this.roomLobby.style.display = 'none';
+    this.titleScreen.style.display = 'none';
     this.countdownDiv.style.display = 'flex';
     this.countdownDiv.textContent = seconds > 0 ? String(seconds) : 'GO!';
     if (seconds <= 0) {
@@ -151,6 +320,8 @@ export class LobbyUI {
       }, 500);
     }
   }
+
+  // ── HUD ──
 
   showHUD(p1Name: string, p2Name: string, itPlayer: number, timeRemaining: number, myIdx: number): void {
     this.hudDiv.style.display = 'flex';
@@ -166,51 +337,7 @@ export class LobbyUI {
     `;
   }
 
-  showGameOver(winnerName: string, stats: {
-    player1Name: string;
-    player2Name: string;
-    player1SurvivalMs: number;
-    player2SurvivalMs: number;
-  }): void {
+  hideHUD(): void {
     this.hudDiv.style.display = 'none';
-    this.gameOverDiv.style.display = 'flex';
-    this.gameOverDiv.innerHTML = `
-      <h1 style="font-size: 3em; margin-bottom: 0.3em; color: #ffe347;">Game Over!</h1>
-      <p style="font-size: 1.5em; margin-bottom: 1em; color: #23f0c7;">${winnerName} wins!</p>
-      <div style="font-size: 1.1em; color: #ccc; margin-bottom: 2em;">
-        <p>${stats.player1Name}: ${(stats.player1SurvivalMs / 1000).toFixed(1)}s survival</p>
-        <p>${stats.player2Name}: ${(stats.player2SurvivalMs / 1000).toFixed(1)}s survival</p>
-      </div>
-      <button id="gameover-back" style="
-        padding: 0.8em 1.5em; font-size: 1.1em; font-weight: bold;
-        background: #23f0c7; color: #1a1a2e; border: none; border-radius: 8px;
-        cursor: pointer;
-      ">Back to Lobby</button>
-    `;
-
-    const backBtn = this.gameOverDiv.querySelector('#gameover-back') as HTMLButtonElement;
-    backBtn.addEventListener('click', () => {
-      this.gameOverDiv.style.display = 'none';
-      this.show();
-    });
-  }
-
-  showOpponentLeft(): void {
-    this.hudDiv.style.display = 'none';
-    this.gameOverDiv.style.display = 'flex';
-    this.gameOverDiv.innerHTML = `
-      <h1 style="font-size: 2em; margin-bottom: 1em; color: #ffe347;">Opponent Left</h1>
-      <button id="gameover-back" style="
-        padding: 0.8em 1.5em; font-size: 1.1em; font-weight: bold;
-        background: #23f0c7; color: #1a1a2e; border: none; border-radius: 8px;
-        cursor: pointer;
-      ">Back to Lobby</button>
-    `;
-
-    const backBtn = this.gameOverDiv.querySelector('#gameover-back') as HTMLButtonElement;
-    backBtn.addEventListener('click', () => {
-      this.gameOverDiv.style.display = 'none';
-      this.show();
-    });
   }
 }

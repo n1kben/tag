@@ -1,6 +1,6 @@
 import { TICK_RATE, BROADCAST_RATE, GAME_DURATION, TAG_COOLDOWN, TAG_IMMUNITY_DURATION } from '../shared/constants';
-import { stepPhysics } from '../shared/physics';
-import { StateMsg, TagEventMsg, GameOverMsg } from '../shared/protocol';
+import { stepPhysics, resolvePlayerCollision } from '../shared/physics';
+import { StateMsg, TagAttemptMsg, TagEventMsg, GameOverMsg } from '../shared/protocol';
 import { ServerPlayer } from './player-sim';
 import { checkTagHit } from './tag-detection';
 import { recordMatch } from './db';
@@ -74,12 +74,14 @@ export class GameLoop {
       if (player.tagCooldown > 0) player.tagCooldown -= dt;
       if (player.immunityTimer > 0) player.immunityTimer -= dt;
 
-      // Tag detection
+      // Tag — only the "it" player can attempt
       if (input.tag && player.tagCooldown <= 0 && i === this.itPlayer) {
         player.tagCooldown = TAG_COOLDOWN;
+        const attempt: TagAttemptMsg = { type: 'tag_attempt', player: i };
+        this.room.broadcast(attempt);
+
         const opponent = this.players[1 - i];
         if (opponent.immunityTimer <= 0 && checkTagHit(player, opponent)) {
-          // Tag hit!
           this.itPlayer = 1 - i;
           opponent.immunityTimer = TAG_IMMUNITY_DURATION;
           const tagEvent: TagEventMsg = { type: 'tag_event', tagger: i, tagged: 1 - i };
@@ -95,6 +97,9 @@ export class GameLoop {
         player.survivalTimeMs += dt * 1000;
       }
     }
+
+    // Resolve player-player collision after both have moved
+    resolvePlayerCollision(this.players[0].state, this.players[1].state);
 
     // Check game over
     if (this.timeRemaining <= 0) {
@@ -161,6 +166,9 @@ export class GameLoop {
       console.error('Failed to record match:', e);
     }
 
-    this.room.onGameOver();
+    this.room.onGameOver({
+      winnerIdx: winner,
+      stats: msg.stats,
+    });
   }
 }

@@ -1,4 +1,5 @@
-import { stepPhysics, PhysicsState, InputState } from '../shared/physics';
+import { stepPhysics, resolvePlayerCollision, PhysicsState, InputState } from '../shared/physics';
+import { TAG_COOLDOWN } from '../shared/constants';
 import type { PlayerState } from '../shared/protocol';
 import { Network } from './network';
 import { PlayerVisuals } from './player-visuals';
@@ -17,6 +18,10 @@ export class LocalPlayer {
   private seq = 0;
   private pressed: Set<string>;
   private predictedState: PhysicsState;
+  private remoteState: PhysicsState | null = null;
+  private tagCooldown = 0;
+  private tagWasPressed = false;
+  private isIt = false;
 
   constructor(visuals: PlayerVisuals, network: Network, pressed: Set<string>, startX: number, startZ: number) {
     this.visuals = visuals;
@@ -40,14 +45,33 @@ export class LocalPlayer {
       tag: input.tag,
     });
 
+    // Fire tag effect locally on key press (only when "it", with cooldown)
+    if (this.tagCooldown > 0) this.tagCooldown -= dt;
+    if (input.tag && !this.tagWasPressed && this.tagCooldown <= 0 && this.isIt) {
+      this.tagCooldown = TAG_COOLDOWN;
+      this.visuals.triggerTagEffect(this.predictedState.facingAngle);
+    }
+    this.tagWasPressed = input.tag;
+
     // Apply locally (prediction)
     stepPhysics(this.predictedState, input, dt);
+    if (this.remoteState) {
+      resolvePlayerCollision(this.predictedState, { ...this.remoteState });
+    }
     this.pendingInputs.push({ seq: this.seq, input, dt });
 
     // Update visuals
     this.visuals.setPosition(this.predictedState.x, this.predictedState.z);
     this.visuals.setRotation(this.predictedState.facingAngle);
     this.visuals.update(dt);
+  }
+
+  setIsIt(isIt: boolean): void {
+    this.isIt = isIt;
+  }
+
+  setRemoteState(state: PlayerState): void {
+    this.remoteState = { ...state };
   }
 
   reconcile(serverState: PlayerState, lastProcessedSeq: number): void {
@@ -57,23 +81,26 @@ export class LocalPlayer {
     // Remove acknowledged inputs
     this.pendingInputs = this.pendingInputs.filter(p => p.seq > lastProcessedSeq);
 
-    // Re-apply unacknowledged inputs
+    // Re-apply unacknowledged inputs (including collision so it matches prediction)
     const reconciled: PhysicsState = { ...this.state };
     for (const pending of this.pendingInputs) {
       stepPhysics(reconciled, pending.input, pending.dt);
+      if (this.remoteState) {
+        resolvePlayerCollision(reconciled, { ...this.remoteState });
+      }
     }
 
-    // Snap or lerp
+    // Snap or lerp to reconciled position
     const dx = reconciled.x - this.predictedState.x;
     const dz = reconciled.z - this.predictedState.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
 
-    if (dist > 0.5) {
-      // Snap if too far off
+    if (dist > 0.3) {
+      // Snap — bump recoil causes sharp position changes, trust server
       this.predictedState = { ...reconciled };
     } else {
-      // Smooth lerp
-      const t = 0.3;
+      // Small correction — blend smoothly
+      const t = 0.5;
       this.predictedState.x += (reconciled.x - this.predictedState.x) * t;
       this.predictedState.z += (reconciled.z - this.predictedState.z) * t;
       this.predictedState.vx = reconciled.vx;

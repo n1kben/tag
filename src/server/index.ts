@@ -28,20 +28,22 @@ wss.on('connection', (ws: WebSocket) => {
 
     switch (msg.type) {
       case 'create_room': {
-        const room = createRoom(ws, msg.name);
-        console.log(`Room ${room.id} created by ${msg.name}`);
+        const room = createRoom(ws);
+        console.log(`Room ${room.id} created`);
         break;
       }
       case 'join_room': {
-        const room = joinRoom(ws, msg.roomId, msg.name);
+        const room = joinRoom(ws, msg.roomId);
         if (!room) {
           ws.send(JSON.stringify({ type: 'error', msg: 'Room not found or full' }));
         } else {
-          console.log(`${msg.name} joined room ${room.id}`);
+          console.log(`Player joined room ${room.id}`);
         }
         break;
       }
-      case 'input': {
+      case 'input':
+      case 'rename':
+      case 'ready': {
         const room = findRoomByWs(ws);
         if (room) room.handleMessage(ws, msg);
         break;

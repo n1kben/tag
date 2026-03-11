@@ -1,13 +1,20 @@
 // Client → Server messages
 export interface CreateRoomMsg {
   type: 'create_room';
-  name: string;
 }
 
 export interface JoinRoomMsg {
   type: 'join_room';
   roomId: string;
+}
+
+export interface RenameMsg {
+  type: 'rename';
   name: string;
+}
+
+export interface ReadyMsg {
+  type: 'ready';
 }
 
 export interface InputMsg {
@@ -22,7 +29,7 @@ export interface LeaveMsg {
   type: 'leave';
 }
 
-export type ClientMessage = CreateRoomMsg | JoinRoomMsg | InputMsg | LeaveMsg;
+export type ClientMessage = CreateRoomMsg | JoinRoomMsg | RenameMsg | ReadyMsg | InputMsg | LeaveMsg;
 
 // Server → Client messages
 export interface PlayerState {
@@ -33,22 +40,38 @@ export interface PlayerState {
   facingAngle: number;
 }
 
+export interface LobbyPlayer {
+  name: string;
+  ready: boolean;
+}
+
 export interface RoomCreatedMsg {
   type: 'room_created';
   roomId: string;
   playerId: number; // 0 or 1
+  name: string;     // auto-generated name
 }
 
 export interface RoomJoinedMsg {
   type: 'room_joined';
   roomId: string;
   playerId: number;
-  opponent: string;
+  name: string;     // auto-generated name
 }
 
-export interface OpponentJoinedMsg {
-  type: 'opponent_joined';
-  opponent: string;
+export interface LobbyStateMsg {
+  type: 'lobby_state';
+  players: (LobbyPlayer | null)[];
+  lastResult?: {
+    winnerIdx: number;
+    stats: {
+      player1Name: string;
+      player2Name: string;
+      player1SurvivalMs: number;
+      player2SurvivalMs: number;
+      durationMs: number;
+    };
+  };
 }
 
 export interface OpponentLeftMsg {
@@ -67,6 +90,11 @@ export interface StateMsg {
   it: number;   // which player is "it" (0 or 1)
   p: [PlayerState, PlayerState];
   seq: number;  // last processed input seq for this client
+}
+
+export interface TagAttemptMsg {
+  type: 'tag_attempt';
+  player: number;
 }
 
 export interface TagEventMsg {
@@ -95,10 +123,11 @@ export interface ErrorMsg {
 export type ServerMessage =
   | RoomCreatedMsg
   | RoomJoinedMsg
-  | OpponentJoinedMsg
+  | LobbyStateMsg
   | OpponentLeftMsg
   | CountdownMsg
   | StateMsg
+  | TagAttemptMsg
   | TagEventMsg
   | GameOverMsg
   | ErrorMsg;
