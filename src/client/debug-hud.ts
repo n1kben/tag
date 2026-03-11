@@ -1,6 +1,6 @@
 export class DebugHUD {
   private el: HTMLDivElement;
-  private visible = false;
+  private visible = true;
   private fps = 0;
   private frames = 0;
   private lastFpsTime = 0;
@@ -20,12 +20,12 @@ export class DebugHUD {
       lineHeight: '1.6',
       pointerEvents: 'none',
       zIndex: '9999',
-      display: 'none',
+      display: 'block',
     });
     document.body.appendChild(this.el);
 
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'Backquote') {
+      if (e.code === 'KeyP') {
         this.visible = !this.visible;
         this.el.style.display = this.visible ? 'block' : 'none';
       }
