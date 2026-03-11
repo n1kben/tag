@@ -25,7 +25,7 @@ const MIME_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
 };
 
-const DIST_DIR = join(__dirname, '../../client');
+const DIST_DIR = join(__dirname, '..');
 
 function serveStatic(req: IncomingMessage, res: ServerResponse): void {
   if (isDev) {
