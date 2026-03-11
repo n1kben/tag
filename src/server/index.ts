@@ -1,17 +1,58 @@
-import { createServer } from 'http';
+import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createRoom, joinRoom, removeFromRoom, findRoomByWs } from './room';
 import { initDB } from './db';
 import type { ClientMessage } from '../shared/protocol';
+import { readFileSync, existsSync } from 'fs';
+import { join, extname } from 'path';
+import { fileURLToPath } from 'url';
 
-const PORT = 3001;
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const isDev = process.env.NODE_ENV !== 'production';
+const PORT = isDev ? 3001 : 8080;
 
 initDB();
 
-const server = createServer((_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Tag Game Server');
-});
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.glb': 'model/gltf-binary',
+  '.woff2': 'font/woff2',
+};
+
+const DIST_DIR = join(__dirname, '../../client');
+
+function serveStatic(req: IncomingMessage, res: ServerResponse): void {
+  if (isDev) {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Tag Game Server (dev)');
+    return;
+  }
+
+  let filePath = join(DIST_DIR, req.url === '/' ? 'index.html' : req.url!);
+  if (!existsSync(filePath)) {
+    filePath = join(DIST_DIR, 'index.html');
+  }
+
+  const ext = extname(filePath);
+  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+  try {
+    const content = readFileSync(filePath);
+    res.writeHead(200, { 'Content-Type': contentType });
+    res.end(content);
+  } catch {
+    res.writeHead(404);
+    res.end('Not found');
+  }
+}
+
+const server = createServer(serveStatic);
 
 const wss = new WebSocketServer({ server });
 
