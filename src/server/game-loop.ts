@@ -3,7 +3,6 @@ import { stepPhysics, resolvePlayerCollision } from '../shared/physics';
 import { StateMsg, TagAttemptMsg, TagEventMsg, GameOverMsg } from '../shared/protocol';
 import { ServerPlayer } from './player-sim';
 import { checkTagHit } from './tag-detection';
-import { recordMatch } from './db';
 import type { Room } from './room';
 
 const TICK_MS = 1000 / TICK_RATE;
@@ -150,21 +149,6 @@ export class GameLoop {
       },
     };
     this.room.broadcast(msg);
-
-    // Record to database
-    try {
-      recordMatch(
-        this.room.id,
-        this.players[0].name,
-        this.players[1].name,
-        this.players[winner].name,
-        durationMs,
-        Math.round(this.players[0].survivalTimeMs),
-        Math.round(this.players[1].survivalTimeMs),
-      );
-    } catch (e) {
-      console.error('Failed to record match:', e);
-    }
 
     this.room.onGameOver({
       winnerIdx: winner,

@@ -1,7 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createRoom, joinRoom, removeFromRoom, findRoomByWs } from './room';
-import { initDB } from './db';
 import type { ClientMessage } from '../shared/protocol';
 import { readFileSync, existsSync } from 'fs';
 import { join, extname } from 'path';
@@ -10,8 +9,6 @@ import { fileURLToPath } from 'url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const isDev = process.env.NODE_ENV !== 'production';
 const PORT = isDev ? 3001 : 8080;
-
-initDB();
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
