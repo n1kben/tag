@@ -29,7 +29,12 @@ export interface LeaveMsg {
   type: 'leave';
 }
 
-export type ClientMessage = CreateRoomMsg | JoinRoomMsg | RenameMsg | ReadyMsg | InputMsg | LeaveMsg;
+export interface PingMsg {
+  type: 'ping';
+  t: number; // client timestamp
+}
+
+export type ClientMessage = CreateRoomMsg | JoinRoomMsg | RenameMsg | ReadyMsg | InputMsg | LeaveMsg | PingMsg;
 
 // Server → Client messages
 export interface PlayerState {
@@ -120,6 +125,11 @@ export interface ErrorMsg {
   msg: string;
 }
 
+export interface PongMsg {
+  type: 'pong';
+  t: number; // echoed client timestamp
+}
+
 export type ServerMessage =
   | RoomCreatedMsg
   | RoomJoinedMsg
@@ -130,4 +140,5 @@ export type ServerMessage =
   | TagAttemptMsg
   | TagEventMsg
   | GameOverMsg
-  | ErrorMsg;
+  | ErrorMsg
+  | PongMsg;

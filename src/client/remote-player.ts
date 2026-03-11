@@ -16,6 +16,10 @@ export class RemotePlayer {
     this.visuals = visuals;
   }
 
+  get bufferLength(): number {
+    return this.buffer.length;
+  }
+
   pushState(state: PlayerState): void {
     this.buffer.push({ timestamp: performance.now(), state });
     // Keep last 10 states

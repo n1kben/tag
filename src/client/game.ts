@@ -5,6 +5,7 @@ import { LocalPlayer } from './local-player';
 import { RemotePlayer } from './remote-player';
 import { Network } from './network';
 import { LobbyUI } from './lobby-ui';
+import { DebugHUD } from './debug-hud';
 import { ARENA_WIDTH, COLOR_PLAYER1, COLOR_PLAYER2 } from '../shared/constants';
 import type { ServerMessage } from '../shared/protocol';
 
@@ -28,6 +29,9 @@ export function startGame(): void {
   let p2Name = '';
 
   const network = new Network(handleMessage);
+  const debugHud = new DebugHUD();
+  let lastStateTime = 0;
+  let serverTickMs = 0;
 
   const lobby = new LobbyUI({
     onCreateRoom: () => {
@@ -115,14 +119,18 @@ export function startGame(): void {
         }
         break;
 
-      case 'state':
+      case 'state': {
         if (!localPlayer || !remotePlayer) return;
+        const now = performance.now();
+        if (lastStateTime > 0) serverTickMs = now - lastStateTime;
+        lastStateTime = now;
         localPlayer.reconcile(msg.p[myPlayerId], msg.seq);
         localPlayer.setRemoteState(msg.p[1 - myPlayerId]);
         localPlayer.setIsIt(msg.it === myPlayerId);
         remotePlayer.pushState(msg.p[1 - myPlayerId]);
         lobby.showHUD(p1Name, p2Name, msg.it, msg.time, myPlayerId);
         break;
+      }
 
       case 'tag_attempt':
         if (remotePlayer && msg.player !== myPlayerId) {
@@ -191,6 +199,13 @@ export function startGame(): void {
       localPlayer?.update(dt);
       remotePlayer?.update(dt);
     }
+
+    debugHud.update({
+      ping: network.rtt,
+      pendingInputs: localPlayer?.pendingCount ?? 0,
+      interpBuffer: remotePlayer?.bufferLength ?? 0,
+      serverTickMs,
+    });
 
     renderer.render(scene, camera);
   }

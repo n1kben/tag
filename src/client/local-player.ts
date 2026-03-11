@@ -66,6 +66,10 @@ export class LocalPlayer {
     this.visuals.update(dt);
   }
 
+  get pendingCount(): number {
+    return this.pendingInputs.length;
+  }
+
   setIsIt(isIt: boolean): void {
     this.isIt = isIt;
   }

@@ -79,6 +79,10 @@ wss.on('connection', (ws: WebSocket) => {
         }
         break;
       }
+      case 'ping': {
+        ws.send(JSON.stringify({ type: 'pong', t: msg.t }));
+        break;
+      }
       case 'input':
       case 'rename':
       case 'ready': {
