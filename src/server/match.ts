@@ -1,18 +1,19 @@
-// One match of rooftop Hide 'n Seek: rounds, phases, combat, grenades.
-// Plays like CS 1.6 HNS: really a game of tag. Everyone is visible; hiders get a head start
-// and survive by running, jumping gaps and throwing grenades. See README "Rules".
+// One match: rounds, phases, combat, grenades. Two modes:
+// - Hide 'n Seek plays like CS 1.6 HNS, really a game of tag. Everyone is visible; hiders get a
+//   head start and survive by running, jumping gaps and throwing grenades. See README "Rules".
+// - Deathmatch: everyone slashes everyone, respawn after a beat, most points when time runs out.
 import {
   TICK_DT, SNAPSHOT_EVERY, PLAYER_RADIUS, EYE_HEIGHT, SAFE_FALL_SPEED, FATAL_FALL_SPEED, KILL_Y, MAX_HP,
   STAB_RANGE, STAB_ARC_COS, STAB_DAMAGE, BACKSTAB_DAMAGE, BACKSTAB_MAX_SPEED,
   NADE_KINDS, NADE_LOADOUT, NADE_FUSE, NADE_THROW_SPEED, NADE_THROW_UP, NADE_GRAVITY,
   NADE_MIN_CHARGE, NADE_CHARGE_TIME, FROST_RADIUS, FROST_TIME, CHILL_RADIUS, CHILL_TIME, FLASH_RADIUS,
   FLASH_TIME,
-  HIDE_TIME, ROUND_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, type NadeKind,
+  HIDE_TIME, ROUND_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, DM_TIME, RESPAWN_TIME, SPAWN_PROTECTION, type NadeKind,
 } from '../shared/constants';
-import { heightAt, lineOfSight, SEEKER_SPAWNS, HIDER_SPAWNS } from '../shared/map';
+import { heightAt, lineOfSight, SEEKER_SPAWNS, HIDER_SPAWNS, BUILDINGS, PROPS, BUSHES } from '../shared/map';
 import { newBody, stepBody, BTN_ACTION, BTN_ALT, type Body, type Input, type Role, type Status } from '../shared/sim';
 import type {
-  GameEvent, KillCause, LobbyPlayer, NetPlayer, NetProjectile, Phase, ServerMessage, Snapshot, Standing,
+  GameEvent, GameMode, KillCause, LobbyPlayer, NetPlayer, NetProjectile, Phase, ServerMessage, Snapshot, Standing,
 } from '../shared/protocol';
 import { Brain } from './bots';
 
@@ -44,6 +45,8 @@ export interface MPlayer {
   stabPending: boolean;
   shovedBy: number; // last opponent to knock us around, for crediting falls
   shovedT: number;
+  respawnT: number; // deathmatch: seconds until back in, 0 = not waiting
+  prot: number; // deathmatch spawn protection left
   score: number;
   kills: number;
   survived: number;
@@ -75,8 +78,13 @@ export class Match {
   private last = 0;
   private acc = 0;
 
-  constructor(private host: MatchHost, roster: LobbyPlayer[]) {
+  constructor(private host: MatchHost, roster: LobbyPlayer[], readonly mode: GameMode = 'hns') {
     for (const p of roster) this.addPlayer(p);
+  }
+
+  /** Who can hurt whom: the other team in Hide 'n Seek, anyone else in Deathmatch. */
+  private enemies(a: MPlayer, b: MPlayer): boolean {
+    return a !== b && (this.mode === 'dm' || a.role !== b.role);
   }
 
   addPlayer(p: LobbyPlayer): MPlayer {
@@ -85,9 +93,11 @@ export class Match {
       body: newBody(0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, starved: 0,
       role: 'hider', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
       nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
-      score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
+      respawnT: 0, prot: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
     };
     this.players.push(mp);
+    // Joining a running deathmatch: drop in after a short beat
+    if (this.mode === 'dm' && this.round > 0) { mp.role = 'seeker'; mp.respawnT = 1; }
     return mp;
   }
 
@@ -135,6 +145,16 @@ export class Match {
   private startRound(first: boolean): void {
     this.round++;
     const ps = this.active();
+    if (this.mode === 'dm') {
+      for (const p of ps) { p.role = 'seeker'; this.spawn(p, false); }
+      this.projectiles = [];
+      this.phase = 'seek';
+      this.timeLeft = DM_TIME;
+      const roles: Record<number, Role> = {};
+      for (const p of ps) roles[p.id] = p.role;
+      this.broadcast({ type: 'round_start', round: this.round, roles });
+      return;
+    }
     if (first) {
       // Roughly even teams, like a CS server autobalance; seekers are the smaller side
       const shuffled = [...ps].sort(() => Math.random() - 0.5);
@@ -192,6 +212,32 @@ export class Match {
     this.swapPending = swap;
   }
 
+  /** Deathmatch (re)spawn on the roof spot farthest from everyone still alive. */
+  private spawn(p: MPlayer, announce: boolean): void {
+    const others = this.active().filter(q => q.alive && q !== p);
+    let best: [number, number] = [0, 0], bestD = -1;
+    for (let i = 0; i < 24; i++) {
+      const b = BUILDINGS[Math.floor(Math.random() * BUILDINGS.length)];
+      const x = b.x0 + 1 + Math.random() * (b.x1 - b.x0 - 2), z = b.z0 + 1 + Math.random() * (b.z1 - b.z0 - 2);
+      if (Math.abs(heightAt(x, z) - b.h) > 0.01 || PROPS.some(pr => Math.abs(pr.x - x) < pr.w / 2 + 0.6 && Math.abs(pr.z - z) < pr.d / 2 + 0.6)) continue;
+      if (BUSHES.some(bu => Math.hypot(bu.x - x, bu.z - z) < bu.r + 0.6)) continue; // don't pop out half hidden
+      const d = others.length ? Math.min(...others.map(q => Math.hypot(q.body.x - x, q.body.z - z))) : Math.random();
+      if (d > bestD) { bestD = d; best = [x, z]; }
+    }
+    p.body = newBody(best[0], best[1]);
+    p.body.facing = Math.random() * Math.PI * 2;
+    p.hp = MAX_HP;
+    p.alive = true;
+    p.frozen = p.chilled = p.blind = 0;
+    p.nades = NO_NADES();
+    p.aimT = -1;
+    p.stabPending = false;
+    p.respawnT = 0;
+    p.prot = SPAWN_PROTECTION;
+    p.brain?.reset();
+    if (announce) this.events.push({ k: 'spawn', id: p.id, x: p.body.x, y: p.body.y, z: p.body.z });
+  }
+
   standings(): Standing[] {
     return this.players
       .map(p => ({ id: p.id, name: p.name, character: p.character, score: p.score, kills: p.kills, survived: p.survived }))
@@ -213,7 +259,19 @@ export class Match {
     this.collidePlayers();
     this.stepProjectiles();
 
-    if (this.phase === 'seek') {
+    if (this.mode === 'dm') {
+      if (this.phase === 'seek' && this.timeLeft <= 0) {
+        this.phase = 'end';
+        this.timeLeft = ROUND_END_TIME;
+        this.projectiles = [];
+      } else if (this.phase === 'end' && this.timeLeft <= 0) {
+        this.stop();
+        const standings = this.standings();
+        this.broadcast({ type: 'match_end', standings });
+        this.host.onMatchEnd(standings);
+        return;
+      }
+    } else if (this.phase === 'seek') {
       const ps = this.active();
       const hidersAlive = ps.filter(p => p.role === 'hider' && p.alive).length;
       const seekersAlive = ps.filter(p => p.role === 'seeker' && p.alive).length;
@@ -264,6 +322,8 @@ export class Match {
     p.chilled = Math.max(0, p.chilled - TICK_DT);
     p.blind = Math.max(0, p.blind - TICK_DT);
     p.shovedT = Math.max(0, p.shovedT - TICK_DT);
+    p.prot = Math.max(0, p.prot - TICK_DT);
+    if (!p.alive && p.respawnT > 0 && this.phase === 'seek' && (p.respawnT -= TICK_DT) <= 0) this.spawn(p, true);
     if (!p.alive || this.phase === 'end') return; // freeze the scene on the round result
 
     const st = this.status(p);
@@ -304,7 +364,7 @@ export class Match {
   /** Whoever knocked this player around in the last few seconds gets credit for their fall. */
   private shover(p: MPlayer): MPlayer | null {
     if (p.shovedT <= 0) return null;
-    return this.players.find(q => q.id === p.shovedBy && q.role !== p.role) ?? null;
+    return this.players.find(q => q.id === p.shovedBy && this.enemies(q, p)) ?? null;
   }
 
   private cycleNade(p: MPlayer): void {
@@ -335,7 +395,7 @@ export class Match {
   private tryStab(p: MPlayer): void {
     const fx = Math.sin(p.body.facing), fz = Math.cos(p.body.facing);
     for (const t of this.active()) {
-      if (!t.alive || t.role === p.role) continue;
+      if (!t.alive || !this.enemies(p, t) || t.prot > 0) continue; // spawn protection: no hit, no knockback
       const dx = t.body.x - p.body.x, dz = t.body.z - p.body.z;
       const d = Math.hypot(dx, dz);
       if (d > STAB_RANGE + PLAYER_RADIUS || Math.abs(t.body.y - p.body.y) > 1.2) continue;
@@ -355,7 +415,7 @@ export class Match {
   }
 
   private damage(t: MPlayer, dmg: number, by: MPlayer | null, cause: Exclude<KillCause, 'void'>, dx: number, dz: number): void {
-    if (!t.alive) return;
+    if (!t.alive || t.prot > 0) return;
     t.hp -= dmg;
     if (t.hp <= 0) this.kill(t, by, cause, dx, dz);
     else this.events.push({ k: 'hurt', id: t.id, hp: Math.round(t.hp), cause: cause === 'backstab' ? 'stab' : cause });
@@ -365,7 +425,11 @@ export class Match {
     t.alive = false;
     t.hp = 0;
     t.aimT = -1;
-    if (by && by.role !== t.role) { by.score += 1; by.kills += 1; }
+    if (by && this.enemies(by, t)) { by.score += 1; by.kills += 1; }
+    if (this.mode === 'dm') {
+      if (!by && (cause === 'fall' || cause === 'void')) t.score -= 1; // CS-style suicide penalty
+      t.respawnT = RESPAWN_TIME;
+    }
     this.events.push({
       k: 'kill', id: t.id, by: by?.id ?? null, cause,
       x: t.body.x, y: t.body.y, z: t.body.z, dx, dz,
@@ -379,7 +443,7 @@ export class Match {
     for (let i = 0; i < ps.length; i++) {
       for (let j = i + 1; j < ps.length; j++) {
         const a = ps[i], b = ps[j];
-        if (a.role === b.role || Math.abs(a.body.y - b.body.y) > 1) continue;
+        if (!this.enemies(a, b) || a.prot > 0 || b.prot > 0 || Math.abs(a.body.y - b.body.y) > 1) continue;
         const dx = b.body.x - a.body.x, dz = b.body.z - a.body.z;
         const d = Math.hypot(dx, dz);
         if (d >= minD || d < 1e-4) continue;
@@ -471,6 +535,7 @@ export class Match {
       hp: Math.round(p.hp), alive: p.alive, role: p.role, frozen: r2(p.frozen), chilled: r2(p.chilled),
       lunge: r2(b.lunge), aiming: p.aimT >= 0 ? r2(Math.min(1, p.aimT / NADE_CHARGE_TIME)) : 0,
       nade: p.aimT >= 0 ? p.nadeSel : null,
+      prot: p.prot > 0,
     };
   }
 
@@ -480,6 +545,7 @@ export class Match {
     const projectiles: NetProjectile[] = this.projectiles.map(pr => ({
       id: pr.id, kind: pr.kind, x: r2(pr.x), y: r2(pr.y), z: r2(pr.z), owner: pr.owner,
     }));
+    const scores = this.players.map(p => ({ id: p.id, score: p.score, kills: p.kills }));
     for (const viewer of this.players) {
       if (viewer.bot || !viewer.connected) continue;
       const snap: Snapshot = {
@@ -487,9 +553,9 @@ export class Match {
         me: {
           ...viewer.body, hp: Math.round(viewer.hp), alive: viewer.alive, role: viewer.role,
           frozen: viewer.frozen, chilled: viewer.chilled, blind: viewer.blind,
-          nades: viewer.nades, nadeSel: viewer.nadeSel,
+          nades: viewer.nades, nadeSel: viewer.nadeSel, respawn: r2(viewer.respawnT),
         },
-        players, projectiles,
+        players, projectiles, scores,
       };
       this.host.send(viewer.id, snap);
     }

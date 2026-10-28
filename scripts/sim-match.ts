@@ -1,9 +1,10 @@
 // Runs a full bots-only match as fast as possible and prints what happened.
-// Run: npx tsx scripts/sim-match.ts [bots=6]
+// Run: npx tsx scripts/sim-match.ts [bots=6] [hns|dm]
 import { Match } from '../src/server/match';
 import type { LobbyPlayer, ServerMessage } from '../src/shared/protocol';
 
 const n = Number(process.argv[2] ?? 6);
+const mode = process.argv[3] === "dm" ? "dm" : "hns"; // npx tsx scripts/sim-match.ts 6 dm
 const roster: LobbyPlayer[] = Array.from({ length: n }, (_, i) => ({ id: i + 1, name: `bot${i + 1}`, character: i, ready: true, bot: true }));
 // One fake human (id 99) so snapshots/visibility code runs too
 roster.push({ id: 99, name: 'watcher', character: 9, ready: true, bot: false });
@@ -36,7 +37,7 @@ const m = new Match({
     }
   },
   onMatchEnd() {},
-}, roster);
+}, roster, mode);
 
 // The watcher is a connected "human" that sits out every round as a dead spectator
 const internals = m as unknown as { step(): void; startRound(first: boolean): void };

@@ -2,10 +2,12 @@ import type { Body, Role } from './sim';
 import type { NadeKind } from './constants';
 
 export type Phase = 'hide' | 'seek' | 'end';
+export type GameMode = 'hns' | 'dm'; // Hide 'n Seek (tag) or free-for-all Deathmatch
 
 // ── Client → Server ───────────────────────────────────────────────────────
 export type ClientMessage =
-  | { type: 'create_room'; practice?: boolean }
+  | { type: 'create_room'; practice?: boolean; mode?: GameMode }
+  | { type: 'mode'; mode: GameMode }
   | { type: 'join_room'; roomId: string }
   | { type: 'profile'; name?: string; character?: number }
   | { type: 'ready' }
@@ -48,6 +50,7 @@ export interface NetPlayer {
   lunge: number; // >0 while slashing (drives the slash anim)
   aiming: number; // hider grenade charge 0..1 (0 = not aiming)
   nade: NadeKind | null; // grenade in hand while aiming
+  prot: boolean; // spawn protection (deathmatch): blinks, can't be hurt
 }
 
 export interface NetProjectile {
@@ -63,9 +66,10 @@ export interface Snapshot {
   phase: Phase;
   timeLeft: number;
   ack: number; // last input seq processed for the receiver
-  me: (Body & { hp: number; alive: boolean; role: Role; frozen: number; chilled: number; blind: number; nades: Record<NadeKind, number>; nadeSel: NadeKind }) | null;
+  me: (Body & { hp: number; alive: boolean; role: Role; frozen: number; chilled: number; blind: number; nades: Record<NadeKind, number>; nadeSel: NadeKind; respawn: number }) | null;
   players: NetPlayer[];
   projectiles: NetProjectile[];
+  scores: { id: number; score: number; kills: number }[]; // live points, for the HUD and Tab board
 }
 
 export type KillCause = 'stab' | 'backstab' | 'fall' | 'void';
@@ -76,12 +80,13 @@ export type GameEvent =
   | { k: 'kill'; id: number; by: number | null; cause: KillCause; x: number; y: number; z: number; dx: number; dz: number }
   | { k: 'throw'; by: number; kind: NadeKind }
   | { k: 'det'; kind: NadeKind; x: number; y: number; z: number; hits: number[] }
-  | { k: 'bounce'; x: number; y: number; z: number };
+  | { k: 'bounce'; x: number; y: number; z: number }
+  | { k: 'spawn'; id: number; x: number; y: number; z: number };
 
 export type ServerMessage =
   | { type: 'welcome'; roomId: string; playerId: number; practice: boolean }
-  | { type: 'lobby'; players: LobbyPlayer[]; inMatch: boolean; lastStandings?: Standing[] }
-  | { type: 'match_start'; roster: LobbyPlayer[]; rounds: number }
+  | { type: 'lobby'; players: LobbyPlayer[]; inMatch: boolean; mode: GameMode; lastStandings?: Standing[] }
+  | { type: 'match_start'; roster: LobbyPlayer[]; rounds: number; mode: GameMode }
   | { type: 'round_start'; round: number; roles: Record<number, Role> }
   | { type: 'round_end'; round: number; winner: Role; swap: boolean; standings: Standing[] }
   | { type: 'match_end'; standings: Standing[] }

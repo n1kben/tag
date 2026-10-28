@@ -72,6 +72,11 @@ export const CHILL_RADIUS = 6; // seekers inside are slowed
 export const CHILL_TIME = 7;
 export const CHILL_SPEED = 0.6;
 
+// Deathmatch: free-for-all slashing, respawns, most points when the clock runs out
+export const DM_TIME = 180;
+export const RESPAWN_TIME = 2;
+export const SPAWN_PROTECTION = 1.5; // can't be hurt right after (re)spawning
+
 // Round flow (hnsmod defaults)
 export const HIDE_TIME = 10;
 export const ROUND_TIME = 120;

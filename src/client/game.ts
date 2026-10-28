@@ -11,7 +11,7 @@ import { sfx, spatial, setMuted, isMuted } from './audio';
 import { stepBody, BTN_ACTION, type Body, type Input, type Role, type Status } from '../shared/sim';
 import { heightAt } from '../shared/map';
 import { TICK_DT, TICK_RATE, NADE_CHARGE_TIME, COLOR_SEEKER, type NadeKind } from '../shared/constants';
-import type { GameEvent, LobbyPlayer, NetPlayer, Phase, ServerMessage, Snapshot, Standing } from '../shared/protocol';
+import type { GameEvent, GameMode, LobbyPlayer, NetPlayer, Phase, ServerMessage, Snapshot, Standing } from '../shared/protocol';
 
 type Mode = 'title' | 'lobby' | 'match' | 'end';
 
@@ -32,6 +32,8 @@ export function startGame(): void {
   let lobbyPlayers: LobbyPlayer[] = [];
   let lastStandings: Standing[] | undefined;
   let lobbyInMatch = false;
+  let lobbyMode: GameMode = 'hns';
+  let gameMode: GameMode = 'hns'; // mode of the match being played
   let standings: Standing[] = [];
 
   // Match state
@@ -72,8 +74,8 @@ export function startGame(): void {
   function showTitle(): void {
     setInputEnabled(true);
     ui.showTitle({
-      practice: () => { sfx.ui(); net.send({ type: 'create_room', practice: true }); ui.setStatus('Starting…'); },
-      create: () => { sfx.ui(); net.send({ type: 'create_room' }); ui.setStatus('Creating room…'); },
+      practice: m => { sfx.ui(); net.send({ type: 'create_room', practice: true, mode: m }); ui.setStatus('Starting…'); },
+      create: m => { sfx.ui(); net.send({ type: 'create_room', mode: m }); ui.setStatus('Creating room…'); },
       join: code => { sfx.ui(); net.send({ type: 'join_room', roomId: code }); ui.setStatus('Joining…'); },
     });
   }
@@ -91,8 +93,9 @@ export function startGame(): void {
       addBot: () => net.send({ type: 'add_bot' }),
       removeBot: () => net.send({ type: 'remove_bot' }),
       leave: leave,
+      mode: m => { sfx.ui(); net.send({ type: 'mode', mode: m }); },
     });
-    ui.updateLobby(roomId, lobbyPlayers, myId, lobbyInMatch, lastStandings);
+    ui.updateLobby(roomId, lobbyPlayers, myId, lobbyInMatch, lobbyMode, lastStandings);
   }
 
   function leave(): void {
@@ -117,11 +120,13 @@ export function startGame(): void {
         lobbyPlayers = msg.players;
         lastStandings = msg.lastStandings;
         lobbyInMatch = msg.inMatch;
+        lobbyMode = msg.mode;
         ui.setNames(msg.players);
-        if (mode === 'lobby') ui.updateLobby(roomId, lobbyPlayers, myId, lobbyInMatch, lastStandings);
+        if (mode === 'lobby') ui.updateLobby(roomId, lobbyPlayers, myId, lobbyInMatch, lobbyMode, lastStandings);
         if (mode === 'match' && !msg.inMatch) { cleanupMatch(); showLobby(); }
         break;
       case 'match_start':
+        gameMode = msg.mode;
         ui.setNames(msg.roster);
         startMatch(msg.roster);
         break;
@@ -204,7 +209,8 @@ export function startGame(): void {
     spectate = null;
     for (const [id, c] of chars) c.setRole(roles[id] ?? 'hider');
     const mine = roles[myId];
-    if (mine === 'hider') ui.banner('RUN!', `Round ${round} · get away before the seekers wake up`, '#23f0c7', 2600);
+    if (gameMode === 'dm') ui.banner('DEATHMATCH!', 'Everyone for themselves · most points in 3:00', '#ffd23f', 2600);
+    else if (mine === 'hider') ui.banner('RUN!', `Round ${round} · get away before the seekers wake up`, '#23f0c7', 2600);
     else if (mine === 'seeker') ui.banner('YOU\'RE IT', `Round ${round} · count to ten…`, '#ef767a', 2600);
     sfx.beep(true);
   }
@@ -233,6 +239,23 @@ export function startGame(): void {
     latest = s;
     phase = s.phase;
     timeLeft = s.timeLeft;
+    // Live scores (the Tab board and the deathmatch leaderboard); late joiners get a row too
+    for (const sc of s.scores) {
+      let row = standings.find(r => r.id === sc.id);
+      if (!row) {
+        row = { id: sc.id, name: ui.nameOf(sc.id), character: lobbyPlayers.find(p => p.id === sc.id)?.character ?? 0, score: 0, kills: 0, survived: 0 };
+        standings.push(row);
+      }
+      row.score = sc.score;
+      row.kills = sc.kills;
+    }
+    if (gameMode === 'dm' && prevPhase === 'seek' && phase === 'end') {
+      const ranked = [...standings].sort((a, b) => b.score - a.score);
+      const top = ranked[0];
+      const tie = ranked[1] && ranked[1].score === top?.score;
+      ui.banner('TIME!', top ? (tie ? `Tied at ${top.score}!` : `${top.name} wins with ${top.score}`) : '', '#ffd23f', 3500);
+      (top?.id === myId && !tie ? sfx.win : sfx.lose)();
+    }
     if (prevPhase === 'hide' && phase === 'seek') {
       ui.banner('READY OR NOT!', roles[myId] === 'seeker' ? 'Go find them' : 'Here they come…', '#ffd23f', 1800);
       sfx.gong();
@@ -349,7 +372,7 @@ export function startGame(): void {
         const victim = esc(ui.nameOf(e.id));
         const icon = { stab: '🔪', backstab: '🗡️ backstab', fall: '💥 splat', void: e.by !== null ? '🧊 dropped' : '☁️ fell' }[e.cause];
         ui.killfeed(e.by !== null ? `${esc(ui.nameOf(e.by))} ${icon} ${victim}` : `${victim} ${icon}`);
-        if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', 'Spectating · press Enter to switch', '#f0408f', 2200);
+        if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', gameMode === 'dm' ? (e.by === null ? '−1 for falling off' : '') : 'Spectating · press Enter to switch', '#f0408f', 2200);
         if (e.by === myId) ui.banner(e.cause === 'backstab' ? 'BACKSTAB!' : 'GOTCHA!', '', '#ffd23f', 1100);
         break;
       }
@@ -366,6 +389,15 @@ export function startGame(): void {
         const v = Math.max(0.2, sp.vol);
         ({ flash: sfx.flash, frost: sfx.frost } as Record<NadeKind, (v: number, p: number) => void>)[e.kind](v, sp.pan);
         if (e.hits.includes(myId) && e.kind === 'frost') ui.banner('FROZEN!', '', '#8fe3ff', 1200);
+        break;
+      }
+      case 'spawn': {
+        dead.delete(e.id);
+        fx.puff(e.x, e.y, e.z, 10, 0xffffff, 0.22);
+        if (e.id === myId) {
+          camTarget.set(e.x, e.y, e.z); // respawns are across the map: cut, don't pan
+          ui.banner('GO!', '', '#ffd23f', 700);
+        }
         break;
       }
       case 'bounce': {
@@ -461,7 +493,7 @@ export function startGame(): void {
     errOffset.multiplyScalar(Math.exp(-dt * 12));
     const myChar = chars.get(myId);
     if (myChar && pred && me?.alive && !dead.has(myId)) {
-      myChar.root.visible = true;
+      myChar.root.visible = !remote.get(myId)?.prot || Math.floor(performance.now() / 90) % 2 === 0;
       myChar.root.position.set(pred.x + errOffset.x, pred.y + errOffset.y, pred.z + errOffset.z);
       myChar.root.rotation.y = lerpAngle(myChar.root.rotation.y, pred.facing, Math.min(1, dt * 20));
       const charging = aimHeld > 0 ? Math.min(1, aimHeld / NADE_CHARGE_TIME) : 0;
@@ -483,7 +515,8 @@ export function startGame(): void {
       if (id === myId) continue;
       const c = ensureChar(id);
       const vis = p.visible && p.alive && !dead.has(id);
-      c.root.visible = vis;
+      // Spawn protection: blink
+      c.root.visible = vis && (!p.prot || Math.floor(performance.now() / 90) % 2 === 0);
       if (!vis) continue;
       c.root.position.set(p.x, p.y, p.z);
       c.root.rotation.y = lerpAngle(c.root.rotation.y, p.f, Math.min(1, dt * 20));
@@ -506,7 +539,7 @@ export function startGame(): void {
     let fx0 = camTarget.x, fy0 = camTarget.y, fz0 = camTarget.z, lookVx = 0, lookVz = 0;
     if (pred && me?.alive) {
       fx0 = pred.x + errOffset.x; fy0 = pred.y; fz0 = pred.z + errOffset.z; lookVx = pred.vx; lookVz = pred.vz;
-    } else {
+    } else if (gameMode === 'hns') {
       if (spectate === null || !remote.get(spectate)?.alive) spectate = nextSpectate();
       const sp = spectate !== null ? remote.get(spectate) : undefined;
       if (sp) { fx0 = sp.x; fy0 = sp.y; fz0 = sp.z; lookVx = sp.vx; lookVz = sp.vz; }
@@ -528,7 +561,7 @@ export function startGame(): void {
       v.set(c.root.position.x, c.root.position.y + 1.45, c.root.position.z).project(world.camera);
       const sx = (v.x * 0.5 + 0.5) * window.innerWidth, sy = (-v.y * 0.5 + 0.5) * window.innerHeight;
       const role = id === myId ? me?.role : remote.get(id)?.role;
-      const color = id === myId ? '#f0408f' : role === 'seeker' ? hex(COLOR_SEEKER) : '#14bfa0';
+      const color = id === myId ? '#f0408f' : gameMode === 'dm' ? '#8a6bf0' : role === 'seeker' ? hex(COLOR_SEEKER) : '#14bfa0';
       const hp = id === myId ? me?.hp ?? null : remote.get(id)?.hp ?? null;
       ui.label(id, sx, sy, id === myId ? 'YOU' : ui.nameOf(id), color, hp);
     }
@@ -540,7 +573,10 @@ export function startGame(): void {
       const hud: HudState = {
         phase, timeLeft, role: me.role, alive: me.alive, hp: me.hp, frozen: me.frozen, blind: me.blind,
         nades: me.nades, nadeSel: me.nadeSel, teams,
-        spectating: !me.alive && spectate !== null ? ui.nameOf(spectate) : null,
+        spectating: gameMode === 'hns' && !me.alive && spectate !== null ? ui.nameOf(spectate) : null,
+        mode: gameMode,
+        board: [...standings].sort((a, b) => b.score - a.score).slice(0, 5).map(r => ({ name: r.name, score: r.score, me: r.id === myId })),
+        respawn: me.respawn,
       };
       ui.updateHud(hud);
     }
@@ -554,7 +590,7 @@ export function startGame(): void {
   requestAnimationFrame(frame);
   const params = new URLSearchParams(location.search);
   const hashRoom = location.hash.slice(1);
-  if (params.has('practice')) net.send({ type: 'create_room', practice: true });
+  if (params.has('practice')) net.send({ type: 'create_room', practice: true, mode: params.get('practice') === 'dm' ? 'dm' : 'hns' });
   else if (hashRoom) net.send({ type: 'join_room', roomId: hashRoom });
 }
 

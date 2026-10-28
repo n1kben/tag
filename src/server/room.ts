@@ -1,5 +1,5 @@
 import { WebSocket } from 'ws';
-import type { ClientMessage, LobbyPlayer, ServerMessage, Standing } from '../shared/protocol';
+import type { ClientMessage, GameMode, LobbyPlayer, ServerMessage, Standing } from '../shared/protocol';
 import { CHARACTERS, MAX_PLAYERS } from '../shared/constants';
 import { Match } from './match';
 
@@ -19,10 +19,11 @@ function generateRoomId(): string {
 const rooms = new Map<string, Room>();
 const roomOf = new Map<WebSocket, Room>();
 
-export function createRoom(ws: WebSocket, practice: boolean): Room {
+export function createRoom(ws: WebSocket, practice: boolean, mode: GameMode): Room {
   let id: string;
   do { id = generateRoomId(); } while (rooms.has(id));
   const room = new Room(id, practice);
+  room.mode = mode;
   rooms.set(id, room);
   room.join(ws);
   if (practice) room.startPractice();
@@ -50,6 +51,7 @@ export class Room {
   private lastStandings?: Standing[];
   private nextId = 1;
   private cleanup: ReturnType<typeof setTimeout> | null = null;
+  mode: GameMode = 'hns';
 
   constructor(readonly id: string, readonly practice: boolean) {}
 
@@ -69,9 +71,11 @@ export class Room {
     if (this.match) {
       // Late join: spectate until the next round assigns a team
       const mp = this.match.addPlayer(p);
-      const live = this.match.players.filter(q => q.connected);
-      mp.role = live.filter(q => q.role === 'seeker').length * 2 < live.length - 1 ? 'seeker' : 'hider';
-      this.sendTo(p.id, { type: 'match_start', roster: this.roster, rounds: 0 });
+      if (this.match.mode === 'hns') {
+        const live = this.match.players.filter(q => q.connected);
+        mp.role = live.filter(q => q.role === 'seeker').length * 2 < live.length - 1 ? 'seeker' : 'hider';
+      }
+      this.sendTo(p.id, { type: 'match_start', roster: this.roster, rounds: 0, mode: this.match.mode });
     }
     this.broadcastLobby();
     return true;
@@ -110,6 +114,12 @@ export class Room {
         if (this.match) return;
         if (typeof msg.name === 'string' && msg.name.trim()) me.name = msg.name.trim().slice(0, 16);
         if (Number.isInteger(msg.character)) me.character = ((msg.character! % CHARACTERS.length) + CHARACTERS.length) % CHARACTERS.length;
+        this.broadcastLobby();
+        break;
+      case 'mode':
+        if (this.match || (msg.mode !== 'hns' && msg.mode !== 'dm')) return;
+        if (msg.mode !== this.mode) for (const p of this.roster) if (!p.bot) p.ready = false; // ready for these rules only
+        this.mode = msg.mode;
         this.broadcastLobby();
         break;
       case 'ready':
@@ -166,14 +176,14 @@ export class Room {
         this.lastStandings = standings;
         this.broadcastLobby();
       },
-    }, this.roster);
-    this.broadcastAll({ type: 'match_start', roster: this.roster, rounds: 0 });
+    }, this.roster, this.mode);
+    this.broadcastAll({ type: 'match_start', roster: this.roster, rounds: 0, mode: this.mode });
     this.match.start();
     this.broadcastLobby();
   }
 
   private broadcastLobby(): void {
-    this.broadcastAll({ type: 'lobby', players: this.roster, inMatch: !!this.match, lastStandings: this.lastStandings });
+    this.broadcastAll({ type: 'lobby', players: this.roster, inMatch: !!this.match, mode: this.mode, lastStandings: this.lastStandings });
   }
 
   private broadcastAll(msg: ServerMessage): void {

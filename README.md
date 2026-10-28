@@ -9,6 +9,10 @@ npm run build && npm start   # production: one server on :8080 serves the client
 npm run check      # typecheck + map reachability + a headless bots-only match
 ```
 
+Two modes, picked on the title screen or in the lobby:
+- **Hide 'n Seek**: rooftop tag with CS 1.6 HNS rules (below).
+- **Deathmatch**: free-for-all slashing for 3:00. You respawn 2s after dying, on the roof farthest from everyone, with 1.5s of spawn protection (you blink). +1 per kill, including knocking someone off a roof; −1 for falling off on your own.
+
 Press **PLAY VS BOTS** for a practice match, or **CREATE ROOM** and share the link (the room code sits in the URL hash). Anyone can add bots in the lobby.
 
 ## Controls
@@ -63,6 +67,6 @@ The look was matched against frames from Boomerang Fu's official release trailer
 ## Dev scripts
 
 - `scripts/check-map.ts`: every roof is reachable and has a way back.
-- `scripts/sim-match.ts [n]`: runs a full bots-only match in about 200ms and prints kills, swaps and grenade use.
-- `scripts/mp-e2e.ts <url> <outDir>`: two real Chrome clients create, join, rename, ready up and play. Needs the dev servers running.
+- `scripts/sim-match.ts [n] [hns|dm]`: runs a full bots-only match in about 200ms and prints kills, swaps and grenade use.
+- `scripts/mp-e2e.ts <url> <outDir>` and `scripts/dm-e2e.ts <url> <outDir>`: two real Chrome clients create, join, rename, ready up and play Hide 'n Seek or Deathmatch (including die and respawn). Need the dev servers running.
 - `scripts/play-shots.ts`, `scripts/juice-shots.ts`, `scripts/shot.ts`: screenshots taken with the locally installed Chrome (`playwright-core`, no browser download).

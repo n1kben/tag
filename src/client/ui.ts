@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { Character } from './characters';
 import { CHARACTERS, MAX_HP, NADE_KINDS, type NadeKind } from '../shared/constants';
-import type { LobbyPlayer, Phase, Standing } from '../shared/protocol';
+import type { GameMode, LobbyPlayer, Phase, Standing } from '../shared/protocol';
 import type { Role } from '../shared/sim';
 
 const CSS = `
@@ -119,6 +119,16 @@ kbd { background: #fff; color: var(--ink); border-radius: 6px; padding: 1px 7px;
   border-top-color: inherit; border-bottom: 0; }
 .label .bar { height: 5px; border-radius: 3px; background: rgba(59,42,92,0.4); margin: 2px auto 0; width: 34px; overflow: hidden; }
 .label .bar i { display: block; height: 100%; background: var(--teal); }
+.seg { display: inline-flex; background: rgba(255,255,255,0.55); border-radius: 999px; padding: 4px; gap: 4px; box-shadow: 0 4px 0 rgba(59,42,92,0.15); }
+.seg button { font-family: 'Lilita One', sans-serif; font-size: 16px; letter-spacing: 0.04em; border: none; cursor: pointer; color: var(--ink);
+  background: transparent; padding: 8px 16px; border-radius: 999px; }
+.seg button.on { background: #fff; box-shadow: 0 3px 0 #c3b8e6; }
+.seg button.on.dm { background: var(--yellow); box-shadow: 0 3px 0 #c99d12; }
+.mini { position: absolute; top: 96px; left: 16px; background: rgba(255,255,255,0.9); border-radius: 16px; padding: 6px 12px; box-shadow: 0 4px 0 #c3b8e6;
+  font-weight: 700; font-size: 14px; min-width: 170px; }
+.mini div { display: flex; justify-content: space-between; gap: 12px; }
+.mini .me { color: var(--pink); }
+.respawn { position: absolute; left: 0; right: 0; top: 58%; text-align: center; font-family: 'Lilita One'; font-size: 28px; color: #fff; text-shadow: 0 3px 0 var(--ink); }
 .debug { position: fixed; top: 8px; right: 8px; background: rgba(0,0,0,0.6); color: #9f9; font: 12px monospace; padding: 6px 10px; border-radius: 6px; display: none; z-index: 30; pointer-events: none; }
 .mute { position: fixed; bottom: 14px; right: 14px; z-index: 20; }
 @media (max-width: 640px) { .teams { width: 92vw; } .keys { display: none; } .btn { min-width: 200px; } }
@@ -171,8 +181,9 @@ export function portrait(character: number): string {
   }
 }
 
-export interface TitleHandlers { practice(): void; create(): void; join(code: string): void }
+export interface TitleHandlers { practice(mode: GameMode): void; create(mode: GameMode): void; join(code: string): void }
 export interface LobbyHandlers {
+  mode(mode: GameMode): void;
   rename(name: string): void;
   character(delta: number): void;
   ready(): void;
@@ -193,6 +204,9 @@ export interface HudState {
   nadeSel: NadeKind;
   teams: { id: number; role: Role; alive: boolean }[];
   spectating: string | null;
+  mode: GameMode;
+  board: { name: string; score: number; me: boolean }[]; // deathmatch: live top scores
+  respawn: number; // deathmatch: seconds until you're back in
 }
 
 export class UI {
@@ -214,6 +228,7 @@ export class UI {
   private labelEls = new Map<number, HTMLDivElement>();
   private names = new Map<number, { name: string; character: number }>();
   private lastHud = '';
+  private titleMode: GameMode = 'hns';
 
   constructor() {
     const style = document.createElement('style');
@@ -249,15 +264,24 @@ export class UI {
     box.style.position = 'relative';
     box.innerHTML = `
       <div class="logo"><div class="lines"></div><div class="display l1">ROOFTOP</div><div class="display l2">FU!</div></div>
-      <div class="ribbon">HIDE 'N SEEK</div>
+      <div class="ribbon">ROOFTOP SHOWDOWN</div>
+      <div class="seg" data-a="modes">${modeButtons(this.titleMode)}</div>
       <button class="btn pink" data-a="practice">PLAY VS BOTS</button>
       <button class="btn" data-a="create">CREATE ROOM</button>
       <div class="row"><input class="code-in" maxlength="5" placeholder="CODE" /><button class="btn teal small" data-a="join">JOIN</button></div>
       <div class="status"></div>`;
     this.titleStatus = box.querySelector('.status')!;
     const code = box.querySelector('input')!;
-    box.querySelector('[data-a=practice]')!.addEventListener('click', () => h.practice());
-    box.querySelector('[data-a=create]')!.addEventListener('click', () => h.create());
+    box.querySelector('[data-a=practice]')!.addEventListener('click', () => h.practice(this.titleMode));
+    box.querySelector('[data-a=create]')!.addEventListener('click', () => h.create(this.titleMode));
+    const modes = box.querySelector<HTMLElement>('[data-a=modes]')!;
+    modes.addEventListener('click', e => {
+      const m = (e.target as HTMLElement).dataset.m as GameMode | undefined;
+      if (!m) return;
+      this.titleMode = m;
+      modes.innerHTML = modeButtons(m);
+      hint.innerHTML = titleHint(m);
+    });
     const join = () => {
       const c = code.value.trim().toUpperCase();
       if (c.length < 4) { this.setStatus('Enter a room code'); return; }
@@ -265,7 +289,7 @@ export class UI {
     };
     box.querySelector('[data-a=join]')!.addEventListener('click', join);
     code.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
-    const hint = el('div', 'hint', `Hiders: run, jump the gaps, throw grenades · Seekers: catch them and slash · <kbd>WASD</kbd> move <kbd>Space</kbd> jump <kbd>Enter</kbd> slash / throw <kbd>Q</kbd> switch grenade · gamepad works too`);
+    const hint = el('div', 'hint', titleHint(this.titleMode));
     this.title.append(clouds, box, hint);
     this.title.classList.add('on');
   }
@@ -281,7 +305,7 @@ export class UI {
     this.lobby.classList.add('on');
   }
 
-  updateLobby(roomId: string, players: LobbyPlayer[], myId: number, inMatch: boolean, last?: Standing[]): void {
+  updateLobby(roomId: string, players: LobbyPlayer[], myId: number, inMatch: boolean, mode: GameMode, last?: Standing[]): void {
     this.setNames(players);
     if (!this.lobby.classList.contains('on') || !this.lobbyHandlers) return;
     const h = this.lobbyHandlers;
@@ -294,6 +318,10 @@ export class UI {
         <div class="row" style="justify-content:space-between">
           <div><div style="font-weight:700;color:#8a7bb5">ROOM CODE · click to copy link</div><div class="room-code" title="Copy invite link">${esc(roomId)}</div></div>
           <div class="row"><button class="btn small" data-a="add">+ BOT</button><button class="btn small" data-a="rm">− BOT</button><button class="btn small" data-a="leave">LEAVE</button></div>
+        </div>
+        <div class="row" style="justify-content:flex-start;margin-top:10px">
+          <div class="seg" data-a="modes">${modeButtons(mode)}</div>
+          <div style="font-weight:600;color:#8a7bb5">${mode === 'dm' ? 'Free-for-all · respawns · most points in 3:00' : 'Tag on the rooftops · hiders get a 10s head start'}</div>
         </div>
         ${results}
         <div class="cards">${players.map(p => `
@@ -315,6 +343,10 @@ export class UI {
     q('ready')?.addEventListener('click', () => h.ready());
     q('prev')?.addEventListener('click', () => h.character(-1));
     q('next')?.addEventListener('click', () => h.character(1));
+    q('modes')?.addEventListener('click', e => {
+      const m = (e.target as HTMLElement).dataset.m as GameMode | undefined;
+      if (m && !inMatch && m !== mode) h.mode(m);
+    });
     this.lobby.querySelector('.room-code')?.addEventListener('click', () => {
       void navigator.clipboard?.writeText(`${location.origin}${location.pathname}#${roomId}`);
     });
@@ -344,9 +376,9 @@ export class UI {
   }
 
   updateHud(s: HudState): void {
-    const key = JSON.stringify({ ...s, timeLeft: Math.ceil(s.timeLeft), frozen: s.frozen > 0, blind: 0 });
+    const key = JSON.stringify({ ...s, timeLeft: Math.ceil(s.timeLeft), frozen: s.frozen > 0, blind: 0, respawn: Math.ceil(s.respawn * 10) });
     // Overlays update every frame; the rest only when something visible changed
-    const seekerHiding = s.phase === 'hide' && s.role === 'seeker' && s.alive;
+    const seekerHiding = s.mode === 'hns' && s.phase === 'hide' && s.role === 'seeker' && s.alive;
     this.blackout.classList.toggle('on', seekerHiding);
     if (seekerHiding) {
       (this.blackout.firstChild as HTMLElement).textContent = String(Math.max(1, Math.ceil(s.timeLeft)));
@@ -363,10 +395,15 @@ export class UI {
     const timer = el('div', `dyn timer ${s.phase === 'hide' ? 'hide' : ''} ${s.phase === 'seek' && t <= 15 ? 'low' : ''}`, timeStr);
     const pips = (role: Role) => s.teams.filter(p => p.role === role)
       .map(p => `<div class="pip ${p.alive ? '' : 'dead'}" style="background:${role === 'hider' ? 'var(--teal)' : 'var(--red)'}"></div>`).join('');
-    const teams = el('div', 'dyn teams', `<div class="team">${pips('hider')}</div><div class="team">${pips('seeker')}</div>`);
-    const chip = el('div', 'dyn role-chip', s.role === 'hider' ? 'HIDER' : 'SEEKER');
-    chip.style.background = s.role === 'hider' ? '#14bfa0' : '#e0505a';
-    this.hud.append(timer, teams, chip);
+    const chip = el('div', 'dyn role-chip', s.mode === 'dm' ? 'DEATHMATCH' : s.role === 'hider' ? 'HIDER' : 'SEEKER');
+    chip.style.background = s.mode === 'dm' ? '#8a6bf0' : s.role === 'hider' ? '#14bfa0' : '#e0505a';
+    this.hud.append(timer, chip);
+    if (s.mode === 'hns') {
+      this.hud.append(el('div', 'dyn teams', `<div class="team">${pips('hider')}</div><div class="team">${pips('seeker')}</div>`));
+    } else {
+      this.hud.append(el('div', 'dyn mini', s.board.map((r, i) => `<div class="${r.me ? 'me' : ''}"><span>${i + 1}. ${esc(r.name)}</span><span>${r.score}</span></div>`).join('')));
+      if (!s.alive && s.respawn > 0) this.hud.append(el('div', 'dyn respawn', `Back in ${s.respawn.toFixed(1)}…`));
+    }
     if (s.alive) {
       const hearts = Math.ceil(s.hp / (MAX_HP / 2));
       this.hud.append(el('div', 'dyn hp', [0, 1].map(i => `<span class="heart">${i < hearts ? '❤️' : '🤍'}</span>`).join('')));
@@ -378,7 +415,8 @@ export class UI {
       this.hud.append(inv);
       this.hud.append(el('div', 'dyn keys', '<kbd>Enter</kbd> hold &amp; release to throw · <kbd>Q</kbd> switch<br>Flash them before a jump, frost them mid-air · <kbd>Space</kbd> jump'));
     } else if (s.alive && s.role === 'seeker') {
-      this.hud.append(el('div', 'dyn keys', `<kbd>Enter</kbd> slash (from behind = instant)<br><kbd>Space</kbd> jump (hold = higher)`));
+      const tip = s.mode === 'dm' ? 'knock them off a roof for the point' : 'from behind = instant';
+      this.hud.append(el('div', 'dyn keys', `<kbd>Enter</kbd> slash (${tip})<br><kbd>Space</kbd> jump (hold = higher)`));
     }
     if (s.spectating) this.hud.append(el('div', 'dyn spect', `Spectating ${esc(s.spectating)} · <kbd>Enter</kbd> next`));
   }
@@ -455,3 +493,14 @@ export class UI {
   }
 }
 
+function modeButtons(mode: GameMode): string {
+  return `<button data-m="hns" class="${mode === 'hns' ? 'on' : ''}">HIDE 'N SEEK</button>`
+    + `<button data-m="dm" class="dm ${mode === 'dm' ? 'on' : ''}">DEATHMATCH</button>`;
+}
+
+function titleHint(mode: GameMode): string {
+  const how = mode === 'dm'
+    ? 'Everyone for themselves: slash, knock people off roofs, respawn, most points in 3:00'
+    : 'Hiders: run, jump the gaps, flash &amp; frost · Seekers: catch them and slash';
+  return `${how} · <kbd>WASD</kbd> move <kbd>Space</kbd> jump <kbd>Enter</kbd> slash / throw <kbd>Q</kbd> switch grenade · gamepad works too`;
+}
