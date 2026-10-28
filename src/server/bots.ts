@@ -1,7 +1,7 @@
 // Server-side bots so a room is fun (and testable) with any number of humans.
 // They drive the same Input as players, so they obey the same physics and rules.
-import { BUSHES, buildingAt, heightAt } from '../shared/map';
-import { ROOF_NODES, navNodeAt, navNextEdge, steerTo, type NavEdge } from '../shared/nav';
+import { buildingAt, heightAt } from '../shared/map';
+import { ROOF_NODES, navNodeAt, navNextEdge, openSpot, steerTo, type NavEdge, type NavNode } from '../shared/nav';
 import { BTN_ACTION, BTN_ALT, type Body, type Input } from '../shared/sim';
 import { STAB_RANGE, TICK_DT, type NadeKind } from '../shared/constants';
 import type { Match, MPlayer } from './match';
@@ -92,16 +92,11 @@ export class Brain {
   }
 
   private hideGoal(x: number, z: number): Goal {
-    // Prefer bushes away from the plaza spawn; fall back to a random roof corner
-    const options = BUSHES
-      .map(bu => ({ bu, score: Math.hypot(bu.x, bu.z + 3) + Math.random() * 14 - Math.hypot(bu.x - x, bu.z - z) * 0.2 }))
-      .sort((a, c) => c.score - a.score);
-    for (const { bu } of options.slice(0, 6)) {
-      const node = navNodeAt(bu.x, bu.z, bu.base);
-      if (node) return { x: bu.x, z: bu.z, node: node.id };
-    }
-    const n = ROOF_NODES[Math.floor(Math.random() * ROOF_NODES.length)];
-    return { x: n.cx, z: n.cz, node: n.id };
+    // Somewhere far from the plaza spawn, not too far from here
+    const n = [...ROOF_NODES]
+      .map(r => ({ r, score: Math.hypot(r.cx, r.cz + 3) + Math.random() * 14 - Math.hypot(r.cx - x, r.cz - z) * 0.2 }))
+      .sort((a, c) => c.score - a.score)[0].r;
+    return spotOn(n);
   }
 
   private fleeGoal(x: number, z: number, sx: number, sz: number): Goal {
@@ -110,7 +105,7 @@ export class Brain {
     for (const n of ROOF_NODES) {
       if (here && n.id === here.id) continue;
       const score = Math.hypot(n.cx - sx, n.cz - sz) - Math.hypot(n.cx - x, n.cz - z) * 0.6 + Math.random() * 4;
-      if (score > bestScore) { bestScore = score; best = { x: n.cx, z: n.cz, node: n.id }; }
+      if (score > bestScore) { bestScore = score; best = spotOn(n); }
     }
     return best ?? this.hideGoal(x, z);
   }
@@ -148,14 +143,9 @@ export class Brain {
     if (!this.goal || this.distToGoal(b.x, b.z) < 0.8 || this.stuckT > 2.5) {
       this.stuckT = 0;
       // Sweep: random bush (where hiders like to be) or random roof
-      if (Math.random() < 0.6) {
-        const bu = BUSHES[Math.floor(Math.random() * BUSHES.length)];
-        const node = navNodeAt(bu.x, bu.z, bu.base);
-        this.goal = node ? { x: bu.x, z: bu.z, node: node.id } : null;
-      }
       if (!this.goal || this.distToGoal(b.x, b.z) < 0.8) {
         const n = ROOF_NODES[Math.floor(Math.random() * ROOF_NODES.length)];
-        this.goal = { x: n.cx + (Math.random() - 0.5) * 4, z: n.cz + (Math.random() - 0.5) * 4, node: n.id };
+        this.goal = spotOn(n);
       }
     }
     return this.navigate(me, this.goal);
@@ -223,6 +213,11 @@ export class Brain {
     }
     return input;
   }
+}
+
+function spotOn(n: NavNode): Goal {
+  const { x, z } = openSpot(n);
+  return { x, z, node: n.id };
 }
 
 function norm(x: number, z: number): [number, number] {

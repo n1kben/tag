@@ -11,7 +11,7 @@ import {
   FLASH_TIME,
   HIDE_TIME, ROUND_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, DM_TIME, RESPAWN_TIME, SPAWN_PROTECTION, SWAP_PROTECTION, SURVIVE_POINT_EVERY, type NadeKind,
 } from '../shared/constants';
-import { heightAt, lineOfSight, SEEKER_SPAWNS, HIDER_SPAWNS, BUILDINGS, PROPS, BUSHES } from '../shared/map';
+import { heightAt, lineOfSight, SEEKER_SPAWNS, HIDER_SPAWNS, BUILDINGS, PROPS } from '../shared/map';
 import { newBody, stepBody, BTN_ACTION, BTN_ALT, type Body, type Input, type Role, type Status } from '../shared/sim';
 import type {
   GameEvent, GameMode, KillCause, LobbyPlayer, NetPlayer, NetProjectile, Phase, ServerMessage, Snapshot, Standing,
@@ -216,7 +216,6 @@ export class Match {
       const b = BUILDINGS[Math.floor(Math.random() * BUILDINGS.length)];
       const x = b.x0 + 1 + Math.random() * (b.x1 - b.x0 - 2), z = b.z0 + 1 + Math.random() * (b.z1 - b.z0 - 2);
       if (Math.abs(heightAt(x, z) - b.h) > 0.01 || PROPS.some(pr => Math.abs(pr.x - x) < pr.w / 2 + 0.6 && Math.abs(pr.z - z) < pr.d / 2 + 0.6)) continue;
-      if (BUSHES.some(bu => Math.hypot(bu.x - x, bu.z - z) < bu.r + 0.6)) continue; // don't pop out half hidden
       const d = others.length ? Math.min(...others.map(q => Math.hypot(q.body.x - x, q.body.z - z))) : Math.random();
       if (d > bestD) { bestD = d; best = [x, z]; }
     }

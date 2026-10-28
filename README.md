@@ -45,7 +45,7 @@ There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where 
 ## How it's built
 
 - `src/shared/`: the single source of truth that both sides run.
-  - `map.ts`: buildings, props, bushes, line of sight.
+  - `map.ts`: the rooftops, obstacles and line of sight. Every roof is the same height, so the challenge is timing jumps across alleys and over obstacles. Obstacles come in two clear heights: low ones (ducts, walls, hedges, crates, AC units, vents) are always jumpable; tall ones (huts, tanks, chimneys, stalls) you run around. Each roof gets a seeded layout (staggered ducts, a hut courtyard, a slalom, hedge rows, or a yard), mirrored per roof and scattered with extra low clutter. Obstacles always leave a 1.1-unit gap to run through, a clear strip along roof edges for run-ups, and room to land past anything low.
   - `sim.ts`: the deterministic movement step, used for server authority and client prediction.
   - `nav.ts`: the bot route graph. An edge exists only if the real movement sim completes that jump from several start conditions.
 - `src/server/`: rooms and lobby (`room.ts`), the match at a 60Hz tick (`match.ts`), bots (`bots.ts`).
@@ -66,7 +66,7 @@ The look was matched against frames from Boomerang Fu's official release trailer
 
 ## Dev scripts
 
-- `scripts/check-map.ts`: every roof is reachable and has a way back.
+- `scripts/check-map.ts`: every roof is reachable and has a way back, spawns are clear, no obstacle has an in-between height, and every low obstacle can be cleared with the real jump.
 - `scripts/check-dm.ts [n] [matches]`: Deathmatch invariants. Team sizes stay fixed, every catch swaps that pair, caught hiders return as seekers, hiders earn survival points.
 - `scripts/sim-match.ts [n] [hns|dm]`: runs a full bots-only match in about 200ms and prints kills, swaps and grenade use.
 - `scripts/mp-e2e.ts <url> <outDir>` and `scripts/dm-e2e.ts <url> <outDir>`: two real Chrome clients create, join, rename, ready up and play Hide 'n Seek or Deathmatch (including die and respawn). Need the dev servers running.

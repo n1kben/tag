@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import {
-  BUILDINGS, BRIDGES, PROPS, BUSHES, BUNTINGS, MAP_BOUNDS, type Building, type Prop, type RoofStyle,
+  BUILDINGS, BRIDGES, PROPS, BUNTINGS, MAP_BOUNDS, type Building, type Prop, type RoofStyle,
 } from '../shared/map';
 
 export const MIST = new THREE.Color(0xe3e9f6);
@@ -148,11 +148,6 @@ function buildCity(world: World): void {
     if (p.rot) obj.rotation.y = p.rot;
     scene.add(shadowed(obj));
   }
-  for (const bu of BUSHES) {
-    const g = buildBush(bu.r, rng);
-    g.position.set(bu.x, bu.base, bu.z);
-    scene.add(shadowed(g, true, false));
-  }
   for (const bt of BUNTINGS) scene.add(buildBunting(bt.ax, bt.az, bt.bx, bt.bz, bt.base));
   buildSkyline(scene, rng);
 
@@ -275,25 +270,80 @@ function buildProp(p: Prop, rng: () => number): THREE.Group {
       g.add(box, fan, hub, grill);
       break;
     }
-    case 'crate':
-    case 'crate2': {
-      // A 2x2 cluster of Boomerang Fu's purple-brown crates (two layers for crate2)
-      const layers = p.kind === 'crate2' ? 2 : 1;
+    case 'crate': {
+      // A 2x2 cluster of Boomerang Fu's purple-brown crates
       const s = p.w / 2;
-      for (let l = 0; l < layers; l++) {
-        for (const [ox, oz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-          const c = new THREE.Group();
-          const box = rbox(s - 0.04, 0.68, s - 0.04, 0.07, l === 1 ? 0x86607a : 0x7b5770);
-          const band = rbox(s - 0.01, 0.14, s * 0.42, 0.03, 0x9c7790, 1);
-          band.rotation.y = rng() < 0.5 ? 0 : Math.PI / 2;
-          box.position.y = 0.34;
-          band.position.y = 0.34;
-          c.add(box, band);
-          c.position.set(ox * s / 2, l * 0.7, oz * s / 2);
-          c.rotation.y = (rng() - 0.5) * 0.12;
-          g.add(c);
-        }
+      for (const [ox, oz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const c = new THREE.Group();
+        const box = rbox(s - 0.04, 0.68, s - 0.04, 0.07, 0x7b5770);
+        const band = rbox(s - 0.01, 0.14, s * 0.42, 0.03, 0x9c7790, 1);
+        band.rotation.y = rng() < 0.5 ? 0 : Math.PI / 2;
+        box.position.y = 0.34;
+        band.position.y = 0.34;
+        c.add(box, band);
+        c.position.set(ox * s / 2, 0, oz * s / 2);
+        c.rotation.y = (rng() - 0.5) * 0.12;
+        g.add(c);
       }
+      break;
+    }
+    case 'duct': {
+      // Long low air duct on little feet, with seam bands: hop it
+      const along = p.w >= p.d;
+      const len = along ? p.w : p.d, thick = along ? p.d : p.w;
+      const pipe = rbox(along ? len : thick * 0.9, p.h - 0.12, along ? thick * 0.9 : len, 0.18, 0xc3c8e8);
+      pipe.position.y = 0.12 + (p.h - 0.12) / 2;
+      g.add(pipe);
+      const n = Math.max(2, Math.round(len / 1.4));
+      for (let i = 0; i <= n; i++) {
+        const u = -len / 2 + 0.25 + (i / n) * (len - 0.5);
+        const band = rbox(along ? 0.09 : thick * 0.95, p.h - 0.08, along ? thick * 0.95 : 0.09, 0.03, 0xa5abd6, 1);
+        band.position.set(along ? u : 0, 0.12 + (p.h - 0.12) / 2, along ? 0 : u);
+        const foot = rbox(along ? 0.14 : thick * 0.6, 0.14, along ? thick * 0.6 : 0.14, 0.03, 0x6e5866, 1);
+        foot.position.set(along ? u : 0, 0.07, along ? 0 : u);
+        g.add(band, foot);
+      }
+      break;
+    }
+    case 'wall': {
+      // Low stone parapet with a pale cap
+      const body = rbox(p.w, p.h - 0.1, p.d, 0.08, 0xd9c7a8);
+      body.position.y = (p.h - 0.1) / 2;
+      const cap = rbox(p.w + 0.1, 0.12, p.d + 0.1, 0.05, 0xf3e7cf);
+      cap.position.y = p.h - 0.06;
+      g.add(body, cap);
+      break;
+    }
+    case 'hedge': {
+      // Clipped hedge: rounded base + blob tufts, kept to its collision height so it reads as jumpable
+      const base = rbox(p.w, p.h * 0.7, p.d, 0.2, 0x5db552);
+      base.position.y = p.h * 0.35;
+      g.add(base);
+      const along = p.w >= p.d;
+      const len = along ? p.w : p.d, thick = along ? p.d : p.w;
+      const n = Math.max(2, Math.round(len / 0.7));
+      const greens = [0x6cc25a, 0x7fcf62, 0x5db552, 0x8bd86b];
+      for (let i = 0; i < n; i++) {
+        const u = -len / 2 + (i + 0.5) * (len / n);
+        const r = thick * (0.42 + rng() * 0.12);
+        const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), mat(greens[i % greens.length]));
+        blob.position.set(along ? u : (rng() - 0.5) * 0.1, p.h - r * 0.75, along ? (rng() - 0.5) * 0.1 : u);
+        blob.scale.y = 0.75;
+        g.add(blob);
+      }
+      break;
+    }
+    case 'hut': {
+      // Roof stair hut: tall, run around it
+      const walls = rbox(p.w, p.h - 0.25, p.d, 0.12, 0xe6e1f4);
+      walls.position.y = (p.h - 0.25) / 2;
+      const roof = rbox(p.w + 0.3, 0.3, p.d + 0.3, 0.08, 0xe0605a);
+      roof.position.y = p.h - 0.1;
+      const door = rbox(0.9, 1.5, 0.06, 0.04, 0x5d3f55, 1);
+      door.position.set(0, 0.75, p.d / 2 + 0.02);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), mat(0xffd27a, { emissive: 0x7a5410 }));
+      lamp.position.set(0, 1.75, p.d / 2 + 0.08);
+      g.add(walls, roof, door, lamp);
       break;
     }
     case 'chimney': {
@@ -368,34 +418,6 @@ function buildProp(p: Prop, rng: () => number): THREE.Group {
   return g;
 }
 
-function buildBush(r: number, rng: () => number): THREE.Group {
-  // Bamboo tufts and round shrubs like the trailer's tall-grass clumps
-  const g = new THREE.Group();
-  const greens = [0x6cc25a, 0x7fcf62, 0x5db552, 0x8bd86b];
-  const n = 5 + Math.floor(rng() * 3);
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2 + rng() * 0.6;
-    const d = r * (0.25 + rng() * 0.45);
-    const s = r * (0.45 + rng() * 0.25);
-    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 1), mat(greens[i % greens.length]));
-    blob.position.set(Math.cos(a) * d, s * 0.8 + rng() * 0.25, Math.sin(a) * d);
-    blob.scale.y = 1.1 + rng() * 0.4;
-    g.add(blob);
-  }
-  for (let i = 0; i < 3; i++) {
-    const h = 1.5 + rng() * 0.9;
-    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, h, 6), mat(0x7cc35a));
-    const a = rng() * Math.PI * 2;
-    stalk.position.set(Math.cos(a) * r * 0.4, h / 2, Math.sin(a) * r * 0.4);
-    stalk.rotation.z = (rng() - 0.5) * 0.25;
-    g.add(stalk);
-    const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.5, 4), mat(0x8fd16a));
-    leaf.position.set(stalk.position.x + 0.12, h - 0.1, stalk.position.z);
-    leaf.rotation.z = -1.0;
-    g.add(leaf);
-  }
-  return g;
-}
 
 function buildBunting(ax: number, az: number, bx: number, bz: number, base: number): THREE.Group {
   const g = new THREE.Group();

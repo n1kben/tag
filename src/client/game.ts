@@ -479,7 +479,12 @@ export function startGame(): void {
     requestAnimationFrame(frame);
   }
 
+  // Dev: ?cam=x,z,dist parks the camera and hides the UI (map screenshots)
+  const devCam = new URLSearchParams(location.search).get('cam')?.split(',').map(Number);
+  if (devCam) ui.root.style.display = 'none';
+
   function renderIdle(dt: number): void {
+    if (devCam) { aimCamera(world, devCam[0], 0, devCam[1], devCam[2] || CAMERA_DIST); return; }
     // Title/lobby backdrop: drift slowly across the rooftops
     titleT += dt;
     const x = Math.sin(titleT * 0.05) * 18, z = -4 + Math.cos(titleT * 0.035) * 9;

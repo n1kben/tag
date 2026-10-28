@@ -15,7 +15,7 @@ export interface NavNode { id: number; solid: Solid; cx: number; cz: number; edg
 const surfaces: Solid[] = [
   ...BUILDINGS.map(b => ({ x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, top: b.h })),
   ...BRIDGES.map(b => ({ x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, top: b.h })),
-  ...PROPS.filter(p => p.kind === 'crate' || p.kind === 'crate2' || p.kind === 'ac' || p.kind === 'skylight')
+  ...PROPS.filter(p => p.kind === 'crate' || p.kind === 'ac' || p.kind === 'skylight')
     .map(p => ({ x0: p.x - p.w / 2, z0: p.z - p.d / 2, x1: p.x + p.w / 2, z1: p.z + p.d / 2, top: p.base + p.h })),
 ];
 
@@ -192,3 +192,14 @@ export function navNextEdge(from: number, to: number): NavEdge | null {
 
 /** Roofs (buildings) only: handy for bots picking somewhere to go. */
 export const ROOF_NODES = NAV.slice(0, BUILDINGS.length);
+
+/** A random clear spot on a roof (not inside an obstacle), for bots to head to. */
+export function openSpot(n: NavNode): { x: number; z: number } {
+  const s = n.solid;
+  for (let i = 0; i < 30; i++) {
+    const x = s.x0 + 1 + Math.random() * (s.x1 - s.x0 - 2), z = s.z0 + 1 + Math.random() * (s.z1 - s.z0 - 2);
+    // Clear of obstacles with a body's width to spare
+    if ([[0, 0], [0.6, 0], [-0.6, 0], [0, 0.6], [0, -0.6]].every(([dx, dz]) => Math.abs(heightAt(x + dx, z + dz) - s.top) < 0.01)) return { x, z };
+  }
+  return { x: (s.x0 + s.x1) / 2, z: s.z0 + 0.8 }; // the edge strip is always clear
+}
