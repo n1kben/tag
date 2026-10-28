@@ -321,7 +321,7 @@ export class UI {
         </div>
         <div class="row" style="justify-content:flex-start;margin-top:10px">
           <div class="seg" data-a="modes">${modeButtons(mode)}</div>
-          <div style="font-weight:600;color:#8a7bb5">${mode === 'dm' ? 'Free-for-all · respawns · most points in 3:00' : 'Tag on the rooftops · hiders get a 10s head start'}</div>
+          <div style="font-weight:600;color:#8a7bb5">${mode === 'dm' ? 'Knife vs grenades, no rounds · catch a hider and you swap · most points in 3:00' : 'Knife vs grenades in rounds · hiders get a 10s head start · teams swap when seekers win'}</div>
         </div>
         ${results}
         <div class="cards">${players.map(p => `
@@ -378,7 +378,7 @@ export class UI {
   updateHud(s: HudState): void {
     const key = JSON.stringify({ ...s, timeLeft: Math.ceil(s.timeLeft), frozen: s.frozen > 0, blind: 0, respawn: Math.ceil(s.respawn * 10) });
     // Overlays update every frame; the rest only when something visible changed
-    const seekerHiding = s.mode === 'hns' && s.phase === 'hide' && s.role === 'seeker' && s.alive;
+    const seekerHiding = s.phase === 'hide' && s.role === 'seeker' && s.alive;
     this.blackout.classList.toggle('on', seekerHiding);
     if (seekerHiding) {
       (this.blackout.firstChild as HTMLElement).textContent = String(Math.max(1, Math.ceil(s.timeLeft)));
@@ -395,12 +395,11 @@ export class UI {
     const timer = el('div', `dyn timer ${s.phase === 'hide' ? 'hide' : ''} ${s.phase === 'seek' && t <= 15 ? 'low' : ''}`, timeStr);
     const pips = (role: Role) => s.teams.filter(p => p.role === role)
       .map(p => `<div class="pip ${p.alive ? '' : 'dead'}" style="background:${role === 'hider' ? 'var(--teal)' : 'var(--red)'}"></div>`).join('');
-    const chip = el('div', 'dyn role-chip', s.mode === 'dm' ? 'DEATHMATCH' : s.role === 'hider' ? 'HIDER' : 'SEEKER');
-    chip.style.background = s.mode === 'dm' ? '#8a6bf0' : s.role === 'hider' ? '#14bfa0' : '#e0505a';
+    const chip = el('div', 'dyn role-chip', `${s.role === 'hider' ? 'HIDER' : 'SEEKER'}${s.mode === 'dm' ? ' · DM' : ''}`);
+    chip.style.background = s.role === 'hider' ? '#14bfa0' : '#e0505a';
     this.hud.append(timer, chip);
-    if (s.mode === 'hns') {
-      this.hud.append(el('div', 'dyn teams', `<div class="team">${pips('hider')}</div><div class="team">${pips('seeker')}</div>`));
-    } else {
+    this.hud.append(el('div', 'dyn teams', `<div class="team">${pips('hider')}</div><div class="team">${pips('seeker')}</div>`));
+    if (s.mode === 'dm') {
       this.hud.append(el('div', 'dyn mini', s.board.map((r, i) => `<div class="${r.me ? 'me' : ''}"><span>${i + 1}. ${esc(r.name)}</span><span>${r.score}</span></div>`).join('')));
       if (!s.alive && s.respawn > 0) this.hud.append(el('div', 'dyn respawn', `Back in ${s.respawn.toFixed(1)}…`));
     }
@@ -415,7 +414,7 @@ export class UI {
       this.hud.append(inv);
       this.hud.append(el('div', 'dyn keys', '<kbd>Enter</kbd> hold &amp; release to throw · <kbd>Q</kbd> switch<br>Flash them before a jump, frost them mid-air · <kbd>Space</kbd> jump'));
     } else if (s.alive && s.role === 'seeker') {
-      const tip = s.mode === 'dm' ? 'knock them off a roof for the point' : 'from behind = instant';
+      const tip = s.mode === 'dm' ? 'catch a hider and you swap' : 'from behind = instant';
       this.hud.append(el('div', 'dyn keys', `<kbd>Enter</kbd> slash (${tip})<br><kbd>Space</kbd> jump (hold = higher)`));
     }
     if (s.spectating) this.hud.append(el('div', 'dyn spect', `Spectating ${esc(s.spectating)} · <kbd>Enter</kbd> next`));
@@ -500,7 +499,7 @@ function modeButtons(mode: GameMode): string {
 
 function titleHint(mode: GameMode): string {
   const how = mode === 'dm'
-    ? 'Everyone for themselves: slash, knock people off roofs, respawn, most points in 3:00'
+    ? 'Deathmatch: seekers slash, hiders flash &amp; frost · catch a hider and you swap · most points in 3:00'
     : 'Hiders: run, jump the gaps, flash &amp; frost · Seekers: catch them and slash';
   return `${how} · <kbd>WASD</kbd> move <kbd>Space</kbd> jump <kbd>Enter</kbd> slash / throw <kbd>Q</kbd> switch grenade · gamepad works too`;
 }

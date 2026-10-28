@@ -66,8 +66,6 @@ export interface World {
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
   sun: THREE.DirectionalLight;
-  fadeables: { mesh: THREE.Object3D; prop: Prop; mats: THREE.MeshLambertMaterial[] }[];
-  bushes: { group: THREE.Group; x: number; z: number; r: number; base: number; mats: THREE.MeshLambertMaterial[] }[];
 }
 
 export const CAMERA_FOV = 30;
@@ -101,7 +99,7 @@ export function createWorld(canvasParent: HTMLElement): World {
   sun.shadow.radius = 4;
   scene.add(sun, sun.target);
 
-  const world: World = { scene, camera, renderer, sun, fadeables: [], bushes: [] };
+  const world: World = { scene, camera, renderer, sun };
   buildCity(world);
 
   window.addEventListener('resize', () => {
@@ -149,37 +147,11 @@ function buildCity(world: World): void {
     obj.position.set(p.x, p.base, p.z);
     if (p.rot) obj.rotation.y = p.rot;
     scene.add(shadowed(obj));
-    if (p.kind === 'tank' || p.kind === 'booth' || p.kind === 'chimney') {
-      const mats: THREE.MeshLambertMaterial[] = [];
-      obj.traverse(c => {
-        const m = (c as THREE.Mesh).material as THREE.MeshLambertMaterial | undefined;
-        if (m) {
-          const own = m.clone();
-          addMist(own);
-          own.transparent = true;
-          (c as THREE.Mesh).material = own;
-          mats.push(own);
-        }
-      });
-      world.fadeables.push({ mesh: obj, prop: p, mats });
-    }
   }
   for (const bu of BUSHES) {
     const g = buildBush(bu.r, rng);
     g.position.set(bu.x, bu.base, bu.z);
     scene.add(shadowed(g, true, false));
-    const mats: THREE.MeshLambertMaterial[] = [];
-    g.traverse(c => {
-      const m = (c as THREE.Mesh).material as THREE.MeshLambertMaterial | undefined;
-      if (m) {
-        const own = m.clone();
-        addMist(own);
-        own.transparent = true;
-        (c as THREE.Mesh).material = own;
-        mats.push(own);
-      }
-    });
-    world.bushes.push({ group: g, x: bu.x, z: bu.z, r: bu.r, base: bu.base, mats });
   }
   for (const bt of BUNTINGS) scene.add(buildBunting(bt.ax, bt.az, bt.bx, bt.bz, bt.base));
   buildSkyline(scene, rng);
@@ -490,18 +462,3 @@ export function mulberry(seed: number): () => number {
   };
 }
 
-// ── Per-frame: fade props that hide the player, see-through bush you're in ─
-export function updateOcclusion(world: World, px: number, py: number, pz: number, dt: number): void {
-  for (const f of world.fadeables) {
-    const p = f.prop;
-    const covers = Math.abs(p.x - px) < p.w / 2 + 0.7 && pz < p.z + p.d / 2 + 0.2 && pz > p.z - p.d / 2 - (p.base + p.h - py) * 0.75 - 0.6
-      && p.base + p.h > py + 0.6;
-    const target = covers ? 0.35 : 1;
-    for (const m of f.mats) m.opacity += (target - m.opacity) * Math.min(1, dt * 10);
-  }
-  for (const b of world.bushes) {
-    const inside = Math.hypot(b.x - px, b.z - pz) < b.r + 0.25 && Math.abs(py - b.base) < 0.6;
-    const target = inside ? 0.45 : 1;
-    for (const m of b.mats) m.opacity += (target - m.opacity) * Math.min(1, dt * 10);
-  }
-}

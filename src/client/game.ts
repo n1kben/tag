@@ -1,7 +1,7 @@
 // Client glue: lobby flow, fixed-step prediction + reconciliation for the local player,
 // snapshot interpolation for everyone else, and turning server events into juice.
 import * as THREE from 'three';
-import { createWorld, aimCamera, updateOcclusion, CAMERA_DIST, type World } from './world';
+import { createWorld, aimCamera, CAMERA_DIST, type World } from './world';
 import { Character, SliceDeath, CHAR_DEFS } from './characters';
 import { Fx } from './fx';
 import { UI, esc, type HudState } from './ui';
@@ -209,8 +209,9 @@ export function startGame(): void {
     spectate = null;
     for (const [id, c] of chars) c.setRole(roles[id] ?? 'hider');
     const mine = roles[myId];
-    if (gameMode === 'dm') ui.banner('DEATHMATCH!', 'Everyone for themselves · most points in 3:00', '#ffd23f', 2600);
-    else if (mine === 'hider') ui.banner('RUN!', `Round ${round} · get away before the seekers wake up`, '#23f0c7', 2600);
+    if (gameMode === 'dm') {
+      ui.banner(mine === 'hider' ? 'RUN!' : 'YOU\'RE IT', 'Deathmatch · catch a hider and you swap · 3:00', mine === 'hider' ? '#23f0c7' : '#ef767a', 2800);
+    } else if (mine === 'hider') ui.banner('RUN!', `Round ${round} · get away before the seekers wake up`, '#23f0c7', 2600);
     else if (mine === 'seeker') ui.banner('YOU\'RE IT', `Round ${round} · count to ten…`, '#ef767a', 2600);
     sfx.beep(true);
   }
@@ -239,6 +240,13 @@ export function startGame(): void {
     latest = s;
     phase = s.phase;
     timeLeft = s.timeLeft;
+    // Roles change mid-match in deathmatch (catch = swap): follow the server
+    const myPrevRole = roles[myId];
+    for (const p of s.players) roles[p.id] = p.role;
+    if (gameMode === 'dm' && s.me && myPrevRole && myPrevRole !== s.me.role) {
+      if (s.me.role === 'hider') { ui.banner('CAUGHT ONE!', 'You\'re a hider now · RUN!', '#23f0c7', 2000); sfx.win(); }
+      else ui.banner('YOU\'RE IT', 'Back in as a seeker…', '#ef767a', 1800);
+    }
     // Live scores (the Tab board and the deathmatch leaderboard); late joiners get a row too
     for (const sc of s.scores) {
       let row = standings.find(r => r.id === sc.id);
@@ -372,7 +380,7 @@ export function startGame(): void {
         const victim = esc(ui.nameOf(e.id));
         const icon = { stab: '🔪', backstab: '🗡️ backstab', fall: '💥 splat', void: e.by !== null ? '🧊 dropped' : '☁️ fell' }[e.cause];
         ui.killfeed(e.by !== null ? `${esc(ui.nameOf(e.by))} ${icon} ${victim}` : `${victim} ${icon}`);
-        if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', gameMode === 'dm' ? (e.by === null ? '−1 for falling off' : '') : 'Spectating · press Enter to switch', '#f0408f', 2200);
+        if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', gameMode === 'dm' ? (e.by === null ? '−1 for falling off' : roles[myId] === 'hider' ? 'Caught! You\'ll come back as a seeker' : '') : 'Spectating · press Enter to switch', '#f0408f', 2200);
         if (e.by === myId) ui.banner(e.cause === 'backstab' ? 'BACKSTAB!' : 'GOTCHA!', '', '#ffd23f', 1100);
         break;
       }
@@ -552,7 +560,6 @@ export function startGame(): void {
     aimCamera(world,
       camTarget.x + (Math.random() - 0.5) * shake, camTarget.y, camTarget.z + (Math.random() - 0.5) * shake,
       CAMERA_DIST * (1 - fx.zoomPunch * 2));
-    updateOcclusion(world, fx0, fy0, fz0, dt);
 
     // Name labels
     const v = new THREE.Vector3();
@@ -561,7 +568,7 @@ export function startGame(): void {
       v.set(c.root.position.x, c.root.position.y + 1.45, c.root.position.z).project(world.camera);
       const sx = (v.x * 0.5 + 0.5) * window.innerWidth, sy = (-v.y * 0.5 + 0.5) * window.innerHeight;
       const role = id === myId ? me?.role : remote.get(id)?.role;
-      const color = id === myId ? '#f0408f' : gameMode === 'dm' ? '#8a6bf0' : role === 'seeker' ? hex(COLOR_SEEKER) : '#14bfa0';
+      const color = id === myId ? '#f0408f' : role === 'seeker' ? hex(COLOR_SEEKER) : '#14bfa0';
       const hp = id === myId ? me?.hp ?? null : remote.get(id)?.hp ?? null;
       ui.label(id, sx, sy, id === myId ? 'YOU' : ui.nameOf(id), color, hp);
     }

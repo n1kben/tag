@@ -1,5 +1,5 @@
-// Deathmatch end-to-end with two real browsers: pick the mode in the lobby, play, die, respawn.
-// Usage: npx tsx scripts/dm-e2e.ts <baseUrl> <outDir>
+// Team Deathmatch end-to-end with two real browsers: pick the mode in the lobby, play,
+// get caught as a hider, come back as a seeker. Usage: npx tsx scripts/dm-e2e.ts <baseUrl> <outDir>
 import { chromium, type Page } from 'playwright-core';
 
 const [base, outDir] = process.argv.slice(2);
@@ -7,14 +7,16 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true, args:
 let failures = 0;
 const check = (ok: boolean, what: string) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${what}`); if (!ok) failures++; };
 
-async function waitVisible(page: Page, sel: string, ms = 15000): Promise<boolean> {
+async function waitFor(fn: () => Promise<boolean>, ms = 15000): Promise<boolean> {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    if (await page.locator(sel).first().isVisible().catch(() => false)) return true;
+    if (await fn().catch(() => false)) return true;
     await new Promise(r => setTimeout(r, 200));
   }
   return false;
 }
+const visible = (page: Page, sel: string) => () => page.locator(sel).first().isVisible();
+const chip = async (page: Page) => (await page.textContent('.role-chip').catch(() => ''))?.trim() ?? '';
 
 async function client(name: string): Promise<Page> {
   const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
@@ -25,29 +27,34 @@ async function client(name: string): Promise<Page> {
 // Title screen mode switch
 const t = await client('T');
 await t.goto(base);
-await waitVisible(t, '[data-m=dm]');
+await waitFor(visible(t, '[data-m=dm]'));
 await t.click('[data-m=dm]');
 check(await t.locator('[data-m=dm].on').count() === 1, 'title: Deathmatch can be selected');
 await t.screenshot({ path: `${outDir}/dm-title.png` });
 await t.close();
 
 const a = await client('A');
-const spawnsForA: number[] = [];
-let myIdA = -1;
-a.on('websocket', ws => ws.on('framereceived', f => {
-  const s = String(f.payload);
-  if (s.startsWith('{"type":"welcome"')) myIdA = JSON.parse(s).playerId;
-  if (s.startsWith('{"type":"ev"')) for (const e of JSON.parse(s).events) if (e.k === 'spawn' && e.id === myIdA) spawnsForA.push(Date.now());
-}));
+const ids = new Map<Page, number>();
+const caughtIds = new Set<number>();
+const hiderId = (p: Page) => ids.get(p) ?? -1;
+function watch(page: Page): void {
+  page.on('websocket', ws => ws.on('framereceived', f => {
+    const s = String(f.payload);
+    if (s.startsWith('{"type":"welcome"')) ids.set(page, JSON.parse(s).playerId);
+    if (s.startsWith('{"type":"ev"')) for (const e of JSON.parse(s).events) if (e.k === 'kill' && e.by !== null) caughtIds.add(e.id);
+  }));
+}
+watch(a);
 await a.goto(base);
 await a.getByText('CREATE ROOM').click();
-check(await waitVisible(a, '.room-code'), 'room created');
+check(await waitFor(visible(a, '.room-code')), 'room created');
 const code = (await a.textContent('.room-code'))!.trim();
 await a.click('.lobby [data-m=dm]');
 
 const b = await client('B');
+watch(b);
 await b.goto(`${base}/#${code}`);
-check(await waitVisible(b, '.room-code'), 'B joined');
+check(await waitFor(visible(b, '.room-code')), 'B joined');
 await new Promise(r => setTimeout(r, 600));
 check(await b.locator('.lobby [data-m=dm].on').count() === 1, 'B sees the room switched to Deathmatch');
 await a.getByText('+ BOT').click();
@@ -59,24 +66,24 @@ await a.locator('[data-a=ready]').click();
 await new Promise(r => setTimeout(r, 300));
 await b.locator('[data-a=ready]').click();
 
-check(await waitVisible(a, '.role-chip') && await waitVisible(b, '.role-chip'), 'match started on both');
-check((await a.textContent('.role-chip'))?.trim() === 'DEATHMATCH', 'HUD says DEATHMATCH (no hide phase)');
-check(await waitVisible(a, '.mini', 3000), 'live leaderboard shown');
-check(/^\d:\d\d$/.test((await a.textContent('.timer'))?.trim() ?? ''), 'match clock running straight away');
-await new Promise(r => setTimeout(r, 1500));
+check(await waitFor(visible(a, '.role-chip')) && await waitFor(visible(b, '.role-chip')), 'match started on both');
+const roleA = await chip(a), roleB = await chip(b);
+check(/^(HIDER|SEEKER) · DM$/.test(roleA) && /^(HIDER|SEEKER) · DM$/.test(roleB), `teams in deathmatch (A=${roleA}, B=${roleB})`);
+check(((await a.textContent('.timer')) ?? '').startsWith('HIDE'), 'hiders get the head start');
+check(await waitFor(visible(a, '.teams'), 3000) && await waitFor(visible(a, '.mini'), 3000), 'team pips + live leaderboard shown');
+await a.screenshot({ path: `${outDir}/dm-hide.png` });
+check(await waitFor(async () => /^\d:\d\d$/.test(((await a.textContent('.timer')) ?? '').trim()), 15000), 'deathmatch clock starts after the head start');
 await a.screenshot({ path: `${outDir}/dm-play.png` });
 
-// A stands still; the bots will come for them. Wait for death → countdown → respawn.
-const died = await waitVisible(a, '.respawn', 90000);
-check(died, 'A was killed and sees the respawn countdown');
-if (died) {
-  await a.screenshot({ path: `${outDir}/dm-dead.png` });
-  const end = Date.now() + 8000;
-  while (Date.now() < end && spawnsForA.length === 0) await new Promise(r => setTimeout(r, 200));
-  check(spawnsForA.length > 0, 'A respawned');
-  await new Promise(r => setTimeout(r, 500));
-  check(!(await a.locator('.respawn').isVisible().catch(() => false)), 'countdown gone after respawn');
-  await a.screenshot({ path: `${outDir}/dm-respawned.png` });
+// A human hider stands still; the seeker bots catch them → they come back as a seeker.
+const hider = roleA.startsWith('HIDER') ? a : roleB.startsWith('HIDER') ? b : null;
+if (!hider) {
+  console.log('SKIP catch/swap check: both humans started as seekers this time');
+} else {
+  // The catch can land within a second of the seek phase, so watch for the outcome, not the 2s overlay
+  const swapped = await waitFor(async () => (await chip(hider)) === 'SEEKER · DM', 90000);
+  check(swapped && caughtIds.has(hiderId(hider)), 'human hider got caught (kill event) and is back in as a SEEKER');
+  await hider.screenshot({ path: `${outDir}/dm-swapped.png` });
 }
 const board = await a.locator('.mini div').allTextContents();
 console.log('leaderboard:', board.join(' | '));

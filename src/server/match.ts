@@ -1,14 +1,15 @@
 // One match: rounds, phases, combat, grenades. Two modes:
 // - Hide 'n Seek plays like CS 1.6 HNS, really a game of tag. Everyone is visible; hiders get a
 //   head start and survive by running, jumping gaps and throwing grenades. See README "Rules".
-// - Deathmatch: everyone slashes everyone, respawn after a beat, most points when time runs out.
+// - Deathmatch: same teams and kit, no rounds. Catch a hider and you swap sides; they respawn as a
+//   seeker. Points for catches, drops and time survived; most points when the clock runs out.
 import {
   TICK_DT, SNAPSHOT_EVERY, PLAYER_RADIUS, EYE_HEIGHT, SAFE_FALL_SPEED, FATAL_FALL_SPEED, KILL_Y, MAX_HP,
   STAB_RANGE, STAB_ARC_COS, STAB_DAMAGE, BACKSTAB_DAMAGE, BACKSTAB_MAX_SPEED,
   NADE_KINDS, NADE_LOADOUT, NADE_FUSE, NADE_THROW_SPEED, NADE_THROW_UP, NADE_GRAVITY,
   NADE_MIN_CHARGE, NADE_CHARGE_TIME, FROST_RADIUS, FROST_TIME, CHILL_RADIUS, CHILL_TIME, FLASH_RADIUS,
   FLASH_TIME,
-  HIDE_TIME, ROUND_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, DM_TIME, RESPAWN_TIME, SPAWN_PROTECTION, type NadeKind,
+  HIDE_TIME, ROUND_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, DM_TIME, RESPAWN_TIME, SPAWN_PROTECTION, SWAP_PROTECTION, SURVIVE_POINT_EVERY, type NadeKind,
 } from '../shared/constants';
 import { heightAt, lineOfSight, SEEKER_SPAWNS, HIDER_SPAWNS, BUILDINGS, PROPS, BUSHES } from '../shared/map';
 import { newBody, stepBody, BTN_ACTION, BTN_ALT, type Body, type Input, type Role, type Status } from '../shared/sim';
@@ -47,6 +48,7 @@ export interface MPlayer {
   shovedT: number;
   respawnT: number; // deathmatch: seconds until back in, 0 = not waiting
   prot: number; // deathmatch spawn protection left
+  survT: number; // deathmatch: time alive as a hider since the last survival point
   score: number;
   kills: number;
   survived: number;
@@ -82,9 +84,9 @@ export class Match {
     for (const p of roster) this.addPlayer(p);
   }
 
-  /** Who can hurt whom: the other team in Hide 'n Seek, anyone else in Deathmatch. */
+  /** Who can hurt whom: the other team, in both modes. */
   private enemies(a: MPlayer, b: MPlayer): boolean {
-    return a !== b && (this.mode === 'dm' || a.role !== b.role);
+    return a !== b && a.role !== b.role;
   }
 
   addPlayer(p: LobbyPlayer): MPlayer {
@@ -93,11 +95,15 @@ export class Match {
       body: newBody(0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, starved: 0,
       role: 'hider', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
       nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
-      respawnT: 0, prot: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
+      respawnT: 0, prot: 0, survT: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
     };
     this.players.push(mp);
-    // Joining a running deathmatch: drop in after a short beat
-    if (this.mode === 'dm' && this.round > 0) { mp.role = 'seeker'; mp.respawnT = 1; }
+    // Joining a running deathmatch: drop into the smaller team after a short beat
+    if (this.mode === 'dm' && this.round > 0) {
+      const live = this.active().filter(q => q !== mp);
+      mp.role = live.filter(q => q.role === 'seeker').length * 2 < live.length ? 'seeker' : 'hider';
+      mp.respawnT = 1;
+    }
     return mp;
   }
 
@@ -145,16 +151,6 @@ export class Match {
   private startRound(first: boolean): void {
     this.round++;
     const ps = this.active();
-    if (this.mode === 'dm') {
-      for (const p of ps) { p.role = 'seeker'; this.spawn(p, false); }
-      this.projectiles = [];
-      this.phase = 'seek';
-      this.timeLeft = DM_TIME;
-      const roles: Record<number, Role> = {};
-      for (const p of ps) roles[p.id] = p.role;
-      this.broadcast({ type: 'round_start', round: this.round, roles });
-      return;
-    }
     if (first) {
       // Roughly even teams, like a CS server autobalance; seekers are the smaller side
       const shuffled = [...ps].sort(() => Math.random() - 0.5);
@@ -212,7 +208,7 @@ export class Match {
     this.swapPending = swap;
   }
 
-  /** Deathmatch (re)spawn on the roof spot farthest from everyone still alive. */
+  /** Deathmatch respawn on the roof spot farthest from everyone still alive, with the team's kit. */
   private spawn(p: MPlayer, announce: boolean): void {
     const others = this.active().filter(q => q.alive && q !== p);
     let best: [number, number] = [0, 0], bestD = -1;
@@ -229,10 +225,12 @@ export class Match {
     p.hp = MAX_HP;
     p.alive = true;
     p.frozen = p.chilled = p.blind = 0;
-    p.nades = NO_NADES();
+    p.nades = p.role === 'hider' ? { ...NADE_LOADOUT } : NO_NADES();
+    p.nadeSel = 'flash';
     p.aimT = -1;
     p.stabPending = false;
     p.respawnT = 0;
+    p.survT = 0;
     p.prot = SPAWN_PROTECTION;
     p.brain?.reset();
     if (announce) this.events.push({ k: 'spawn', id: p.id, x: p.body.x, y: p.body.y, z: p.body.z });
@@ -252,7 +250,7 @@ export class Match {
 
     if (this.phase === 'hide' && this.timeLeft <= 0) {
       this.phase = 'seek';
-      this.timeLeft = ROUND_TIME;
+      this.timeLeft = this.mode === 'dm' ? DM_TIME : ROUND_TIME;
     }
 
     for (const p of this.active()) this.stepPlayer(p);
@@ -260,6 +258,13 @@ export class Match {
     this.stepProjectiles();
 
     if (this.mode === 'dm') {
+      // Hiders earn points just for staying alive
+      if (this.phase === 'seek') {
+        for (const p of this.active()) {
+          if (p.role !== 'hider' || !p.alive) continue;
+          if ((p.survT += TICK_DT) >= SURVIVE_POINT_EVERY) { p.survT -= SURVIVE_POINT_EVERY; p.score += 1; p.survived += 1; }
+        }
+      }
       if (this.phase === 'seek' && this.timeLeft <= 0) {
         this.phase = 'end';
         this.timeLeft = ROUND_END_TIME;
@@ -323,7 +328,7 @@ export class Match {
     p.blind = Math.max(0, p.blind - TICK_DT);
     p.shovedT = Math.max(0, p.shovedT - TICK_DT);
     p.prot = Math.max(0, p.prot - TICK_DT);
-    if (!p.alive && p.respawnT > 0 && this.phase === 'seek' && (p.respawnT -= TICK_DT) <= 0) this.spawn(p, true);
+    if (!p.alive && p.respawnT > 0 && this.phase !== 'end' && (p.respawnT -= TICK_DT) <= 0) this.spawn(p, true);
     if (!p.alive || this.phase === 'end') return; // freeze the scene on the round result
 
     const st = this.status(p);
@@ -428,6 +433,17 @@ export class Match {
     if (by && this.enemies(by, t)) { by.score += 1; by.kills += 1; }
     if (this.mode === 'dm') {
       if (!by && (cause === 'fall' || cause === 'void')) t.score -= 1; // CS-style suicide penalty
+      if (by && by.role === 'seeker' && t.role === 'hider') {
+        // HNS deathmatch swap: the catcher runs now, the caught one hunts after respawning
+        by.role = 'hider';
+        by.nades = { ...NADE_LOADOUT };
+        by.nadeSel = 'flash';
+        by.prot = SWAP_PROTECTION;
+        by.survT = 0;
+        by.stabPending = false;
+        by.brain?.reset();
+        t.role = 'seeker';
+      }
       t.respawnT = RESPAWN_TIME;
     }
     this.events.push({

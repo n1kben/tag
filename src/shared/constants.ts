@@ -72,10 +72,13 @@ export const CHILL_RADIUS = 6; // seekers inside are slowed
 export const CHILL_TIME = 7;
 export const CHILL_SPEED = 0.6;
 
-// Deathmatch: free-for-all slashing, respawns, most points when the clock runs out
+// Deathmatch (CS "HNS deathmatch"): same teams and kit as Hide 'n Seek, no rounds.
+// Catch a hider and you swap: you become a hider, they respawn as a seeker.
 export const DM_TIME = 180;
 export const RESPAWN_TIME = 2;
 export const SPAWN_PROTECTION = 1.5; // can't be hurt right after (re)spawning
+export const SWAP_PROTECTION = 1; // grace for a seeker who just became a hider
+export const SURVIVE_POINT_EVERY = 15; // hiders score a point for every this-many seconds alive
 
 // Round flow (hnsmod defaults)
 export const HIDE_TIME = 10;

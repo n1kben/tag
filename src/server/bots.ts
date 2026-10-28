@@ -123,7 +123,7 @@ export class Brain {
     if (me.blind > 0.6) { this.goal = null; this.leaping = false; return { mx: 0, mz: 0, b: 0 }; }
 
     const visible = m.players
-      .filter(p => p.alive && p.connected && p !== me && (m.mode === 'dm' ? !p.prot : p.role === 'hider'))
+      .filter(p => p.alive && p.connected && p.role === 'hider' && !p.prot)
       .map(t => ({ t, d: Math.hypot(t.body.x - b.x, t.body.z - b.z) }))
       .sort((a, c) => a.d - c.d);
     const target = visible[0];
