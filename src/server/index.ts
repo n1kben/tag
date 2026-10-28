@@ -42,7 +42,7 @@ function serveStatic(req: IncomingMessage, res: ServerResponse): void {
 }
 
 const server = createServer(serveStatic);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: 4096 });
 
 wss.on('connection', (ws: WebSocket) => {
   ws.on('message', (data: Buffer) => {
@@ -52,29 +52,40 @@ wss.on('connection', (ws: WebSocket) => {
     } catch {
       return;
     }
-    switch (msg.type) {
-      case 'ping':
-        ws.send(JSON.stringify({ type: 'pong', t: msg.t }));
-        break;
-      case 'create_room':
-        leaveRoom(ws);
-        createRoom(ws, !!msg.practice);
-        break;
-      case 'join_room':
-        leaveRoom(ws);
-        if (!joinRoom(ws, String(msg.roomId))) {
-          ws.send(JSON.stringify({ type: 'error', msg: 'Room not found or full' }));
-        }
-        break;
-      case 'leave':
-        leaveRoom(ws);
-        break;
-      default:
-        findRoom(ws)?.handle(ws, msg);
+    if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
+    try {
+      dispatch(ws, msg);
+    } catch (err) {
+      console.error('bad message', err); // one client must never take the server down
     }
   });
+  // Oversized/garbled frames emit 'error'; unhandled, that would kill the whole process
+  ws.on('error', () => ws.terminate());
   ws.on('close', () => leaveRoom(ws));
 });
+
+function dispatch(ws: WebSocket, msg: ClientMessage): void {
+  switch (msg.type) {
+    case 'ping':
+      ws.send(JSON.stringify({ type: 'pong', t: msg.t }));
+      break;
+    case 'create_room':
+      leaveRoom(ws);
+      createRoom(ws, !!msg.practice);
+      break;
+    case 'join_room':
+      leaveRoom(ws);
+      if (!joinRoom(ws, String(msg.roomId))) {
+        ws.send(JSON.stringify({ type: 'error', msg: 'Room not found or full' }));
+      }
+      break;
+    case 'leave':
+      leaveRoom(ws);
+      break;
+    default:
+      findRoom(ws)?.handle(ws, msg);
+  }
+}
 
 server.listen(PORT, () => {
   console.log(`Rooftop Fu server listening on port ${PORT}`);

@@ -105,7 +105,7 @@ export class Fx {
       this.ring(x, y, z, 0xffffff, FROST_RADIUS * 0.7, 0.35);
       for (let i = 0; i < 18; i++) {
         const a = Math.random() * Math.PI * 2, sp = 3 + Math.random() * 5;
-        this.spawn(i % 2 ? 0xbfeaff : 0xffffff, p.clone(), new THREE.Vector3(Math.cos(a) * sp, 3 + Math.random() * 4, Math.sin(a) * sp), 0.1 + Math.random() * 0.1, 0.7, { gravity: 14, basic: false, geo: new THREE.OctahedronGeometry(1) });
+        this.spawn(i % 2 ? 0xbfeaff : 0xffffff, p.clone(), new THREE.Vector3(Math.cos(a) * sp, 3 + Math.random() * 4, Math.sin(a) * sp), 0.1 + Math.random() * 0.1, 0.7, { gravity: 14, basic: false, geo: shardGeo });
       }
     } else if (kind === 'smoke') {
       this.puff(x, y, z, 10, 0xd9dbee, 0.3);
@@ -140,7 +140,11 @@ export class Fx {
   syncSmokes(list: { id: number; x: number; y: number; z: number; t: number }[]): void {
     const live = new Set(list.map(s => s.id));
     for (const [id, s] of this.smokes) {
-      if (!live.has(id)) { s.group.removeFromParent(); this.smokes.delete(id); }
+      if (!live.has(id)) {
+        s.group.removeFromParent();
+        for (const b of s.blobs) (b.material as THREE.Material).dispose();
+        this.smokes.delete(id);
+      }
     }
     for (const sm of list) {
       let s = this.smokes.get(sm.id);
@@ -249,10 +253,15 @@ export class Fx {
   }
 }
 
+const nadeGeo = new THREE.IcosahedronGeometry(0.17, 1);
+const capGeo = new THREE.CylinderGeometry(0.06, 0.07, 0.1, 8);
+const rangGeo = new THREE.BoxGeometry(0.16, 0.08, 0.6);
+const shardGeo = new THREE.OctahedronGeometry(1);
+
 function makeNade(kind: NadeKind): THREE.Object3D {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.IcosahedronGeometry(0.17, 1), mat(NADE_COLORS[kind]));
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.1, 8), mat(0x5d4a58));
+  const body = new THREE.Mesh(nadeGeo, mat(NADE_COLORS[kind]));
+  const cap = new THREE.Mesh(capGeo, mat(0x5d4a58));
   cap.position.y = 0.17;
   g.add(body, cap);
   g.traverse(o => { o.castShadow = true; });
@@ -261,9 +270,8 @@ function makeNade(kind: NadeKind): THREE.Object3D {
 
 function makeRang(): THREE.Object3D {
   const g = new THREE.Group();
-  const geo = new THREE.BoxGeometry(0.16, 0.08, 0.6);
   for (const a of [0.6, -0.6]) {
-    const arm = new THREE.Mesh(geo, mat(0xc98a4f));
+    const arm = new THREE.Mesh(rangGeo, mat(0xc98a4f));
     arm.rotation.y = a;
     arm.position.set(Math.sin(a) * 0.22, 0, Math.cos(a) * 0.22);
     g.add(arm);

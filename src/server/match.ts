@@ -30,6 +30,7 @@ export interface MPlayer {
   input: Input;
   queue: { seq: number; input: Input }[];
   ack: number;
+  starved: number; // ticks without a fresh input
   role: Role;
   hp: number;
   alive: boolean;
@@ -72,6 +73,7 @@ export class Match {
   tick = 0;
   seekerLossStreak = 0;
   rangUnlocked = false;
+  private swapPending = false;
   spotted = new Set<number>(); // hiders currently seen by any seeker
   smokes: SmokeCloud[] = [];
   private projectiles: Projectile[] = [];
@@ -88,7 +90,7 @@ export class Match {
   addPlayer(p: LobbyPlayer): MPlayer {
     const mp: MPlayer = {
       id: p.id, name: p.name, character: p.character, bot: p.bot, connected: true,
-      body: newBody(0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0,
+      body: newBody(0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, starved: 0,
       role: 'hider', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
       nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, rangHeld: false, shovedBy: 0, shovedT: 0,
       score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
@@ -147,6 +149,8 @@ export class Match {
       const seekers = Math.max(1, Math.floor(ps.length / 2));
       shuffled.forEach((p, i) => { p.role = i < seekers ? 'seeker' : 'hider'; });
     } else {
+      if (this.swapPending) for (const p of this.players) p.role = p.role === 'seeker' ? 'hider' : 'seeker';
+      this.swapPending = false;
       // Balance late joiners into the smaller team
       const nS = ps.filter(p => p.role === 'seeker').length;
       const nH = ps.length - nS;
@@ -187,6 +191,7 @@ export class Match {
   private endRound(winner: Role): void {
     this.phase = 'end';
     this.timeLeft = ROUND_END_TIME;
+    this.projectiles = []; // nothing in flight may hurt anyone after the result
     if (winner === 'hider') {
       // hns_hiders_alivefrags: every surviving hider scores
       for (const p of this.active()) {
@@ -202,7 +207,7 @@ export class Match {
     this.broadcast({
       type: 'round_end', round: this.round, winner, swap, standings: this.standings(), rangNext: this.rangUnlocked,
     });
-    if (swap) for (const p of this.players) p.role = p.role === 'seeker' ? 'hider' : 'seeker';
+    this.swapPending = swap;
   }
 
   standings(): Standing[] {
@@ -247,7 +252,13 @@ export class Match {
     }
 
     if (this.events.length) {
-      this.broadcast({ type: 'ev', events: this.events });
+      // Seekers sitting out the hide phase must not learn where grenades land
+      const hideSafe = this.events.filter(e => e.k !== 'bounce' && e.k !== 'det' && e.k !== 'throw');
+      for (const p of this.players) {
+        if (p.bot || !p.connected) continue;
+        const events = this.phase === 'hide' && p.role === 'seeker' && p.alive ? hideSafe : this.events;
+        if (events.length) this.host.send(p.id, { type: 'ev', events });
+      }
       this.events = [];
     }
     if (this.tick % SNAPSHOT_EVERY === 0) this.sendSnapshots();
@@ -270,7 +281,9 @@ export class Match {
       // Exactly one input per tick keeps prediction in lockstep; drain backlog if a client bursts
       while (p.queue.length > 4) p.ack = p.queue.shift()!.seq;
       const next = p.queue.shift();
-      if (next) { p.ack = next.seq; p.input = next.input; }
+      if (next) { p.ack = next.seq; p.input = next.input; p.starved = 0; }
+      // A backgrounded tab stops sending; don't keep running them off a roof on their last input
+      else if (++p.starved > 6) p.input = { mx: 0, mz: 0, b: 0 };
       input = p.input;
     }
 
@@ -602,10 +615,15 @@ export class Match {
     const projectiles: NetProjectile[] = this.projectiles.map(pr => ({
       id: pr.id, kind: pr.kind, x: r2(pr.x), y: r2(pr.y), z: r2(pr.z), owner: pr.owner,
     }));
+    // A grenade's first moments give away where the thrower stands: seekers get it once it's away
+    const hiderNades = new Set(this.projectiles.filter(pr => pr.kind !== 'rang' && pr.t < 0.3).map(pr => pr.id));
     const smokes = this.smokes.map(s => ({ id: s.id, x: s.x, y: s.y, z: s.z, t: r2(s.t) }));
     for (const viewer of this.players) {
       if (viewer.bot || !viewer.connected) continue;
       const players = this.active().filter(p => this.canSee(viewer, p)).map(p => this.netPlayer(p));
+      const blindSeeker = viewer.role === 'seeker' && viewer.alive && this.phase !== 'end';
+      const visibleProjectiles = !blindSeeker ? projectiles
+        : this.phase === 'hide' ? [] : projectiles.filter(pr => !hiderNades.has(pr.id));
       const snap: Snapshot = {
         type: 'snap', tick: this.tick, phase: this.phase, timeLeft: r2(Math.max(0, this.timeLeft)), ack: viewer.ack,
         me: {
@@ -613,7 +631,7 @@ export class Match {
           frozen: viewer.frozen, chilled: viewer.chilled, blind: viewer.blind,
           rangHeld: viewer.rangHeld, rangUnlocked: this.rangUnlocked, nades: viewer.nades, nadeSel: viewer.nadeSel,
         },
-        players, projectiles, smokes,
+        players, projectiles: visibleProjectiles, smokes,
       };
       this.host.send(viewer.id, snap);
     }

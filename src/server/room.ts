@@ -69,7 +69,8 @@ export class Room {
     if (this.match) {
       // Late join: spectate until the next round assigns a team
       const mp = this.match.addPlayer(p);
-      mp.role = this.match.players.filter(q => q.role === 'seeker').length * 2 < this.match.players.length ? 'seeker' : 'hider';
+      const live = this.match.players.filter(q => q.connected);
+      mp.role = live.filter(q => q.role === 'seeker').length * 2 < live.length - 1 ? 'seeker' : 'hider';
       this.sendTo(p.id, { type: 'match_start', roster: this.roster, rounds: 0 });
     }
     this.broadcastLobby();
@@ -90,6 +91,7 @@ export class Room {
       return;
     }
     this.broadcastLobby();
+    if (!this.match) this.maybeStart(); // the last unready player may have just left
   }
 
   handle(ws: WebSocket, msg: ClientMessage): void {
@@ -99,14 +101,15 @@ export class Room {
 
     switch (msg.type) {
       case 'input':
+        if (!Number.isFinite(msg.seq)) return;
         this.match?.pushInput(id, msg.seq, {
-          mx: clamp1(msg.mx), mz: clamp1(msg.mz), b: msg.b & 7,
+          mx: clamp1(msg.mx), mz: clamp1(msg.mz), b: (Number(msg.b) || 0) & 7,
         });
         break;
       case 'profile':
         if (this.match) return;
         if (typeof msg.name === 'string' && msg.name.trim()) me.name = msg.name.trim().slice(0, 16);
-        if (typeof msg.character === 'number') me.character = ((msg.character % CHARACTERS.length) + CHARACTERS.length) % CHARACTERS.length;
+        if (Number.isInteger(msg.character)) me.character = ((msg.character! % CHARACTERS.length) + CHARACTERS.length) % CHARACTERS.length;
         this.broadcastLobby();
         break;
       case 'ready':

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { createWorld, aimCamera, updateOcclusion, CAMERA_DIST, type World } from './world';
 import { Character, SliceDeath, CHAR_DEFS } from './characters';
 import { Fx } from './fx';
-import { UI, type HudState } from './ui';
+import { UI, esc, type HudState } from './ui';
 import { Network } from './net';
 import { readInput, isHeld, setInputEnabled } from './input';
 import { sfx, spatial, setMuted, isMuted } from './audio';
@@ -253,7 +253,8 @@ export function startGame(): void {
     for (const k of BODY_KEYS) (server as unknown as Record<string, unknown>)[k] = me[k];
     pending = pending.filter(p => p.seq > s.ack);
     const st = myStatus()!;
-    for (const p of pending) stepBody(server, p.input, st, TICK_DT);
+    // The server doesn't step bodies at round end or when dead; neither do we
+    if (me.alive && s.phase !== 'end') for (const p of pending) stepBody(server, p.input, st, TICK_DT);
     if (pred && me.alive) {
       const dx = pred.x - server.x, dy = pred.y - server.y, dz = pred.z - server.z;
       if (Math.hypot(dx, dy, dz) < 3) errOffset.add(new THREE.Vector3(dx, dy, dz));
@@ -270,7 +271,11 @@ export function startGame(): void {
     net.send({ type: 'input', seq, mx: input.mx, mz: input.mz, b: input.b });
     pending.push({ seq, input });
     if (pending.length > 120) pending.shift();
-    const ev = stepBody(pred, input, st, TICK_DT);
+    const frozenScene = phase === 'end' || !latest.me?.alive;
+    const ev = frozenScene
+      ? { jumped: false, landed: 0, lunged: false, pressed: input.b & ~pred.prevB, released: 0 }
+      : stepBody(pred, input, st, TICK_DT);
+    if (frozenScene) pred.prevB = input.b;
     const c = chars.get(myId);
     if (ev.jumped) { fx.puff(pred.x, pred.y, pred.z, 5); sfx.jump(); }
     if (ev.landed > 3) { fx.puff(pred.x, pred.y, pred.z, 6); sfx.land(Math.min(1, ev.landed / 12)); c?.land(ev.landed); }
@@ -343,9 +348,9 @@ export function startGame(): void {
         sfx.kill(Math.max(0.25, sp.vol), sp.pan);
         // Boomerang Fu holds the frame on a kill: freeze + zoom punch when it's near us
         if (sp.vol > 0.3 || e.id === myId || e.by === myId) { fx.freeze(0.12, 0.08); fx.addShake(0.4); }
-        const victim = ui.nameOf(e.id);
+        const victim = esc(ui.nameOf(e.id));
         const icon = { stab: '🔪', backstab: '🗡️ backstab', fall: '💥 splat', void: '☁️ fell', boom: '💣', rang: '🪃' }[e.cause];
-        ui.killfeed(e.by !== null ? `${ui.nameOf(e.by)} ${icon} ${victim}` : `${victim} ${icon}`);
+        ui.killfeed(e.by !== null ? `${esc(ui.nameOf(e.by))} ${icon} ${victim}` : `${victim} ${icon}`);
         if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', 'Spectating · press J to switch', '#f0408f', 2200);
         if (e.by === myId) ui.banner(e.cause === 'backstab' ? 'BACKSTAB!' : 'GOTCHA!', '', '#ffd23f', 1100);
         break;

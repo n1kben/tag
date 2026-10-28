@@ -57,7 +57,7 @@ export const BUILDINGS: Building[] = [
   B(6, -21, -12, -11, -1, 3.0, 'tower'),
   B(7, -8.5, -9, 8.5, 3, 1.0, 'plaza'),
   B(8, 11, -11, 22, 0, 2.0, 'terra'),
-  B(9, 24, -10, 34, 2, 0.5, 'cream'),
+  B(9, 24, -10, 34, 2, 0, 'cream'),
   // South row
   B(10, -34, 4, -21, 14, 2.0, 'terra'),
   B(11, -18, 6, -6, 17, 0.5, 'mint'),
@@ -108,7 +108,7 @@ const PROP_SPECS: PropSpec[] = [
   ['chimney', -31, 6], ['ac', -25, 11], ['skylight', -29, 10.5],
   ['tank', -10, 14], ['crate', -16, 8], ['vent', -8, 8],
   ['booth', 3, 9.5], ['ac', -1, 14],
-  ['crate', 20.5, 11.6], ['skylight', 16, 5], ['vent', 21.5, 4.5],
+  ['crate', 20.5, 11.6], ['skylight', 16, 5], ['vent', 14, 11.5],
   ['crate', 22.2, 7.3], ['crate2', 22.2, 8.7],
   ['tank', 31, 11], ['chimney', 28, 6.5],
   ['ac', -26, 20], ['crate', -19, 23], ['chimney', -29, 23.5],

@@ -366,6 +366,14 @@ export class Character {
 
   dispose(): void {
     this.root.removeFromParent();
+    // Geometries are per-instance; shared cached materials (userData.own unset) stay alive
+    this.root.traverse(o => {
+      const me = o as THREE.Mesh;
+      if (!me.isMesh) return;
+      me.geometry.dispose();
+      const ma = me.material as THREE.Material;
+      if (ma.userData.own || me === this.ring || me === this.ice) ma.dispose();
+    });
   }
 
   /** The food body without gear, for the slice effect and lobby portraits. */
@@ -456,7 +464,11 @@ export class SliceDeath {
       if (this.t > 2.6) h.obj.scale.setScalar(Math.max(0.001, 1 - (this.t - 2.6) * 3));
     }
     if (this.t > 3) {
-      for (const h of this.halves) h.obj.removeFromParent();
+      for (const h of this.halves) {
+        h.obj.removeFromParent();
+        // Geometry is shared with the living character's clone source; only the slice materials are ours
+        h.obj.traverse(o => { const me = o as THREE.Mesh; if (me.isMesh) (me.material as THREE.Material).dispose(); });
+      }
       this.done = true;
     }
   }
