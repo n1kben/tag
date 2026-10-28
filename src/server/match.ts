@@ -1,17 +1,18 @@
-// One match of Hide 'n Seek on Rooftops: rounds, phases, combat, grenades, visibility.
-// Rules follow the CS 1.6 hidenseek plugin defaults (see README "Rules").
+// One match of rooftop Hide 'n Seek: rounds, phases, combat, grenades.
+// Plays like CS 1.6 HNS: really a game of tag. Everyone is visible; hiders get a head start
+// and survive by running, jumping gaps and throwing grenades. See README "Rules".
 import {
   TICK_DT, SNAPSHOT_EVERY, PLAYER_RADIUS, EYE_HEIGHT, SAFE_FALL_SPEED, FATAL_FALL_SPEED, KILL_Y, MAX_HP,
-  STAB_RANGE, STAB_ARC_COS, STAB_DAMAGE, BACKSTAB_DAMAGE, BACKSTAB_MAX_SPEED, NUBSLASH_LOSSES, RANG_SPEED, RANG_OUT_TIME,
-  RANG_RADIUS, RANG_DAMAGE, NADE_KINDS, NADE_LOADOUT, NADE_FUSE, NADE_THROW_SPEED, NADE_THROW_UP,
+  STAB_RANGE, STAB_ARC_COS, STAB_DAMAGE, BACKSTAB_DAMAGE, BACKSTAB_MAX_SPEED,
+  NADE_KINDS, NADE_LOADOUT, NADE_FUSE, NADE_THROW_SPEED, NADE_THROW_UP, NADE_GRAVITY,
   NADE_MIN_CHARGE, NADE_CHARGE_TIME, FROST_RADIUS, FROST_TIME, CHILL_RADIUS, CHILL_TIME, FLASH_RADIUS,
-  FLASH_TIME, SMOKE_RADIUS, SMOKE_TIME, BOOM_RADIUS, BOOM_KNOCK, BOOM_DAMAGE, VIEW_RANGE, BUSH_REVEAL_RANGE,
-  HIDE_TIME, ROUND_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, GRAVITY, type NadeKind,
+  FLASH_TIME, SMOKE_RADIUS, SMOKE_TIME, BOOM_RADIUS, BOOM_KNOCK, BOOM_DAMAGE,
+  HIDE_TIME, ROUND_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, type NadeKind,
 } from '../shared/constants';
-import { heightAt, inBush, lineOfSight, SEEKER_SPAWNS, HIDER_SPAWNS, type Smoke } from '../shared/map';
+import { heightAt, lineOfSight, SEEKER_SPAWNS, HIDER_SPAWNS, type Smoke } from '../shared/map';
 import { newBody, stepBody, BTN_ACTION, BTN_ALT, type Body, type Input, type Role, type Status } from '../shared/sim';
 import type {
-  GameEvent, LobbyPlayer, NetPlayer, NetProjectile, Phase, ServerMessage, Snapshot, Standing,
+  GameEvent, KillCause, LobbyPlayer, NetPlayer, NetProjectile, Phase, ServerMessage, Snapshot, Standing,
 } from '../shared/protocol';
 import { Brain } from './bots';
 
@@ -41,7 +42,6 @@ export interface MPlayer {
   nadeSel: NadeKind;
   aimT: number; // grenade charge time, -1 when not aiming
   stabPending: boolean;
-  rangHeld: boolean;
   shovedBy: number; // last opponent to knock us around, for crediting falls
   shovedT: number;
   score: number;
@@ -52,13 +52,11 @@ export interface MPlayer {
 
 interface Projectile {
   id: number;
-  kind: NadeKind | 'rang';
+  kind: NadeKind;
   owner: number;
   x: number; y: number; z: number;
   vx: number; vy: number; vz: number;
   t: number;
-  returning: boolean;
-  hit: Set<number>;
 }
 
 interface SmokeCloud extends Smoke { id: number; t: number }
@@ -71,11 +69,8 @@ export class Match {
   timeLeft = HIDE_TIME;
   round = 0;
   tick = 0;
-  seekerLossStreak = 0;
-  rangUnlocked = false;
-  private swapPending = false;
-  spotted = new Set<number>(); // hiders currently seen by any seeker
   smokes: SmokeCloud[] = [];
+  private swapPending = false;
   private projectiles: Projectile[] = [];
   private events: GameEvent[] = [];
   private nextId = 1;
@@ -92,7 +87,7 @@ export class Match {
       id: p.id, name: p.name, character: p.character, bot: p.bot, connected: true,
       body: newBody(0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, starved: 0,
       role: 'hider', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
-      nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, rangHeld: false, shovedBy: 0, shovedT: 0,
+      nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
       score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
     };
     this.players.push(mp);
@@ -136,7 +131,7 @@ export class Match {
 
   // ── Rounds ──────────────────────────────────────────────────────────────
 
-  private active(): MPlayer[] {
+  active(): MPlayer[] {
     return this.players.filter(p => p.connected);
   }
 
@@ -173,19 +168,17 @@ export class Match {
       p.nadeSel = 'flash';
       p.aimT = -1;
       p.stabPending = false;
-      p.rangHeld = p.role === 'seeker' && this.rangUnlocked;
       p.queue = [];
       p.brain?.reset();
     }
     this.projectiles = [];
     this.smokes = [];
-    this.spotted.clear();
     this.phase = 'hide';
     this.timeLeft = HIDE_TIME;
 
     const roles: Record<number, Role> = {};
     for (const p of ps) roles[p.id] = p.role;
-    this.broadcast({ type: 'round_start', round: this.round, roles, rangUnlocked: this.rangUnlocked });
+    this.broadcast({ type: 'round_start', round: this.round, roles });
   }
 
   private endRound(winner: Role): void {
@@ -197,16 +190,9 @@ export class Match {
       for (const p of this.active()) {
         if (p.role === 'hider' && p.alive) { p.score += 1; p.survived += 1; }
       }
-      this.seekerLossStreak++;
-    } else {
-      this.seekerLossStreak = 0;
     }
-    // hns_nubslash: seekers get a better weapon after losing enough rounds in a row
-    this.rangUnlocked = this.seekerLossStreak >= NUBSLASH_LOSSES;
     const swap = winner === 'seeker';
-    this.broadcast({
-      type: 'round_end', round: this.round, winner, swap, standings: this.standings(), rangNext: this.rangUnlocked,
-    });
+    this.broadcast({ type: 'round_end', round: this.round, winner, swap, standings: this.standings() });
     this.swapPending = swap;
   }
 
@@ -226,8 +212,6 @@ export class Match {
       this.phase = 'seek';
       this.timeLeft = ROUND_TIME;
     }
-
-    this.updateVisibility();
 
     for (const p of this.active()) this.stepPlayer(p);
     this.collidePlayers();
@@ -252,13 +236,7 @@ export class Match {
     }
 
     if (this.events.length) {
-      // Seekers sitting out the hide phase must not learn where grenades land
-      const hideSafe = this.events.filter(e => e.k !== 'bounce' && e.k !== 'det' && e.k !== 'throw');
-      for (const p of this.players) {
-        if (p.bot || !p.connected) continue;
-        const events = this.phase === 'hide' && p.role === 'seeker' && p.alive ? hideSafe : this.events;
-        if (events.length) this.host.send(p.id, { type: 'ev', events });
-      }
+      this.broadcast({ type: 'ev', events: this.events });
       this.events = [];
     }
     if (this.tick % SNAPSHOT_EVERY === 0) this.sendSnapshots();
@@ -306,20 +284,7 @@ export class Match {
       else p.stabPending = false;
     }
 
-    // Seeker boomerang (only after the nubslash unlock)
-    if (canAct && p.role === 'seeker' && (ev.pressed & BTN_ALT) && p.rangHeld) {
-      p.rangHeld = false;
-      const fx = Math.sin(p.body.facing), fz = Math.cos(p.body.facing);
-      this.projectiles.push({
-        id: this.nextId++, kind: 'rang', owner: p.id,
-        x: p.body.x + fx * 0.5, y: p.body.y + 0.7, z: p.body.z + fz * 0.5,
-        vx: fx * RANG_SPEED + p.body.vx * 0.3, vy: 0, vz: fz * RANG_SPEED + p.body.vz * 0.3,
-        t: 0, returning: false, hit: new Set(),
-      });
-      this.events.push({ k: 'throw', by: p.id, kind: 'rang' });
-    }
-
-    // Hider grenades: ALT cycles, hold ACTION to charge, release to throw
+    // Hider grenades: ALT (Q) switches, hold ACTION (Enter) to charge, release to throw
     if (p.role === 'hider') {
       if (canAct && (ev.pressed & BTN_ALT)) this.cycleNade(p);
       if (canAct && (ev.pressed & BTN_ACTION) && p.nades[p.nadeSel] > 0) p.aimT = 0;
@@ -333,7 +298,7 @@ export class Match {
       }
     }
 
-    // Fall damage (CS 1.6 curve, scaled)
+    // Fall damage on big drops
     if (ev.landed > SAFE_FALL_SPEED) {
       const dmg = ((ev.landed - SAFE_FALL_SPEED) / (FATAL_FALL_SPEED - SAFE_FALL_SPEED)) * MAX_HP;
       this.damage(p, dmg, this.shover(p), 'fall', 0, 0);
@@ -366,7 +331,7 @@ export class Match {
       vx: fx * NADE_THROW_SPEED * charge + p.body.vx * 0.5,
       vy: NADE_THROW_UP * (0.6 + 0.4 * charge) + Math.max(0, p.body.vy) * 0.5,
       vz: fz * NADE_THROW_SPEED * charge + p.body.vz * 0.5,
-      t: 0, returning: false, hit: new Set(),
+      t: 0,
     });
     this.events.push({ k: 'throw', by: p.id, kind });
     if (p.nades[kind] === 0) this.cycleNade(p);
@@ -380,7 +345,7 @@ export class Match {
       const d = Math.hypot(dx, dz);
       if (d > STAB_RANGE + PLAYER_RADIUS || Math.abs(t.body.y - p.body.y) > 1.2) continue;
       if (d > 0.3 && (dx * fx + dz * fz) / d < STAB_ARC_COS) continue;
-      // Backstab: attacker behind a victim who isn't running (caught hiding/sneaking).
+      // Backstab: attacker behind a victim who isn't running (caught standing still).
       // A fleeing hider always faces away, so without the speed check every chase would one-shot.
       const tfx = Math.sin(t.body.facing), tfz = Math.cos(t.body.facing);
       const sneaking = Math.hypot(t.body.vx, t.body.vz) < BACKSTAB_MAX_SPEED;
@@ -394,14 +359,14 @@ export class Match {
     }
   }
 
-  private damage(t: MPlayer, dmg: number, by: MPlayer | null, cause: 'stab' | 'backstab' | 'fall' | 'boom' | 'rang', dx: number, dz: number): void {
+  private damage(t: MPlayer, dmg: number, by: MPlayer | null, cause: Exclude<KillCause, 'void'>, dx: number, dz: number): void {
     if (!t.alive) return;
     t.hp -= dmg;
     if (t.hp <= 0) this.kill(t, by, cause, dx, dz);
     else this.events.push({ k: 'hurt', id: t.id, hp: Math.round(t.hp), cause: cause === 'backstab' ? 'stab' : cause });
   }
 
-  private kill(t: MPlayer, by: MPlayer | null, cause: 'stab' | 'backstab' | 'fall' | 'void' | 'boom' | 'rang', dx: number, dz: number): void {
+  private kill(t: MPlayer, by: MPlayer | null, cause: KillCause, dx: number, dz: number): void {
     t.alive = false;
     t.hp = 0;
     t.aimT = -1;
@@ -410,8 +375,6 @@ export class Match {
       k: 'kill', id: t.id, by: by?.id ?? null, cause,
       x: t.body.x, y: t.body.y, z: t.body.z, dx, dz,
     });
-    // A dead seeker's boomerang falls out of play
-    if (t.role === 'seeker') this.projectiles = this.projectiles.filter(pr => !(pr.kind === 'rang' && pr.owner === t.id));
   }
 
   private collidePlayers(): void {
@@ -432,20 +395,17 @@ export class Match {
     }
   }
 
-  // ── Projectiles ─────────────────────────────────────────────────────────
+  // ── Grenades ────────────────────────────────────────────────────────────
 
   private stepProjectiles(): void {
-    const keep: Projectile[] = [];
-    for (const pr of this.projectiles) {
+    this.projectiles = this.projectiles.filter(pr => {
       pr.t += TICK_DT;
-      const done = pr.kind === 'rang' ? this.stepRang(pr) : this.stepNade(pr);
-      if (!done) keep.push(pr);
-    }
-    this.projectiles = keep;
+      return !this.stepNade(pr);
+    });
   }
 
   private stepNade(pr: Projectile): boolean {
-    pr.vy -= GRAVITY * TICK_DT;
+    pr.vy -= NADE_GRAVITY * TICK_DT;
     const nx = pr.x + pr.vx * TICK_DT, nz = pr.z + pr.vz * TICK_DT, ny = pr.y + pr.vy * TICK_DT;
     // Walls: bounce off columns rising above the grenade
     if (heightAt(nx, pr.z) > ny) { pr.vx *= -0.5; this.bounce(pr); } else pr.x = nx;
@@ -460,7 +420,7 @@ export class Match {
       pr.y = ny;
     }
     if (pr.y < KILL_Y) return true;
-    if (pr.t >= NADE_FUSE[pr.kind as NadeKind]) {
+    if (pr.t >= NADE_FUSE[pr.kind]) {
       this.detonate(pr);
       return true;
     }
@@ -472,10 +432,11 @@ export class Match {
   }
 
   private detonate(pr: Projectile): void {
-    const kind = pr.kind as NadeKind;
+    const kind = pr.kind;
     const hits: number[] = [];
     const eyeY = pr.y + 0.3;
     const seekers = this.active().filter(p => p.alive && p.role === 'seeker');
+    // Effects need a clear line from the blast (roof edges, tanks and smoke block it)
     const reach = (p: MPlayer, r: number): number => {
       const d = Math.hypot(p.body.x - pr.x, p.body.y + EYE_HEIGHT - eyeY, p.body.z - pr.z);
       if (d > r) return -1;
@@ -518,120 +479,35 @@ export class Match {
     this.events.push({ k: 'det', kind, x: pr.x, y: pr.y, z: pr.z, hits });
   }
 
-  private stepRang(pr: Projectile): boolean {
-    const owner = this.players.find(p => p.id === pr.owner);
-    if (!owner || !owner.alive) return true;
-    if (!pr.returning && pr.t > RANG_OUT_TIME) pr.returning = true;
-    if (pr.returning) {
-      // Home back to the thrower's hands, accelerating like Boomerang Fu's return arc
-      const tx = owner.body.x, ty = owner.body.y + 0.7, tz = owner.body.z;
-      const dx = tx - pr.x, dy = ty - pr.y, dz = tz - pr.z, d = Math.hypot(dx, dy, dz) || 1;
-      const speed = RANG_SPEED * Math.min(1.3, 0.6 + pr.t);
-      const k = 1 - Math.exp(-8 * TICK_DT);
-      pr.vx += ((dx / d) * speed - pr.vx) * k;
-      pr.vy += ((dy / d) * speed - pr.vy) * k;
-      pr.vz += ((dz / d) * speed - pr.vz) * k;
-      if (d < 0.7 || pr.t > 4) {
-        owner.rangHeld = true;
-        this.events.push({ k: 'catch', id: owner.id });
-        return true;
-      }
-    } else {
-      // Slight curve: the throw bends toward the thrower's left like a real boomerang
-      const turn = 1.4 * TICK_DT;
-      const c = Math.cos(turn), s = Math.sin(turn);
-      const vx = pr.vx * c - pr.vz * s, vz = pr.vx * s + pr.vz * c;
-      pr.vx = vx; pr.vz = vz;
-    }
-    const nx = pr.x + pr.vx * TICK_DT, nz = pr.z + pr.vz * TICK_DT;
-    if (!pr.returning && heightAt(nx, nz) > pr.y) {
-      // Ricochet off whatever we hit, then start coming back
-      if (heightAt(nx, pr.z) > pr.y) pr.vx = -pr.vx;
-      if (heightAt(pr.x, nz) > pr.y) pr.vz = -pr.vz;
-      pr.returning = true;
-      this.bounce(pr);
-    } else {
-      pr.x = nx; pr.z = nz;
-    }
-    pr.y += pr.vy * TICK_DT;
-    for (const t of this.active()) {
-      if (!t.alive || t.role !== 'hider' || pr.hit.has(t.id)) continue;
-      const d = Math.hypot(t.body.x - pr.x, t.body.y + 0.5 - pr.y, t.body.z - pr.z);
-      if (d < RANG_RADIUS + PLAYER_RADIUS) {
-        pr.hit.add(t.id);
-        const l = Math.hypot(pr.vx, pr.vz) || 1;
-        this.damage(t, RANG_DAMAGE, owner, 'rang', pr.vx / l, pr.vz / l);
-      }
-    }
-    return false;
-  }
-
-  // ── Visibility + snapshots ──────────────────────────────────────────────
-
-  /** CS-style: a hider is shown to seekers only while some seeker can actually see them. */
-  private updateVisibility(): void {
-    this.spotted.clear();
-    if (this.phase !== 'seek') return;
-    const seekers = this.active().filter(p => p.alive && p.role === 'seeker' && p.blind < 0.5);
-    for (const h of this.active()) {
-      if (!h.alive || h.role !== 'hider') continue;
-      const hidden = inBush(h.body.x, h.body.z, h.body.y);
-      for (const s of seekers) {
-        const d = Math.hypot(h.body.x - s.body.x, h.body.z - s.body.z);
-        if (d > VIEW_RANGE) continue;
-        if (hidden && d > BUSH_REVEAL_RANGE) continue;
-        if (!lineOfSight(
-          s.body.x, s.body.y + EYE_HEIGHT, s.body.z,
-          h.body.x, h.body.y + EYE_HEIGHT, h.body.z, this.smokes,
-        ) && !lineOfSight(
-          // Also peek at their head so a hider can't hide behind a knee-high lip
-          s.body.x, s.body.y + EYE_HEIGHT, s.body.z,
-          h.body.x, h.body.y + EYE_HEIGHT + 0.4, h.body.z, this.smokes,
-        )) continue;
-        this.spotted.add(h.id);
-        break;
-      }
-    }
-  }
-
-  canSee(viewer: MPlayer, target: MPlayer): boolean {
-    if (viewer.id === target.id || target.role === 'seeker') return true;
-    if (viewer.role === 'hider' || !viewer.alive || this.phase === 'end') return true;
-    if (!target.alive) return true;
-    return this.spotted.has(target.id);
-  }
+  // ── Snapshots ───────────────────────────────────────────────────────────
 
   private netPlayer(p: MPlayer): NetPlayer {
     const b = p.body;
     return {
       id: p.id, x: r2(b.x), y: r2(b.y), z: r2(b.z), vx: r2(b.vx), vy: r2(b.vy), vz: r2(b.vz), f: r2(b.facing),
       hp: Math.round(p.hp), alive: p.alive, role: p.role, frozen: r2(p.frozen), chilled: r2(p.chilled),
-      lunge: r2(b.lunge), rang: p.rangHeld, aiming: p.aimT >= 0 ? r2(Math.min(1, p.aimT / NADE_CHARGE_TIME)) : 0,
-      bush: inBush(b.x, b.z, b.y),
+      lunge: r2(b.lunge), aiming: p.aimT >= 0 ? r2(Math.min(1, p.aimT / NADE_CHARGE_TIME)) : 0,
+      nade: p.aimT >= 0 ? p.nadeSel : null,
     };
   }
 
   private sendSnapshots(): void {
+    // Tag rules: everyone sees everyone, so one shared player/projectile list per tick
+    const players = this.active().map(p => this.netPlayer(p));
     const projectiles: NetProjectile[] = this.projectiles.map(pr => ({
       id: pr.id, kind: pr.kind, x: r2(pr.x), y: r2(pr.y), z: r2(pr.z), owner: pr.owner,
     }));
-    // A grenade's first moments give away where the thrower stands: seekers get it once it's away
-    const hiderNades = new Set(this.projectiles.filter(pr => pr.kind !== 'rang' && pr.t < 0.3).map(pr => pr.id));
     const smokes = this.smokes.map(s => ({ id: s.id, x: s.x, y: s.y, z: s.z, t: r2(s.t) }));
     for (const viewer of this.players) {
       if (viewer.bot || !viewer.connected) continue;
-      const players = this.active().filter(p => this.canSee(viewer, p)).map(p => this.netPlayer(p));
-      const blindSeeker = viewer.role === 'seeker' && viewer.alive && this.phase !== 'end';
-      const visibleProjectiles = !blindSeeker ? projectiles
-        : this.phase === 'hide' ? [] : projectiles.filter(pr => !hiderNades.has(pr.id));
       const snap: Snapshot = {
         type: 'snap', tick: this.tick, phase: this.phase, timeLeft: r2(Math.max(0, this.timeLeft)), ack: viewer.ack,
         me: {
           ...viewer.body, hp: Math.round(viewer.hp), alive: viewer.alive, role: viewer.role,
           frozen: viewer.frozen, chilled: viewer.chilled, blind: viewer.blind,
-          rangHeld: viewer.rangHeld, rangUnlocked: this.rangUnlocked, nades: viewer.nades, nadeSel: viewer.nadeSel,
+          nades: viewer.nades, nadeSel: viewer.nadeSel,
         },
-        players, projectiles: visibleProjectiles, smokes,
+        players, projectiles, smokes,
       };
       this.host.send(viewer.id, snap);
     }

@@ -112,10 +112,6 @@ export const sfx = {
     tone(110, 30, 0.6, 'sine', 0.8 * v, 0, pan);
     noise(0.7, 0.6 * v, 1200, 80, 0.6, 0, 'lowpass', pan);
   },
-  rang(v = 1, pan = 0) {
-    for (let i = 0; i < 4; i++) noise(0.08, 0.2 * v, 1800, 2600, 4, i * 0.09, 'bandpass', pan);
-  },
-  catch() { tone(1200, 1600, 0.08, 'sine', 0.15); },
   hurt() { tone(500, 220, 0.2, 'sawtooth', 0.12); },
   beep(high = false) { tone(high ? 1320 : 880, high ? 1320 : 880, high ? 0.35 : 0.12, 'square', 0.08); },
   gong() {

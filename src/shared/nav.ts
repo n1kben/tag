@@ -46,8 +46,9 @@ export function steerTo(b: Body, tx: number, tz: number, run = 1, leap = true): 
   const ux = dx / d, uz = dz / d;
   const ahead = heightAt(b.x + ux * 0.6, b.z + uz * 0.6);
   const hop = b.grounded && ahead > b.y + STEP_HEIGHT && ahead < b.y + 1.15;
+  const holding = !b.grounded && b.vy > 0; // keep Space down for a full-height jump
   if (leap) {
-    const jump = hop || (b.grounded && ahead < b.y - 0.3);
+    const jump = hop || holding || (b.grounded && ahead < b.y - 0.3);
     return { mx: ux * run, mz: uz * run, b: jump ? BTN_JUMP : 0 };
   }
   if (b.grounded) {
@@ -55,7 +56,7 @@ export function steerTo(b: Body, tx: number, tz: number, run = 1, leap = true): 
     const look = 0.45 + Math.hypot(b.vx, b.vz) * 0.12;
     if (heightAt(b.x + ux * look, b.z + uz * look) < b.y - 0.3) return { mx: 0, mz: 0, b: 0 };
   }
-  return { mx: ux * run, mz: uz * run, b: hop ? BTN_JUMP : 0 };
+  return { mx: ux * run, mz: uz * run, b: hop || holding ? BTN_JUMP : 0 };
 }
 
 function inside(s: Solid, x: number, z: number, m = 0): boolean {

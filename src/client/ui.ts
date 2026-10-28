@@ -191,8 +191,6 @@ export interface HudState {
   blind: number;
   nades: Record<NadeKind, number>;
   nadeSel: NadeKind;
-  rangHeld: boolean;
-  rangUnlocked: boolean;
   teams: { id: number; role: Role; alive: boolean }[];
   spectating: string | null;
 }
@@ -267,7 +265,7 @@ export class UI {
     };
     box.querySelector('[data-a=join]')!.addEventListener('click', join);
     code.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
-    const hint = el('div', 'hint', `Hiders: run, hide in bushes, throw grenades to escape · Seekers: find them and stab · <kbd>WASD</kbd> move <kbd>Space</kbd> jump <kbd>J</kbd> action <kbd>K</kbd> alt · gamepad works too`);
+    const hint = el('div', 'hint', `Hiders: run, jump the gaps, throw grenades · Seekers: catch them and slash · <kbd>WASD</kbd> move <kbd>Space</kbd> jump <kbd>Enter</kbd> slash / throw <kbd>Q</kbd> switch grenade · gamepad works too`);
     this.title.append(clouds, box, hint);
     this.title.classList.add('on');
   }
@@ -378,15 +376,11 @@ export class UI {
         <div class="slot ${k === s.nadeSel && s.nades[k] > 0 ? 'sel' : ''} ${s.nades[k] ? '' : 'empty'}">
           <div class="ic" style="background:${NADE_CSS[k]}"></div><div class="lb">${NADE_LABEL[k]} ×${s.nades[k]}</div></div>`).join(''));
       this.hud.append(inv);
-      this.hud.append(el('div', 'dyn keys', '<kbd>J</kbd> hold &amp; release to throw · <kbd>K</kbd> switch grenade<br><kbd>Space</kbd> jump — chain hops to go faster'));
+      this.hud.append(el('div', 'dyn keys', '<kbd>Enter</kbd> hold &amp; release to throw · <kbd>Q</kbd> switch grenade<br><kbd>Space</kbd> jump (hold = higher) — chain hops to go faster'));
     } else if (s.alive && s.role === 'seeker') {
-      const inv = el('div', 'dyn inv', `
-        <div class="slot sel"><div class="ic" style="background:#e9edf7"></div><div class="lb">Knife</div></div>
-        <div class="slot ${s.rangHeld ? 'sel' : s.rangUnlocked ? '' : 'empty'}"><div class="ic" style="background:#c98a4f"></div><div class="lb">${s.rangUnlocked ? 'Boomerang' : '🔒 Boomerang'}</div></div>`);
-      this.hud.append(inv);
-      this.hud.append(el('div', 'dyn keys', `<kbd>J</kbd> stab (from behind = instant) ${s.rangUnlocked ? '· <kbd>K</kbd> throw boomerang' : ''}<br><kbd>Space</kbd> jump`));
+      this.hud.append(el('div', 'dyn keys', `<kbd>Enter</kbd> slash (from behind = instant)<br><kbd>Space</kbd> jump (hold = higher)`));
     }
-    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Spectating ${esc(s.spectating)} · <kbd>J</kbd> next`));
+    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Spectating ${esc(s.spectating)} · <kbd>Enter</kbd> next`));
   }
 
   banner(big: string, sub = '', color = '#ffd23f', ms = 1800): void {

@@ -179,7 +179,7 @@ export interface AnimState {
   aiming: number; // 0..1 grenade charge
   frozen: boolean;
   chilled: boolean;
-  dead?: boolean;
+  ground?: number; // world y of the surface below (for the blob shadow); defaults to the feet
 }
 
 const NADE_COLORS: Record<NadeKind, number> = { flash: 0xfff2a8, frost: 0x8fe3ff, smoke: 0xb9bdd8, boom: 0xff6a4a };
@@ -195,10 +195,10 @@ export class Character {
   private footL: THREE.Mesh;
   private footR: THREE.Mesh;
   private knife = new THREE.Group();
-  private rang = new THREE.Group();
   private bandana = new THREE.Group();
   private nade: THREE.Mesh;
   private ring: THREE.Mesh;
+  private shadow = new THREE.Group(); // blob shadow + team ring, pinned to the surface below
   private ice: THREE.Mesh;
   private phase = 0;
   private squash = 0;
@@ -244,12 +244,6 @@ export class Character {
     tail2.rotation.set(0.7, -0.35, 0);
     this.bandana.add(band, tail1, tail2);
     this.body.add(this.bandana);
-    const armA = mesh(rounded(0.09, 0.05, 0.36, 0.02), 0xc98a4f, 0, 0, 0.15);
-    const armB = mesh(rounded(0.09, 0.05, 0.36, 0.02), 0xc98a4f, 0.12, 0, 0.02);
-    armA.rotation.y = 0.5;
-    armB.rotation.y = -1.0;
-    this.rang.add(armA, armB);
-    this.handL.add(this.rang);
 
     this.nade = mesh(new THREE.SphereGeometry(0.12, 12, 10), 0xffffff);
     this.handR.add(this.nade);
@@ -261,7 +255,15 @@ export class Character {
     );
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.position.y = 0.03;
-    this.root.add(this.ring);
+    // Soft blob straight below you: shows exactly where a jump will land, like platformer drop shadows
+    const blob = new THREE.Mesh(
+      new THREE.CircleGeometry(0.42, 24),
+      new THREE.MeshBasicMaterial({ color: 0x3b2a5c, transparent: true, opacity: 0.28, depthWrite: false }),
+    );
+    blob.rotation.x = -Math.PI / 2;
+    blob.position.y = 0.02;
+    this.shadow.add(blob, this.ring);
+    this.root.add(this.shadow);
 
     const iceMat = new THREE.MeshLambertMaterial({ color: 0xbfeaff, transparent: true, opacity: 0.55, emissive: 0x335577 });
     addMist(iceMat);
@@ -269,15 +271,14 @@ export class Character {
     this.ice.position.y = 0.6;
     this.root.add(this.ice);
 
-    this.root.traverse(o => { if ((o as THREE.Mesh).isMesh && o !== this.ring) o.castShadow = true; });
-    this.setRole('hider', false);
+    this.root.traverse(o => { if ((o as THREE.Mesh).isMesh && !this.shadow.children.includes(o)) o.castShadow = true; });
+    this.setRole('hider');
   }
 
-  setRole(role: 'hider' | 'seeker', rang: boolean): void {
+  setRole(role: 'hider' | 'seeker'): void {
     const seeker = role === 'seeker';
     this.knife.visible = seeker;
     this.bandana.visible = seeker;
-    this.rang.visible = seeker && rang;
     (this.ring.material as THREE.MeshBasicMaterial).color.setHex(seeker ? COLOR_SEEKER : COLOR_HIDER);
   }
 
@@ -336,7 +337,13 @@ export class Character {
     this.knife.rotation.x = a.lunge > 0 ? 0 : -0.5;
     this.knife.position.set(0, 0, 0.02);
     this.nade.visible = this.nade.visible && a.aiming > 0;
-    this.rang.rotation.y = this.t * 0; // static in hand
+
+    // Shadow sits on the surface below and shrinks/fades the higher you are
+    const ground = a.ground ?? this.root.position.y;
+    const height = Math.max(0, this.root.position.y - ground);
+    this.shadow.visible = Number.isFinite(ground) && height < 6;
+    this.shadow.position.y = Number.isFinite(ground) ? ground - this.root.position.y : 0;
+    this.shadow.scale.setScalar(Math.max(0.45, 1 - height * 0.18));
 
     // Blink
     this.blinkT -= dt;

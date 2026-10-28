@@ -42,8 +42,11 @@ export interface Solid {
   top: number;
 }
 
+// Footprints below are the street grid; each roof spreads ROOF_GROW past it on every side,
+// which sets alley width to match the jump (alleys = grid gap − 2 × ROOF_GROW).
+const ROOF_GROW = 0.5;
 const B = (id: number, x0: number, z0: number, x1: number, z1: number, h: number, style: RoofStyle): Building =>
-  ({ id, x0, z0, x1, z1, h, style });
+  ({ id, x0: x0 - ROOF_GROW, z0: z0 - ROOF_GROW, x1: x1 + ROOF_GROW, z1: z1 + ROOF_GROW, h, style });
 
 export const BUILDINGS: Building[] = [
   // North row
@@ -62,7 +65,7 @@ export const BUILDINGS: Building[] = [
   B(10, -34, 4, -21, 14, 2.0, 'terra'),
   B(11, -18, 6, -6, 17, 0.5, 'mint'),
   B(12, -3, 6, 9, 16, 1.5, 'cream'),
-  B(13, 12, 3, 23, 13, 0.0, 'garden'),
+  B(13, 12, 3, 24.5, 13, 0.0, 'garden'),
   B(14, 26, 5, 34, 15, 3.0, 'tower'),
   B(15, -30, 17, -16, 25, 1.0, 'cream'),
   B(16, -2, 19, 14, 25, 0.5, 'garden'),
@@ -99,17 +102,17 @@ const PROP_SPECS: PropSpec[] = [
   ['booth', -29, -6], ['crate', -25, -9.5],
   ['tank', -16, -7], ['chimney', -12.5, -2.5],
   // Plaza: crate stairs up to the west tower
-  ['crate', -6.5, -5], ['crate2', -7.7, -5], ['ac', 4, -6], ['skylight', 0, 0], ['chimney', 7, 1.5],
+  ['crate', -6.1, -5], ['crate2', -7.7, -5], ['ac', 4, -6], ['skylight', 0, 0], ['chimney', 7, 1.5],
   ['crate', 6, -7.5],
   ['tank', 19, -7], ['ac', 14, -3], ['vent', 13, -9],
   // East roof: crate stairs back up to the terrace
-  ['ac', 31, -6], ['crate', 26.3, -4], ['crate2', 24.8, -4], ['chimney', 32.5, 0.5],
+  ['ac', 31, -6], ['crate', 26.4, -4], ['crate2', 24.8, -4], ['chimney', 32.5, 0.5],
   // South row
   ['chimney', -31, 6], ['ac', -25, 11], ['skylight', -29, 10.5],
   ['tank', -10, 14], ['crate', -16, 8], ['vent', -8, 8],
   ['booth', 3, 9.5], ['ac', -1, 14],
   ['crate', 20.5, 11.6], ['skylight', 16, 5], ['vent', 14, 11.5],
-  ['crate', 22.2, 7.3], ['crate2', 22.2, 8.7],
+  ['crate', 22.2, 7.3], ['crate2', 22.2, 8.9],
   ['tank', 31, 11], ['chimney', 28, 6.5],
   ['ac', -26, 20], ['crate', -19, 23], ['chimney', -29, 23.5],
   ['skylight', 8, 22], ['vent', 1, 23.5],
@@ -117,7 +120,7 @@ const PROP_SPECS: PropSpec[] = [
   ['ac', 23, 22], ['crate', 27.0, 18.6], ['crate2', 28.6, 17.85], ['chimney', 20, 23.5],
 ];
 
-// Bamboo pots and shrub clusters: the Boomerang Fu "tall grass" — hiders inside are invisible from range.
+// Bamboo pots and shrub clusters (decoration, like the trailer's grass tufts)
 const BUSH_SPECS: [number, number, number][] = [
   [-32.5, -15.5, 1.0], [-14, -23.5, 0.9], [-3.5, -13.5, 1.1], [3.5, -23, 0.9], [17.5, -15.5, 1.0], [32.5, -14.5, 1.0],
   [-32.5, -0.5, 1.1], [-26, -1, 0.9], [-19.5, -2.5, 0.9], [-7, 1.5, 1.0], [7, -2.5, 0.9], [20.5, -1.5, 1.0], [32.5, -8.5, 1.0],
@@ -163,14 +166,6 @@ export function heightAt(x: number, z: number): number {
     if (x >= s.x0 && x <= s.x1 && z >= s.z0 && z <= s.z1 && s.top > h) h = s.top;
   }
   return h;
-}
-
-export function inBush(x: number, z: number, y: number): boolean {
-  for (const b of BUSHES) {
-    const dx = x - b.x, dz = z - b.z;
-    if (dx * dx + dz * dz < b.r * b.r && Math.abs(y - b.base) < 0.6) return true;
-  }
-  return false;
 }
 
 export interface Smoke { x: number; y: number; z: number; r: number }

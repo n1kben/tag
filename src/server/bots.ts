@@ -40,14 +40,14 @@ export class Brain {
     return me.role === 'hider' ? this.hider(m, me) : this.seeker(m, me);
   }
 
-  // ── Hider: get somewhere sneaky, run if spotted, nade the chaser ─────────
+  // ── Hider: keep distance, run when a seeker closes in, nade the chaser ───
   private hider(m: Match, me: MPlayer): Input {
     const b = me.body;
     const threats = m.players.filter(p => p.alive && p.connected && p.role === 'seeker' && m.phase === 'seek');
-    const spotted = m.spotted.has(me.id);
     const near = threats
       .map(t => ({ t, d: Math.hypot(t.body.x - b.x, t.body.z - b.z) }))
       .sort((a, c) => a.d - c.d)[0];
+    const spotted = !!near && near.d < 10; // a seeker is closing in
 
     // Finish a grenade wind-up (hold ACTION for a few ticks, then release)
     if (this.aimTicks > 0) {
@@ -111,13 +111,13 @@ export class Brain {
     return best ?? this.hideGoal(x, z);
   }
 
-  // ── Seeker: chase what the team can see, otherwise sweep roofs and bushes ─
+  // ── Seeker: chase the nearest hider (it's tag: everyone is visible) ──────
   private seeker(m: Match, me: MPlayer): Input {
     const b = me.body;
     if (m.phase !== 'seek') return { mx: 0, mz: 0, b: 0 };
 
     const visible = m.players
-      .filter(p => p.alive && p.connected && p.role === 'hider' && m.spotted.has(p.id))
+      .filter(p => p.alive && p.connected && p.role === 'hider')
       .map(t => ({ t, d: Math.hypot(t.body.x - b.x, t.body.z - b.z) }))
       .sort((a, c) => a.d - c.d);
     const target = visible[0];
@@ -130,11 +130,6 @@ export class Brain {
         const [dx, dz] = norm(t.x + t.vx * 0.08 - b.x, t.z + t.vz * 0.08 - b.z);
         const facingOk = Math.cos(Math.atan2(dx, dz) - b.facing) > 0.8;
         return { mx: dx, mz: dz, b: facingOk && b.attackCd <= 0 ? BTN_ACTION : 0 };
-      }
-      if (me.rangHeld && target.d < 9 && Math.abs(t.y - b.y) < 1.5) {
-        const [dx, dz] = norm(t.x - b.x, t.z - b.z);
-        if (Math.cos(Math.atan2(dx, dz) - b.facing) > 0.95) return { mx: dx, mz: dz, b: BTN_ALT };
-        return { mx: dx, mz: dz, b: 0 };
       }
       const node = navNodeAt(t.x, t.z, t.y + 0.1);
       if (node) this.goal = { x: t.x, z: t.z, node: node.id };

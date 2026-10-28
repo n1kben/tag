@@ -34,7 +34,7 @@ export interface Standing {
   survived: number;
 }
 
-/** A player as other clients see it. Hiders out of a seeker's sight are left out entirely. */
+/** A player as other clients see it. */
 export interface NetPlayer {
   id: number;
   x: number; y: number; z: number;
@@ -45,15 +45,14 @@ export interface NetPlayer {
   role: Role;
   frozen: number; // seconds left
   chilled: number;
-  lunge: number; // >0 while stabbing (drives the slash anim)
-  rang: boolean; // holding the boomerang
+  lunge: number; // >0 while slashing (drives the slash anim)
   aiming: number; // hider grenade charge 0..1 (0 = not aiming)
-  bush: boolean;
+  nade: NadeKind | null; // grenade in hand while aiming
 }
 
 export interface NetProjectile {
   id: number;
-  kind: NadeKind | 'rang';
+  kind: NadeKind;
   x: number; y: number; z: number;
   owner: number;
 }
@@ -66,27 +65,28 @@ export interface Snapshot {
   phase: Phase;
   timeLeft: number;
   ack: number; // last input seq processed for the receiver
-  me: (Body & { hp: number; alive: boolean; role: Role; frozen: number; chilled: number; blind: number; rangHeld: boolean; rangUnlocked: boolean; nades: Record<NadeKind, number>; nadeSel: NadeKind }) | null;
+  me: (Body & { hp: number; alive: boolean; role: Role; frozen: number; chilled: number; blind: number; nades: Record<NadeKind, number>; nadeSel: NadeKind }) | null;
   players: NetPlayer[];
   projectiles: NetProjectile[];
   smokes: NetSmoke[];
 }
 
+export type KillCause = 'stab' | 'backstab' | 'fall' | 'void' | 'boom';
+
 export type GameEvent =
   | { k: 'stab'; by: number }
-  | { k: 'hurt'; id: number; hp: number; cause: 'stab' | 'fall' | 'boom' | 'rang' }
-  | { k: 'kill'; id: number; by: number | null; cause: 'stab' | 'backstab' | 'fall' | 'void' | 'boom' | 'rang'; x: number; y: number; z: number; dx: number; dz: number }
-  | { k: 'throw'; by: number; kind: NadeKind | 'rang' }
+  | { k: 'hurt'; id: number; hp: number; cause: 'stab' | 'fall' | 'boom' }
+  | { k: 'kill'; id: number; by: number | null; cause: KillCause; x: number; y: number; z: number; dx: number; dz: number }
+  | { k: 'throw'; by: number; kind: NadeKind }
   | { k: 'det'; kind: NadeKind; x: number; y: number; z: number; hits: number[] }
-  | { k: 'catch'; id: number }
   | { k: 'bounce'; x: number; y: number; z: number };
 
 export type ServerMessage =
   | { type: 'welcome'; roomId: string; playerId: number; practice: boolean }
   | { type: 'lobby'; players: LobbyPlayer[]; inMatch: boolean; lastStandings?: Standing[] }
   | { type: 'match_start'; roster: LobbyPlayer[]; rounds: number }
-  | { type: 'round_start'; round: number; roles: Record<number, Role>; rangUnlocked: boolean }
-  | { type: 'round_end'; round: number; winner: Role; swap: boolean; standings: Standing[]; rangNext: boolean }
+  | { type: 'round_start'; round: number; roles: Record<number, Role> }
+  | { type: 'round_end'; round: number; winner: Role; swap: boolean; standings: Standing[] }
   | { type: 'match_end'; standings: Standing[] }
   | Snapshot
   | { type: 'ev'; events: GameEvent[] }

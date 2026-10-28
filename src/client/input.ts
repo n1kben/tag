@@ -1,25 +1,21 @@
 // Keyboard + gamepad → sim Input. Boomerang Fu is a stick game: you face where you move,
-// so there's no mouse aim; the mouse buttons are just extra action buttons.
+// so there's no mouse aim. Space jumps, Enter slashes / throws, Q switches grenade.
 import { BTN_ACTION, BTN_ALT, BTN_JUMP, type Input } from '../shared/sim';
 
 const keys = new Set<string>();
-const mouse = new Set<number>();
 let enabled = true;
 
 window.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement) return;
   keys.add(e.code);
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
+  if (['Space', 'Enter', 'NumpadEnter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
 });
 window.addEventListener('keyup', e => keys.delete(e.code));
-window.addEventListener('blur', () => { keys.clear(); mouse.clear(); });
-window.addEventListener('mousedown', e => { if (e.target instanceof HTMLCanvasElement) mouse.add(e.button); });
-window.addEventListener('mouseup', e => mouse.delete(e.button));
-window.addEventListener('contextmenu', e => { if (e.target instanceof HTMLCanvasElement) e.preventDefault(); });
+window.addEventListener('blur', () => keys.clear());
 
 export function setInputEnabled(v: boolean): void {
   enabled = v;
-  if (!v) { keys.clear(); mouse.clear(); }
+  if (!v) keys.clear();
 }
 
 export function isHeld(code: string): boolean {
@@ -34,8 +30,8 @@ export function readInput(): Input {
   if (keys.has('KeyW') || keys.has('ArrowUp')) mz -= 1;
   if (keys.has('KeyS') || keys.has('ArrowDown')) mz += 1;
   if (keys.has('Space')) b |= BTN_JUMP;
-  if (keys.has('KeyJ') || keys.has('KeyX') || mouse.has(0)) b |= BTN_ACTION;
-  if (keys.has('KeyK') || keys.has('KeyQ') || keys.has('KeyE') || mouse.has(2)) b |= BTN_ALT;
+  if (keys.has('Enter') || keys.has('NumpadEnter')) b |= BTN_ACTION;
+  if (keys.has('KeyQ')) b |= BTN_ALT;
 
   for (const pad of navigator.getGamepads?.() ?? []) {
     if (!pad) continue;
@@ -44,7 +40,7 @@ export function readInput(): Input {
     const btn = (i: number) => pad.buttons[i]?.pressed;
     if (btn(0)) b |= BTN_JUMP; // A
     if (btn(2) || btn(7)) b |= BTN_ACTION; // X / RT
-    if (btn(1) || btn(3) || btn(4) || btn(5)) b |= BTN_ALT; // B / Y / bumpers
+    if (btn(3) || btn(4) || btn(5)) b |= BTN_ALT; // Y / bumpers: switch grenade
     if (btn(12)) mz = -1;
     if (btn(13)) mz = 1;
     if (btn(14)) mx = -1;

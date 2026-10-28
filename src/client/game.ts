@@ -9,6 +9,7 @@ import { Network } from './net';
 import { readInput, isHeld, setInputEnabled } from './input';
 import { sfx, spatial, setMuted, isMuted } from './audio';
 import { stepBody, BTN_ACTION, type Body, type Input, type Role, type Status } from '../shared/sim';
+import { heightAt } from '../shared/map';
 import { TICK_DT, TICK_RATE, NADE_CHARGE_TIME, COLOR_SEEKER, type NadeKind } from '../shared/constants';
 import type { GameEvent, LobbyPlayer, NetPlayer, Phase, ServerMessage, Snapshot, Standing } from '../shared/protocol';
 
@@ -17,7 +18,7 @@ type Mode = 'title' | 'lobby' | 'match' | 'end';
 interface Buffered { tick: number; players: Map<number, NetPlayer>; snap: Snapshot }
 
 const INTERP_TICKS = 6; // render remote players ~100ms in the past
-const BODY_KEYS: (keyof Body)[] = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'grounded', 'airTime', 'groundTime', 'jumpBuf', 'hop', 'attackCd', 'lunge', 'prevB'];
+const BODY_KEYS: (keyof Body)[] = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'grounded', 'airTime', 'groundTime', 'jumpBuf', 'rising', 'hop', 'attackCd', 'lunge', 'prevB'];
 
 export function startGame(): void {
   const world: World = createWorld(document.getElementById('app')!);
@@ -125,11 +126,11 @@ export function startGame(): void {
         startMatch(msg.roster);
         break;
       case 'round_start':
-        roundStart(msg.round, msg.roles, msg.rangUnlocked);
+        roundStart(msg.round, msg.roles);
         break;
       case 'round_end':
         standings = msg.standings;
-        roundEnd(msg.winner, msg.swap, msg.rangNext);
+        roundEnd(msg.winner, msg.swap);
         break;
       case 'match_end':
         standings = msg.standings;
@@ -194,7 +195,7 @@ export function startGame(): void {
     ui.hideLabelsExcept(new Set());
   }
 
-  function roundStart(round: number, r: Record<number, Role>, rang: boolean): void {
+  function roundStart(round: number, r: Record<number, Role>): void {
     roles = r;
     dead.clear();
     phase = 'hide';
@@ -202,18 +203,16 @@ export function startGame(): void {
     pending = [];
     buffer = [];
     spectate = null;
-    for (const [id, c] of chars) c.setRole(roles[id] ?? 'hider', rang && roles[id] === 'seeker');
+    for (const [id, c] of chars) c.setRole(roles[id] ?? 'hider');
     const mine = roles[myId];
-    if (mine === 'hider') ui.banner('HIDE!', `Round ${round} · get out of sight before the seekers wake up`, '#23f0c7', 2600);
-    else if (mine === 'seeker') ui.banner('YOU SEEK', `Round ${round} · ${rang ? 'boomerang unlocked!' : 'count to ten…'}`, '#ef767a', 2600);
+    if (mine === 'hider') ui.banner('RUN!', `Round ${round} · get away before the seekers wake up`, '#23f0c7', 2600);
+    else if (mine === 'seeker') ui.banner('YOU\'RE IT', `Round ${round} · count to ten…`, '#ef767a', 2600);
     sfx.beep(true);
   }
 
-  function roundEnd(winner: Role, swap: boolean, rangNext: boolean): void {
+  function roundEnd(winner: Role, swap: boolean): void {
     const mine = roles[myId];
-    const subs = [swap ? 'Teams swap!' : 'Hiders keep hiding'];
-    if (rangNext && winner === 'hider') subs.push('Seekers unlock the BOOMERANG');
-    ui.banner(winner === 'hider' ? 'HIDERS WIN!' : 'SEEKERS WIN!', subs.join(' · '), winner === 'hider' ? '#23f0c7' : '#ef767a', 3500);
+    ui.banner(winner === 'hider' ? 'HIDERS WIN!' : 'SEEKERS WIN!', swap ? 'Teams swap!' : 'Hiders run again', winner === 'hider' ? '#23f0c7' : '#ef767a', 3500);
     (mine === winner ? sfx.win : sfx.lose)();
   }
 
@@ -349,9 +348,9 @@ export function startGame(): void {
         // Boomerang Fu holds the frame on a kill: freeze + zoom punch when it's near us
         if (sp.vol > 0.3 || e.id === myId || e.by === myId) { fx.freeze(0.12, 0.08); fx.addShake(0.4); }
         const victim = esc(ui.nameOf(e.id));
-        const icon = { stab: '🔪', backstab: '🗡️ backstab', fall: '💥 splat', void: '☁️ fell', boom: '💣', rang: '🪃' }[e.cause];
+        const icon = { stab: '🔪', backstab: '🗡️ backstab', fall: '💥 splat', void: '☁️ fell', boom: '💣' }[e.cause];
         ui.killfeed(e.by !== null ? `${esc(ui.nameOf(e.by))} ${icon} ${victim}` : `${victim} ${icon}`);
-        if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', 'Spectating · press J to switch', '#f0408f', 2200);
+        if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', 'Spectating · press Enter to switch', '#f0408f', 2200);
         if (e.by === myId) ui.banner(e.cause === 'backstab' ? 'BACKSTAB!' : 'GOTCHA!', '', '#ffd23f', 1100);
         break;
       }
@@ -359,7 +358,7 @@ export function startGame(): void {
         const p = posOf(e.by);
         if (!p) break;
         const sp = spatial(p.x, p.z, L.x, L.z);
-        if (e.kind === 'rang') sfx.rang(sp.vol, sp.pan); else sfx.throw(sp.vol, sp.pan);
+        sfx.throw(sp.vol, sp.pan);
         break;
       }
       case 'det': {
@@ -370,9 +369,6 @@ export function startGame(): void {
         if (e.hits.includes(myId) && e.kind === 'frost') ui.banner('FROZEN!', '', '#8fe3ff', 1200);
         break;
       }
-      case 'catch':
-        if (e.id === myId) sfx.catch();
-        break;
       case 'bounce': {
         const sp = spatial(e.x, e.z, L.x, L.z);
         if (sp.vol > 0.1) sfx.bounce(sp.vol, sp.pan);
@@ -471,10 +467,11 @@ export function startGame(): void {
       myChar.root.rotation.y = lerpAngle(myChar.root.rotation.y, pred.facing, Math.min(1, dt * 20));
       const charging = aimHeld > 0 ? Math.min(1, aimHeld / NADE_CHARGE_TIME) : 0;
       myChar.setNade(charging > 0 ? me.nadeSel : null);
-      myChar.setRole(me.role, me.rangHeld);
+      myChar.setRole(me.role);
       myChar.update(dt, {
         speed: Math.hypot(pred.vx, pred.vz), vy: pred.vy, grounded: pred.grounded, lunge: pred.lunge,
         aiming: charging, frozen: me.frozen > 0, chilled: me.chilled > 0,
+        ground: heightAt(pred.x + errOffset.x, pred.z + errOffset.z),
       });
       if (charging > 0) fx.showArc(pred.x, pred.y, pred.z, pred.facing, pred.vx, pred.vz, charging); else fx.hideArc();
       shown.add(myId);
@@ -491,14 +488,12 @@ export function startGame(): void {
       if (!vis) continue;
       c.root.position.set(p.x, p.y, p.z);
       c.root.rotation.y = lerpAngle(c.root.rotation.y, p.f, Math.min(1, dt * 20));
-      c.setRole(p.role, p.rang);
-      c.setNade(p.aiming > 0 ? 'flash' : null);
+      c.setRole(p.role);
+      c.setNade(p.nade);
       c.update(dt, {
         speed: Math.hypot(p.vx, p.vz), vy: p.vy, grounded: Math.abs(p.vy) < 0.01, lunge: p.lunge,
-        aiming: p.aiming, frozen: p.frozen > 0, chilled: p.chilled > 0,
+        aiming: p.aiming, frozen: p.frozen > 0, chilled: p.chilled > 0, ground: heightAt(p.x, p.z),
       });
-      // Teammates (and you) can see a hider in a bush, faded
-      c.setOpacity(p.bush ? 0.55 : 1);
       shown.add(id);
     }
     for (const [id, c] of chars) if (!remote.has(id) && id !== myId) c.root.visible = false;
@@ -546,7 +541,7 @@ export function startGame(): void {
       const teams = Object.entries(roles).map(([id, role]) => ({ id: Number(id), role, alive: !dead.has(Number(id)) }));
       const hud: HudState = {
         phase, timeLeft, role: me.role, alive: me.alive, hp: me.hp, frozen: me.frozen, blind: me.blind,
-        nades: me.nades, nadeSel: me.nadeSel, rangHeld: me.rangHeld, rangUnlocked: me.rangUnlocked, teams,
+        nades: me.nades, nadeSel: me.nadeSel, teams,
         spectating: !me.alive && spectate !== null ? ui.nameOf(spectate) : null,
       };
       ui.updateHud(hud);

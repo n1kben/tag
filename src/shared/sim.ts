@@ -1,13 +1,13 @@
 import {
-  PLAYER_RADIUS, STEP_HEIGHT, RUN_SPEED, GROUND_RESPONSE, AIR_RESPONSE, GRAVITY, JUMP_VELOCITY,
-  COYOTE_TIME, JUMP_BUFFER, BHOP_WINDOW, BHOP_GAIN, BHOP_MAX, STAB_COOLDOWN, LUNGE_SPEED, LUNGE_TIME,
+  PLAYER_RADIUS, STEP_HEIGHT, RUN_SPEED, GROUND_ACCEL, GROUND_DECEL, AIR_CONTROL, GRAVITY, FALL_GRAVITY,
+  JUMP_VELOCITY, JUMP_CUT, COYOTE_TIME, JUMP_BUFFER, BHOP_WINDOW, BHOP_GAIN, BHOP_MAX, STAB_COOLDOWN, LUNGE_SPEED, LUNGE_TIME,
   CHILL_SPEED, AIM_SPEED,
 } from './constants';
 import { SOLIDS, heightAt } from './map';
 
 export const BTN_JUMP = 1;
-export const BTN_ACTION = 2; // seeker: stab · hider: hold to aim grenade, release to throw
-export const BTN_ALT = 4; // seeker: boomerang (when unlocked) · hider: cycle grenade
+export const BTN_ACTION = 2; // seeker: slash · hider: hold to aim grenade, release to throw
+export const BTN_ALT = 4; // hider: switch grenade
 
 export interface Input {
   mx: number; // stick, -1..1, already length ≤ 1
@@ -25,6 +25,7 @@ export interface Body {
   airTime: number; // since leaving ground (coyote)
   groundTime: number; // since landing (bhop window)
   jumpBuf: number;
+  rising: boolean; // in a jump that can still be cut short by releasing Space
   hop: number; // bunny-hop speed multiplier
   attackCd: number;
   lunge: number;
@@ -50,7 +51,7 @@ export interface StepEvents {
 export function newBody(x: number, z: number): Body {
   return {
     x, y: heightAt(x, z), z, vx: 0, vy: 0, vz: 0, facing: 0,
-    grounded: true, airTime: 0, groundTime: 1, jumpBuf: 0, hop: 1,
+    grounded: true, airTime: 0, groundTime: 1, jumpBuf: 0, rising: false, hop: 1,
     attackCd: 0, lunge: 0, prevB: 0,
   };
 }
@@ -83,7 +84,7 @@ export function stepBody(s: Body, input: Input, st: Status, dt: number): StepEve
     s.vz += fz * boost;
   }
 
-  // Horizontal: velocity chases the stick target (slidey on ground, floaty in air)
+  // Horizontal: snap up to speed, short slide when letting go, near-full steering in the air
   if (s.lunge <= 0) {
     // Hiders charging a throw shuffle slowly so the stick can aim (Boomerang Fu charge-throw)
     const aiming = st.role === 'hider' && (input.b & BTN_ACTION) !== 0;
@@ -91,19 +92,18 @@ export function stepBody(s: Body, input: Input, st: Status, dt: number): StepEve
     const cap = RUN_SPEED * speedMul * s.hop;
     const tx = mx * cap, tz = mz * cap;
     if (s.grounded) {
-      const k = 1 - Math.exp(-GROUND_RESPONSE * dt);
+      const k = 1 - Math.exp(-(len > 0.2 ? GROUND_ACCEL : GROUND_DECEL) * dt);
       s.vx += (tx - s.vx) * k;
       s.vz += (tz - s.vz) * k;
     } else if (len > 0.2) {
-      // Air control only adds; it never bleeds hop speed (strafe-jump friendly)
-      const k = 1 - Math.exp(-AIR_RESPONSE * dt);
-      const nvx = s.vx + (tx - s.vx) * k;
-      const nvz = s.vz + (tz - s.vz) * k;
+      // Steer freely, but never brake below the speed you jumped with (keeps bunny hops alive)
+      const k = 1 - Math.exp(-AIR_CONTROL * dt);
       const oldSpeed = Math.hypot(s.vx, s.vz);
-      const newSpeed = Math.hypot(nvx, nvz);
-      const scale = newSpeed > oldSpeed && newSpeed > cap ? Math.max(oldSpeed, cap) / newSpeed : 1;
-      s.vx = nvx * scale;
-      s.vz = nvz * scale;
+      s.vx += (tx - s.vx) * k;
+      s.vz += (tz - s.vz) * k;
+      const newSpeed = Math.hypot(s.vx, s.vz);
+      const keep = Math.min(oldSpeed, cap * BHOP_MAX);
+      if (newSpeed < keep && newSpeed > 1e-6) { s.vx *= keep / newSpeed; s.vz *= keep / newSpeed; }
     }
   }
   if (st.frozen) { s.vx = 0; s.vz = 0; }
@@ -119,10 +119,17 @@ export function stepBody(s: Body, input: Input, st: Status, dt: number): StepEve
       s.hop = Math.min(BHOP_MAX, s.hop * BHOP_GAIN);
     }
     s.vy = JUMP_VELOCITY;
+    s.rising = true;
     s.grounded = false;
     s.airTime = COYOTE_TIME;
     s.jumpBuf = 0;
     ev.jumped = true;
+  }
+
+  // Variable height: let go of Space on the way up for a short hop
+  if (s.rising && (!(input.b & BTN_JUMP) || s.vy <= 0)) {
+    if (s.vy > 0) s.vy *= JUMP_CUT;
+    s.rising = false;
   }
 
   // Integrate horizontal, then push out of anything taller than a step
@@ -142,13 +149,14 @@ export function stepBody(s: Body, input: Input, st: Status, dt: number): StepEve
     }
   }
   if (!s.grounded) {
-    s.vy -= GRAVITY * dt;
+    s.vy -= (s.vy > 0 ? GRAVITY : FALL_GRAVITY) * dt;
     const ny = s.y + s.vy * dt;
     if (s.vy <= 0 && ny <= ground && s.y >= ground - STEP_HEIGHT) {
       ev.landed = -s.vy;
       s.y = ground;
       s.vy = 0;
       s.grounded = true;
+      s.rising = false;
       s.groundTime = 0;
     } else {
       s.y = ny;

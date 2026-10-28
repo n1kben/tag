@@ -9,7 +9,7 @@ const roster: LobbyPlayer[] = Array.from({ length: n }, (_, i) => ({ id: i + 1, 
 roster.push({ id: 99, name: 'watcher', character: 9, ready: true, bot: false });
 
 const counts: Record<string, number> = {};
-let snaps = 0, hiddenFromSeeker = 0, hiderSlots = 0;
+let snaps = 0;
 const log: string[] = [];
 let ended = false;
 
@@ -17,11 +17,6 @@ const m = new Match({
   send(_id, msg: ServerMessage) {
     if (msg.type === 'snap') {
       snaps++;
-      if (msg.phase === 'seek') {
-        const seeker = m.players.find(p => p.bot && p.alive && p.role === 'seeker');
-        if (seeker) hiddenFromSeeker += m.players.filter(p => p.alive && p.role === 'hider' && !m.canSee(seeker, p)).length;
-        hiderSlots += m.players.filter(p => p.alive && p.role === 'hider').length;
-      }
       return;
     }
     if (msg.type === 'ev') {
@@ -57,4 +52,4 @@ while (!ended && ticks < 60 * 60 * 25) {
 console.log(log.join('\n'));
 console.log(`ticks ${ticks} (${(ticks / 60 / 60).toFixed(1)} game-min) in ${Date.now() - t0}ms`);
 console.log('events', counts);
-console.log(`snapshots ${snaps}; hiders hidden from seekers ${(100 * hiddenFromSeeker / Math.max(1, hiderSlots)).toFixed(0)}% of the time`);
+console.log(`snapshots ${snaps}`);

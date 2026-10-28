@@ -1,6 +1,6 @@
 # Rooftop Fu
 
-Online Hide 'n Seek on a city of rooftops. The rules come from Counter-Strike 1.6's HNS mod, as played on `awp_rooftops`. The look and feel come from Boomerang Fu on Switch: food characters, pastel floating platforms, slice-in-half kills and a lot of juice.
+Online rooftop tag. The rules come from Counter-Strike 1.6's Hide 'n Seek mod, as played on `awp_rooftops`; despite the name, that mode is really tag: everyone can see everyone, and hiders survive by running, jumping gaps and throwing grenades. The look and feel come from Boomerang Fu on Switch: food characters, pastel floating platforms, slice-in-half kills and a lot of juice.
 
 ```sh
 npm install
@@ -16,10 +16,12 @@ Press **PLAY VS BOTS** for a practice match, or **CREATE ROOM** and share the li
 | | Keyboard | Gamepad |
 |---|---|---|
 | Move (you face where you move) | WASD / arrows | left stick / d-pad |
-| Jump (chain hops to build speed) | Space | A |
-| Action: seeker stabs, hider holds to aim a grenade and releases to throw | J / X / left mouse | X / RT |
-| Alt: seeker throws the boomerang (once unlocked), hider switches grenade | K / Q / E / right mouse | B / Y / bumpers |
+| Jump: tap for a hop, hold for full height, jump right on landing to chain hops | Space | A |
+| Seeker slashes · hider holds to aim a grenade (the throw arc shows) and releases to throw | Enter | X / RT |
+| Hider switches grenade | Q | Y / bumpers |
 | Scoreboard · mute · debug HUD | Tab · M · P | |
+
+There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where you move.
 
 ## Rules (CS 1.6 hidenseek defaults → this game)
 
@@ -30,12 +32,11 @@ Press **PLAY VS BOTS** for a practice match, or **CREATE ROOM** and share the li
 | Hiders win if anyone survives the round timer; seekers win by killing every hider | Same, with a 2:00 seek phase |
 | Teams swap only when seekers win | Same |
 | `hns_hiders_alivefrags`: +1 per surviving hider | +1 point per surviving hider, +1 per kill |
-| Hiders can't attack; kit: 2 flash, 1 frost (4s freeze / 60% chill), 1 smoke, 1 HE | Same kit; HE becomes **Boom**, which knocks seekers back (shove one off a roof and you get the kill) |
-| Knife: 2 front stabs (100 HP + armour), backstab one-shots | Stab is a Boomerang Fu lunge: 2 hits from the front, an instant kill from behind on a hider who isn't running |
-| `hns_nubslash 3`: better knife after 3 lost rounds | After 3 seeker losses in a row, seekers get **the boomerang** (curves out, ricochets, flies home) |
+| Hiders can't attack; kit: 2 flash, 1 frost (4s freeze / 60% chill), 1 smoke, 1 HE | Same kit; HE becomes **Boom**, which knocks seekers back (shove one off a roof and you get the kill). Tune it all in the grenade block of `src/shared/constants.ts` |
+| Knife: 2 front stabs (100 HP + armour), backstab one-shots | Slash is a Boomerang Fu lunge: 2 hits from the front, an instant kill from behind on a hider who isn't running |
 | Fall damage; kill triggers off the map | Fall damage on big drops; falling into the mist kills |
 | Semiclip for teammates | Teammates pass through each other; opponents shove |
-| You only see what's in your line of sight | The server only sends a hider to seekers while some seeker has line of sight. Roof edges, tanks, booths and smoke block it, and bushes hide you beyond 2.2 units. No wallhacks. |
+| It's a chase, not a hiding game | Everyone is always visible. Smoke still covers you on screen and blocks flashes. |
 
 ## How it's built
 
@@ -50,6 +51,7 @@ Press **PLAY VS BOTS** for a practice match, or **CREATE ROOM** and share the li
   - `fx.ts`: effects and juice.
   - `ui.ts`: the DOM UI.
   - `game.ts`: prediction and reconciliation, interpolation, and wiring events to effects.
+- Movement is tuned against Boomerang Fu trailer footage: about 6–7 body-widths/s, full speed in about 0.13s, a short skid when you let go. The jump is snappy: about 0.5s in the air, a heavier fall, variable height, near-full air control, and a blob shadow on the surface below to show where you'll land. `npx tsx scripts/jump-metrics.ts` prints the numbers.
 - Networking: the client sends one input per 60Hz tick, and the server consumes exactly one per tick and acks it. The client replays inputs the server hasn't acked yet, and smooths any correction away. Other players are drawn about 100ms in the past from 30Hz snapshots.
 
 The look was matched against frames from Boomerang Fu's official release trailer:

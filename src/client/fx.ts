@@ -1,7 +1,7 @@
 // Juice: puffs, swooshes, juice splats, grenade blasts, smoke clouds, screen shake + hitstop.
 import * as THREE from 'three';
 import {
-  FROST_RADIUS, BOOM_RADIUS, SMOKE_RADIUS, NADE_THROW_SPEED, NADE_THROW_UP, NADE_MIN_CHARGE, GRAVITY, type NadeKind,
+  FROST_RADIUS, BOOM_RADIUS, SMOKE_RADIUS, NADE_THROW_SPEED, NADE_THROW_UP, NADE_MIN_CHARGE, NADE_GRAVITY, type NadeKind,
 } from '../shared/constants';
 import { heightAt } from '../shared/map';
 import { mat } from './world';
@@ -170,7 +170,7 @@ export class Fx {
     }
   }
 
-  syncProjectiles(list: { id: number; kind: NadeKind | 'rang'; x: number; y: number; z: number }[], dt: number): void {
+  syncProjectiles(list: { id: number; kind: NadeKind; x: number; y: number; z: number }[], dt: number): void {
     const live = new Set(list.map(p => p.id));
     for (const [id, o] of this.projectiles) {
       if (!live.has(id)) { o.removeFromParent(); this.projectiles.delete(id); }
@@ -178,14 +178,13 @@ export class Fx {
     for (const pr of list) {
       let o = this.projectiles.get(pr.id);
       if (!o) {
-        o = pr.kind === 'rang' ? makeRang() : makeNade(pr.kind);
+        o = makeNade(pr.kind);
         this.scene.add(o);
         this.projectiles.set(pr.id, o);
         o.position.set(pr.x, pr.y, pr.z);
       }
       o.position.lerp(new THREE.Vector3(pr.x, pr.y, pr.z), Math.min(1, dt * 25));
-      if (pr.kind === 'rang') o.rotation.y += dt * 22;
-      else o.rotation.x += dt * 8;
+      o.rotation.x += dt * 8;
     }
   }
 
@@ -199,7 +198,7 @@ export class Fx {
     let hidden = false;
     for (let i = 0; i < this.arc.length; i++) {
       for (let k = 0; k < 2; k++) {
-        uy -= GRAVITY * step;
+        uy -= NADE_GRAVITY * step;
         px += ux * step; py += uy * step; pz += uz * step;
       }
       if (py < heightAt(px, pz)) hidden = true;
@@ -255,7 +254,6 @@ export class Fx {
 
 const nadeGeo = new THREE.IcosahedronGeometry(0.17, 1);
 const capGeo = new THREE.CylinderGeometry(0.06, 0.07, 0.1, 8);
-const rangGeo = new THREE.BoxGeometry(0.16, 0.08, 0.6);
 const shardGeo = new THREE.OctahedronGeometry(1);
 
 function makeNade(kind: NadeKind): THREE.Object3D {
@@ -264,18 +262,6 @@ function makeNade(kind: NadeKind): THREE.Object3D {
   const cap = new THREE.Mesh(capGeo, mat(0x5d4a58));
   cap.position.y = 0.17;
   g.add(body, cap);
-  g.traverse(o => { o.castShadow = true; });
-  return g;
-}
-
-function makeRang(): THREE.Object3D {
-  const g = new THREE.Group();
-  for (const a of [0.6, -0.6]) {
-    const arm = new THREE.Mesh(rangGeo, mat(0xc98a4f));
-    arm.rotation.y = a;
-    arm.position.set(Math.sin(a) * 0.22, 0, Math.cos(a) * 0.22);
-    g.add(arm);
-  }
   g.traverse(o => { o.castShadow = true; });
   return g;
 }
