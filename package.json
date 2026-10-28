@@ -1,5 +1,5 @@
 {
-  "name": "tag-game",
+  "name": "rooftop-fu",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,7 +7,9 @@
     "dev:client": "vite",
     "dev:server": "tsx watch src/server/index.ts",
     "build": "tsc && vite build && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.mjs --packages=external",
-    "start": "NODE_ENV=production node dist/server/index.mjs"
+    "start": "NODE_ENV=production node dist/server/index.mjs",
+    "check": "tsc --noEmit && tsx scripts/check-map.ts && tsx scripts/sim-match.ts 6",
+    "e2e": "tsx scripts/mp-e2e.ts http://127.0.0.1:8080 /tmp"
   },
   "dependencies": {
     "three": "^0.172.0",
@@ -19,6 +21,7 @@
     "@types/ws": "^8.5.0",
     "concurrently": "^9.0.0",
     "esbuild": "^0.27.3",
+    "playwright-core": "^1.49.1",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0"

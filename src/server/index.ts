@@ -1,14 +1,15 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createRoom, joinRoom, removeFromRoom, findRoomByWs } from './room';
-import type { ClientMessage } from '../shared/protocol';
-import { readFileSync, existsSync } from 'fs';
-import { join, extname } from 'path';
+import { readFileSync, existsSync, statSync } from 'fs';
+import { join, extname, normalize } from 'path';
 import { fileURLToPath } from 'url';
+import { createRoom, joinRoom, findRoom, leaveRoom } from './room';
+import type { ClientMessage } from '../shared/protocol';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const isDev = process.env.NODE_ENV !== 'production';
-const PORT = isDev ? 3001 : 8080;
+const PORT = Number(process.env.PORT) || (isDev ? 3001 : 8080);
+const DIST_DIR = join(__dirname, '..');
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
@@ -16,33 +17,24 @@ const MIME_TYPES: Record<string, string> = {
   '.css': 'text/css',
   '.json': 'application/json',
   '.png': 'image/png',
-  '.jpg': 'image/jpeg',
   '.svg': 'image/svg+xml',
-  '.glb': 'model/gltf-binary',
   '.woff2': 'font/woff2',
 };
-
-const DIST_DIR = join(__dirname, '..');
 
 function serveStatic(req: IncomingMessage, res: ServerResponse): void {
   if (isDev) {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Tag Game Server (dev)');
+    res.end('Rooftop Fu server (dev) — open the Vite URL');
     return;
   }
-
-  let filePath = join(DIST_DIR, req.url === '/' ? 'index.html' : req.url!);
-  if (!existsSync(filePath)) {
+  const urlPath = normalize(decodeURIComponent((req.url ?? '/').split('?')[0])).replace(/^(\.\.[/\\])+/, '');
+  let filePath = join(DIST_DIR, urlPath === '/' ? 'index.html' : urlPath);
+  if (!filePath.startsWith(DIST_DIR) || !existsSync(filePath) || statSync(filePath).isDirectory()) {
     filePath = join(DIST_DIR, 'index.html');
   }
-
-  const ext = extname(filePath);
-  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-
   try {
-    const content = readFileSync(filePath);
-    res.writeHead(200, { 'Content-Type': contentType });
-    res.end(content);
+    res.writeHead(200, { 'Content-Type': MIME_TYPES[extname(filePath)] || 'application/octet-stream' });
+    res.end(readFileSync(filePath));
   } catch {
     res.writeHead(404);
     res.end('Not found');
@@ -50,12 +42,9 @@ function serveStatic(req: IncomingMessage, res: ServerResponse): void {
 }
 
 const server = createServer(serveStatic);
-
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws: WebSocket) => {
-  console.log('Client connected');
-
   ws.on('message', (data: Buffer) => {
     let msg: ClientMessage;
     try {
@@ -63,46 +52,30 @@ wss.on('connection', (ws: WebSocket) => {
     } catch {
       return;
     }
-
     switch (msg.type) {
-      case 'create_room': {
-        const room = createRoom(ws);
-        console.log(`Room ${room.id} created`);
-        break;
-      }
-      case 'join_room': {
-        const room = joinRoom(ws, msg.roomId);
-        if (!room) {
-          ws.send(JSON.stringify({ type: 'error', msg: 'Room not found or full' }));
-        } else {
-          console.log(`Player joined room ${room.id}`);
-        }
-        break;
-      }
-      case 'ping': {
+      case 'ping':
         ws.send(JSON.stringify({ type: 'pong', t: msg.t }));
         break;
-      }
-      case 'input':
-      case 'rename':
-      case 'ready': {
-        const room = findRoomByWs(ws);
-        if (room) room.handleMessage(ws, msg);
+      case 'create_room':
+        leaveRoom(ws);
+        createRoom(ws, !!msg.practice);
         break;
-      }
-      case 'leave': {
-        removeFromRoom(ws);
+      case 'join_room':
+        leaveRoom(ws);
+        if (!joinRoom(ws, String(msg.roomId))) {
+          ws.send(JSON.stringify({ type: 'error', msg: 'Room not found or full' }));
+        }
         break;
-      }
+      case 'leave':
+        leaveRoom(ws);
+        break;
+      default:
+        findRoom(ws)?.handle(ws, msg);
     }
   });
-
-  ws.on('close', () => {
-    console.log('Client disconnected');
-    removeFromRoom(ws);
-  });
+  ws.on('close', () => leaveRoom(ws));
 });
 
 server.listen(PORT, () => {
-  console.log(`Tag game server listening on port ${PORT}`);
+  console.log(`Rooftop Fu server listening on port ${PORT}`);
 });

@@ -1,144 +1,94 @@
-// Client → Server messages
-export interface CreateRoomMsg {
-  type: 'create_room';
-}
+import type { Body, Role } from './sim';
+import type { NadeKind } from './constants';
 
-export interface JoinRoomMsg {
-  type: 'join_room';
-  roomId: string;
-}
+export type Phase = 'hide' | 'seek' | 'end';
 
-export interface RenameMsg {
-  type: 'rename';
-  name: string;
-}
+// ── Client → Server ───────────────────────────────────────────────────────
+export type ClientMessage =
+  | { type: 'create_room'; practice?: boolean }
+  | { type: 'join_room'; roomId: string }
+  | { type: 'profile'; name?: string; character?: number }
+  | { type: 'ready' }
+  | { type: 'add_bot' }
+  | { type: 'remove_bot' }
+  | { type: 'leave' }
+  | { type: 'ping'; t: number }
+  // One message per 60Hz client tick; the server consumes exactly one per tick per player
+  | { type: 'input'; seq: number; mx: number; mz: number; b: number };
 
-export interface ReadyMsg {
-  type: 'ready';
-}
-
-export interface InputMsg {
-  type: 'input';
-  seq: number;
-  dx: number;  // -1, 0, 1
-  dz: number;  // -1, 0, 1
-  tag: boolean;
-}
-
-export interface LeaveMsg {
-  type: 'leave';
-}
-
-export interface PingMsg {
-  type: 'ping';
-  t: number; // client timestamp
-}
-
-export type ClientMessage = CreateRoomMsg | JoinRoomMsg | RenameMsg | ReadyMsg | InputMsg | LeaveMsg | PingMsg;
-
-// Server → Client messages
-export interface PlayerState {
-  x: number;
-  z: number;
-  vx: number;
-  vz: number;
-  facingAngle: number;
-}
-
+// ── Server → Client ───────────────────────────────────────────────────────
 export interface LobbyPlayer {
+  id: number;
   name: string;
+  character: number;
   ready: boolean;
+  bot: boolean;
 }
 
-export interface RoomCreatedMsg {
-  type: 'room_created';
-  roomId: string;
-  playerId: number; // 0 or 1
-  name: string;     // auto-generated name
+export interface Standing {
+  id: number;
+  name: string;
+  character: number;
+  score: number;
+  kills: number;
+  survived: number;
 }
 
-export interface RoomJoinedMsg {
-  type: 'room_joined';
-  roomId: string;
-  playerId: number;
-  name: string;     // auto-generated name
+/** A player as other clients see it. Hiders out of a seeker's sight are left out entirely. */
+export interface NetPlayer {
+  id: number;
+  x: number; y: number; z: number;
+  vx: number; vy: number; vz: number;
+  f: number; // facing
+  hp: number;
+  alive: boolean;
+  role: Role;
+  frozen: number; // seconds left
+  chilled: number;
+  lunge: number; // >0 while stabbing (drives the slash anim)
+  rang: boolean; // holding the boomerang
+  aiming: number; // hider grenade charge 0..1 (0 = not aiming)
+  bush: boolean;
 }
 
-export interface LobbyStateMsg {
-  type: 'lobby_state';
-  players: (LobbyPlayer | null)[];
-  lastResult?: {
-    winnerIdx: number;
-    stats: {
-      player1Name: string;
-      player2Name: string;
-      player1SurvivalMs: number;
-      player2SurvivalMs: number;
-      durationMs: number;
-    };
-  };
+export interface NetProjectile {
+  id: number;
+  kind: NadeKind | 'rang';
+  x: number; y: number; z: number;
+  owner: number;
 }
 
-export interface OpponentLeftMsg {
-  type: 'opponent_left';
-}
+export interface NetSmoke { id: number; x: number; y: number; z: number; t: number }
 
-export interface CountdownMsg {
-  type: 'countdown';
-  seconds: number;
-}
-
-export interface StateMsg {
-  type: 'state';
+export interface Snapshot {
+  type: 'snap';
   tick: number;
-  time: number; // seconds remaining
-  it: number;   // which player is "it" (0 or 1)
-  p: [PlayerState, PlayerState];
-  seq: number;  // last processed input seq for this client
+  phase: Phase;
+  timeLeft: number;
+  ack: number; // last input seq processed for the receiver
+  me: (Body & { hp: number; alive: boolean; role: Role; frozen: number; chilled: number; blind: number; rangHeld: boolean; rangUnlocked: boolean; nades: Record<NadeKind, number>; nadeSel: NadeKind }) | null;
+  players: NetPlayer[];
+  projectiles: NetProjectile[];
+  smokes: NetSmoke[];
 }
 
-export interface TagAttemptMsg {
-  type: 'tag_attempt';
-  player: number;
-}
-
-export interface TagEventMsg {
-  type: 'tag_event';
-  tagger: number;
-  tagged: number;
-}
-
-export interface GameOverMsg {
-  type: 'game_over';
-  winner: number;
-  stats: {
-    player1Name: string;
-    player2Name: string;
-    player1SurvivalMs: number;
-    player2SurvivalMs: number;
-    durationMs: number;
-  };
-}
-
-export interface ErrorMsg {
-  type: 'error';
-  msg: string;
-}
-
-export interface PongMsg {
-  type: 'pong';
-  t: number; // echoed client timestamp
-}
+export type GameEvent =
+  | { k: 'stab'; by: number }
+  | { k: 'hurt'; id: number; hp: number; cause: 'stab' | 'fall' | 'boom' | 'rang' }
+  | { k: 'kill'; id: number; by: number | null; cause: 'stab' | 'backstab' | 'fall' | 'void' | 'boom' | 'rang'; x: number; y: number; z: number; dx: number; dz: number }
+  | { k: 'throw'; by: number; kind: NadeKind | 'rang' }
+  | { k: 'det'; kind: NadeKind; x: number; y: number; z: number; hits: number[] }
+  | { k: 'catch'; id: number }
+  | { k: 'bounce'; x: number; y: number; z: number };
 
 export type ServerMessage =
-  | RoomCreatedMsg
-  | RoomJoinedMsg
-  | LobbyStateMsg
-  | OpponentLeftMsg
-  | CountdownMsg
-  | StateMsg
-  | TagAttemptMsg
-  | TagEventMsg
-  | GameOverMsg
-  | ErrorMsg
-  | PongMsg;
+  | { type: 'welcome'; roomId: string; playerId: number; practice: boolean }
+  | { type: 'lobby'; players: LobbyPlayer[]; inMatch: boolean; lastStandings?: Standing[] }
+  | { type: 'match_start'; roster: LobbyPlayer[]; rounds: number }
+  | { type: 'round_start'; round: number; roles: Record<number, Role>; rangUnlocked: boolean }
+  | { type: 'round_end'; round: number; winner: Role; swap: boolean; standings: Standing[]; rangNext: boolean }
+  | { type: 'match_end'; standings: Standing[] }
+  | Snapshot
+  | { type: 'ev'; events: GameEvent[] }
+  | { type: 'error'; msg: string }
+  | { type: 'pong'; t: number };
