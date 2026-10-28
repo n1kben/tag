@@ -57,8 +57,6 @@ export interface NetProjectile {
   owner: number;
 }
 
-export interface NetSmoke { id: number; x: number; y: number; z: number; t: number }
-
 export interface Snapshot {
   type: 'snap';
   tick: number;
@@ -68,14 +66,13 @@ export interface Snapshot {
   me: (Body & { hp: number; alive: boolean; role: Role; frozen: number; chilled: number; blind: number; nades: Record<NadeKind, number>; nadeSel: NadeKind }) | null;
   players: NetPlayer[];
   projectiles: NetProjectile[];
-  smokes: NetSmoke[];
 }
 
-export type KillCause = 'stab' | 'backstab' | 'fall' | 'void' | 'boom';
+export type KillCause = 'stab' | 'backstab' | 'fall' | 'void';
 
 export type GameEvent =
   | { k: 'stab'; by: number }
-  | { k: 'hurt'; id: number; hp: number; cause: 'stab' | 'fall' | 'boom' }
+  | { k: 'hurt'; id: number; hp: number; cause: 'stab' | 'fall' }
   | { k: 'kill'; id: number; by: number | null; cause: KillCause; x: number; y: number; z: number; dx: number; dz: number }
   | { k: 'throw'; by: number; kind: NadeKind }
   | { k: 'det'; kind: NadeKind; x: number; y: number; z: number; hits: number[] }

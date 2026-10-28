@@ -32,11 +32,11 @@ There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where 
 | Hiders win if anyone survives the round timer; seekers win by killing every hider | Same, with a 2:00 seek phase |
 | Teams swap only when seekers win | Same |
 | `hns_hiders_alivefrags`: +1 per surviving hider | +1 point per surviving hider, +1 per kill |
-| Hiders can't attack; kit: 2 flash, 1 frost (4s freeze / 60% chill), 1 smoke, 1 HE | Same kit; HE becomes **Boom**, which knocks seekers back (shove one off a roof and you get the kill). Tune it all in the grenade block of `src/shared/constants.ts` |
+| Hiders can't attack; kit: 2 flash, 1 frost (4s freeze / 60% chill), smoke, HE | **2 flash + 1 frost** (smoke and HE cut). Flash a seeker right before a jump; frost them mid-air and they drop into the mist (you get the kill). Tune in the grenade block of `src/shared/constants.ts` |
 | Knife: 2 front stabs (100 HP + armour), backstab one-shots | Slash is a Boomerang Fu lunge: 2 hits from the front, an instant kill from behind on a hider who isn't running |
 | Fall damage; kill triggers off the map | Fall damage on big drops; falling into the mist kills |
 | Semiclip for teammates | Teammates pass through each other; opponents shove |
-| It's a chase, not a hiding game | Everyone is always visible. Smoke still covers you on screen and blocks flashes. |
+| It's a chase, not a hiding game | Everyone is always visible |
 
 ## How it's built
 

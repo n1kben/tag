@@ -168,17 +168,11 @@ export function heightAt(x: number, z: number): number {
   return h;
 }
 
-export interface Smoke { x: number; y: number; z: number; r: number }
-
-/**
- * Line of sight between two eye points. Blocked by any solid whose top rises above the
- * sight line (roof edges, tanks, booths) and by smoke clouds. This is what lets a hider
- * vanish by dropping onto a lower roof or ducking behind a water tank.
- */
+/** Line of sight between two points: blocked by any solid rising above the sight line
+ * (roof edges, tanks, booths). Grenades need it to reach a seeker. */
 export function lineOfSight(
   ax: number, ay: number, az: number,
   bx: number, by: number, bz: number,
-  smokes: Smoke[] = [],
 ): boolean {
   const dx = bx - ax, dy = by - ay, dz = bz - az;
   const len = Math.hypot(dx, dz);
@@ -187,13 +181,6 @@ export function lineOfSight(
     const t = i / steps;
     const h = heightAt(ax + dx * t, az + dz * t);
     if (h > ay + dy * t - 0.05) return false;
-  }
-  for (const s of smokes) {
-    // Distance from smoke centre to the segment
-    const fx = s.x - ax, fz = s.z - az;
-    const t = Math.max(0, Math.min(1, (fx * dx + fz * dz) / (len * len || 1)));
-    const px = ax + dx * t - s.x, pz = az + dz * t - s.z;
-    if (px * px + pz * pz < s.r * s.r) return false;
   }
   return true;
 }

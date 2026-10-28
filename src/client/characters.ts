@@ -182,7 +182,7 @@ export interface AnimState {
   ground?: number; // world y of the surface below (for the blob shadow); defaults to the feet
 }
 
-const NADE_COLORS: Record<NadeKind, number> = { flash: 0xfff2a8, frost: 0x8fe3ff, smoke: 0xb9bdd8, boom: 0xff6a4a };
+const NADE_COLORS: Record<NadeKind, number> = { flash: 0xfff2a8, frost: 0x8fe3ff };
 
 export class Character {
   readonly root = new THREE.Group(); // positioned at feet, rotated to facing
@@ -231,7 +231,7 @@ export class Character {
     this.root.add(this.body, this.footL, this.footR);
     this.body.add(this.handL, this.handR);
 
-    // Seeker gear: kitchen knife, red bandana, boomerang
+    // Seeker gear: kitchen knife, red bandana
     const blade = mesh(rounded(0.05, 0.08, 0.34, 0.02), 0xe9edf7, 0, 0, 0.2);
     const handle = mesh(rounded(0.06, 0.07, 0.14, 0.02), 0x6e4a3a, 0, 0, 0.0);
     this.knife.add(blade, handle);

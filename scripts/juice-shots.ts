@@ -7,7 +7,7 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true, args:
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 page.on('pageerror', e => console.log('[pageerror]', e.message));
 
-const wanted = new Map<string, number>([['kill', 3], ['det_frost', 1], ['det_flash', 1], ['det_boom', 1], ['det_smoke', 1]]);
+const wanted = new Map<string, number>([['kill', 3], ['det_frost', 1], ['det_flash', 1]]);
 let busy = false;
 page.on('websocket', ws => ws.on('framereceived', async f => {
   const t = String(f.payload);
@@ -19,7 +19,7 @@ page.on('websocket', ws => ws.on('framereceived', async f => {
     if (!left) continue;
     wanted.set(key, left - 1);
     busy = true;
-    await new Promise(r => setTimeout(r, key === 'det_smoke' ? 900 : 120));
+    await new Promise(r => setTimeout(r, 120));
     await page.screenshot({ path: `${outDir}/j-${key}-${left}.png` }).catch(() => {});
     console.log('shot', key);
     busy = false;

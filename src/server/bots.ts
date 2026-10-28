@@ -58,17 +58,21 @@ export class Brain {
     }
 
     if (spotted && near && near.d < 9 && this.nadeCd <= 0 && totalNades(me) > 0) {
-      // Frost or boom a close chaser, flash or smoke one further out
-      const order: NadeKind[] = near.d < 5 ? ['frost', 'boom', 'flash', 'smoke'] : ['flash', 'smoke', 'frost', 'boom'];
-      const want = order.find(k => me.nades[k] > 0)!;
-      if (me.nadeSel !== want) {
-        // Cycling needs press/release, so tap ALT every other tick
-        this.altToggle = !this.altToggle;
-        return { mx: 0, mz: 0, b: this.altToggle ? BTN_ALT : 0 };
+      // Frost the gap they have to jump (it pops while they're in the air);
+      // flash a chaser who's about to reach us on the same roof
+      const gap = gapBetween(near.t.body, b);
+      const want: NadeKind | null = gap && me.nades.frost > 0 ? 'frost' : near.d < 6 && me.nades.flash > 0 ? 'flash' : null;
+      if (want) {
+        if (me.nadeSel !== want) {
+          // Cycling needs press/release, so tap ALT every other tick
+          this.altToggle = !this.altToggle;
+          return { mx: 0, mz: 0, b: this.altToggle ? BTN_ALT : 0 };
+        }
+        this.nadeCd = 3 + Math.random() * 3;
+        const dist = want === 'frost' && gap ? Math.hypot(gap.x - b.x, gap.z - b.z) : near.d;
+        this.aimTicks = Math.round(8 + Math.min(1, dist / 9) * 25);
+        return { mx: 0, mz: 0, b: BTN_ACTION };
       }
-      this.nadeCd = 3 + Math.random() * 3;
-      this.aimTicks = Math.round(8 + Math.min(1, near.d / 9) * 25);
-      return { mx: 0, mz: 0, b: BTN_ACTION };
     }
 
     if (spotted && near && near.d < 10 && (!this.goal || this.distToGoal(b.x, b.z) < 3 || this.idleT > 0)) {
@@ -115,6 +119,8 @@ export class Brain {
   private seeker(m: Match, me: MPlayer): Input {
     const b = me.body;
     if (m.phase !== 'seek') return { mx: 0, mz: 0, b: 0 };
+    // Flashed: a human sees a white screen, so a bot loses track and stumbles to a halt
+    if (me.blind > 0.6) { this.goal = null; this.leaping = false; return { mx: 0, mz: 0, b: 0 }; }
 
     const visible = m.players
       .filter(p => p.alive && p.connected && p.role === 'hider')
@@ -225,6 +231,17 @@ function norm(x: number, z: number): [number, number] {
 }
 
 function totalNades(p: MPlayer): number {
-  return p.nades.flash + p.nades.frost + p.nades.smoke + p.nades.boom;
+  return p.nades.flash + p.nades.frost;
+}
+
+/** First drop between two players (where a chaser has to jump), if any. */
+function gapBetween(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }): { x: number; z: number } | null {
+  const d = Math.hypot(to.x - from.x, to.z - from.z);
+  const floor = Math.min(from.y, to.y) - 0.5;
+  for (let s = 0.5; s < d; s += 0.4) {
+    const x = from.x + ((to.x - from.x) * s) / d, z = from.z + ((to.z - from.z) * s) / d;
+    if (heightAt(x, z) < floor) return { x, z };
+  }
+  return null;
 }
 

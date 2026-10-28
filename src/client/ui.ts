@@ -124,8 +124,8 @@ kbd { background: #fff; color: var(--ink); border-radius: 6px; padding: 1px 7px;
 @media (max-width: 640px) { .teams { width: 92vw; } .keys { display: none; } .btn { min-width: 200px; } }
 `;
 
-const NADE_LABEL: Record<NadeKind, string> = { flash: 'Flash', frost: 'Frost', smoke: 'Smoke', boom: 'Boom' };
-const NADE_CSS: Record<NadeKind, string> = { flash: '#fff2a8', frost: '#8fe3ff', smoke: '#c9cce6', boom: '#ff6a4a' };
+const NADE_LABEL: Record<NadeKind, string> = { flash: 'Flash', frost: 'Frost' };
+const NADE_CSS: Record<NadeKind, string> = { flash: '#fff2a8', frost: '#8fe3ff' };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -376,7 +376,7 @@ export class UI {
         <div class="slot ${k === s.nadeSel && s.nades[k] > 0 ? 'sel' : ''} ${s.nades[k] ? '' : 'empty'}">
           <div class="ic" style="background:${NADE_CSS[k]}"></div><div class="lb">${NADE_LABEL[k]} ×${s.nades[k]}</div></div>`).join(''));
       this.hud.append(inv);
-      this.hud.append(el('div', 'dyn keys', '<kbd>Enter</kbd> hold &amp; release to throw · <kbd>Q</kbd> switch grenade<br><kbd>Space</kbd> jump (hold = higher) — chain hops to go faster'));
+      this.hud.append(el('div', 'dyn keys', '<kbd>Enter</kbd> hold &amp; release to throw · <kbd>Q</kbd> switch<br>Flash them before a jump, frost them mid-air · <kbd>Space</kbd> jump'));
     } else if (s.alive && s.role === 'seeker') {
       this.hud.append(el('div', 'dyn keys', `<kbd>Enter</kbd> slash (from behind = instant)<br><kbd>Space</kbd> jump (hold = higher)`));
     }

@@ -6,10 +6,10 @@ import {
   STAB_RANGE, STAB_ARC_COS, STAB_DAMAGE, BACKSTAB_DAMAGE, BACKSTAB_MAX_SPEED,
   NADE_KINDS, NADE_LOADOUT, NADE_FUSE, NADE_THROW_SPEED, NADE_THROW_UP, NADE_GRAVITY,
   NADE_MIN_CHARGE, NADE_CHARGE_TIME, FROST_RADIUS, FROST_TIME, CHILL_RADIUS, CHILL_TIME, FLASH_RADIUS,
-  FLASH_TIME, SMOKE_RADIUS, SMOKE_TIME, BOOM_RADIUS, BOOM_KNOCK, BOOM_DAMAGE,
+  FLASH_TIME,
   HIDE_TIME, ROUND_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, type NadeKind,
 } from '../shared/constants';
-import { heightAt, lineOfSight, SEEKER_SPAWNS, HIDER_SPAWNS, type Smoke } from '../shared/map';
+import { heightAt, lineOfSight, SEEKER_SPAWNS, HIDER_SPAWNS } from '../shared/map';
 import { newBody, stepBody, BTN_ACTION, BTN_ALT, type Body, type Input, type Role, type Status } from '../shared/sim';
 import type {
   GameEvent, KillCause, LobbyPlayer, NetPlayer, NetProjectile, Phase, ServerMessage, Snapshot, Standing,
@@ -59,9 +59,7 @@ interface Projectile {
   t: number;
 }
 
-interface SmokeCloud extends Smoke { id: number; t: number }
-
-const NO_NADES = (): Record<NadeKind, number> => ({ flash: 0, frost: 0, smoke: 0, boom: 0 });
+const NO_NADES = (): Record<NadeKind, number> => ({ flash: 0, frost: 0 });
 
 export class Match {
   players: MPlayer[] = [];
@@ -69,7 +67,6 @@ export class Match {
   timeLeft = HIDE_TIME;
   round = 0;
   tick = 0;
-  smokes: SmokeCloud[] = [];
   private swapPending = false;
   private projectiles: Projectile[] = [];
   private events: GameEvent[] = [];
@@ -172,7 +169,6 @@ export class Match {
       p.brain?.reset();
     }
     this.projectiles = [];
-    this.smokes = [];
     this.phase = 'hide';
     this.timeLeft = HIDE_TIME;
 
@@ -216,7 +212,6 @@ export class Match {
     for (const p of this.active()) this.stepPlayer(p);
     this.collidePlayers();
     this.stepProjectiles();
-    this.smokes = this.smokes.filter(s => (s.t -= TICK_DT) > 0);
 
     if (this.phase === 'seek') {
       const ps = this.active();
@@ -436,11 +431,11 @@ export class Match {
     const hits: number[] = [];
     const eyeY = pr.y + 0.3;
     const seekers = this.active().filter(p => p.alive && p.role === 'seeker');
-    // Effects need a clear line from the blast (roof edges, tanks and smoke block it)
+    // Effects need a clear line from the blast (roof edges, tanks and booths block it)
     const reach = (p: MPlayer, r: number): number => {
       const d = Math.hypot(p.body.x - pr.x, p.body.y + EYE_HEIGHT - eyeY, p.body.z - pr.z);
       if (d > r) return -1;
-      if (!lineOfSight(pr.x, eyeY, pr.z, p.body.x, p.body.y + EYE_HEIGHT, p.body.z, this.smokes)) return -1;
+      if (!lineOfSight(pr.x, eyeY, pr.z, p.body.x, p.body.y + EYE_HEIGHT, p.body.z)) return -1;
       return d;
     };
     if (kind === 'flash') {
@@ -454,26 +449,14 @@ export class Match {
       for (const s of seekers) {
         const d = reach(s, CHILL_RADIUS);
         if (d < 0) continue;
-        if (d <= FROST_RADIUS) s.frozen = FROST_TIME;
+        if (d <= FROST_RADIUS) {
+          // Frozen mid-jump = no sideways speed, so they drop; the thrower gets the kill
+          s.frozen = FROST_TIME;
+          s.shovedBy = pr.owner;
+          s.shovedT = FROST_TIME + 2;
+        }
         s.chilled = Math.max(s.chilled, CHILL_TIME);
         hits.push(s.id);
-      }
-    } else if (kind === 'smoke') {
-      this.smokes.push({ id: pr.id, x: pr.x, y: pr.y, z: pr.z, r: SMOKE_RADIUS, t: SMOKE_TIME });
-    } else if (kind === 'boom') {
-      const owner = this.players.find(p => p.id === pr.owner) ?? null;
-      for (const s of seekers) {
-        const d = reach(s, BOOM_RADIUS);
-        if (d < 0) continue;
-        const k = 1 - d / BOOM_RADIUS;
-        const dx = s.body.x - pr.x, dz = s.body.z - pr.z, l = Math.hypot(dx, dz) || 1;
-        s.body.vx += (dx / l) * BOOM_KNOCK * k;
-        s.body.vz += (dz / l) * BOOM_KNOCK * k;
-        s.body.vy = 5 + 4 * k;
-        s.body.grounded = false;
-        hits.push(s.id);
-        if (owner) { s.shovedBy = owner.id; s.shovedT = 3; }
-        this.damage(s, BOOM_DAMAGE * k, owner, 'boom', dx / l, dz / l);
       }
     }
     this.events.push({ k: 'det', kind, x: pr.x, y: pr.y, z: pr.z, hits });
@@ -497,7 +480,6 @@ export class Match {
     const projectiles: NetProjectile[] = this.projectiles.map(pr => ({
       id: pr.id, kind: pr.kind, x: r2(pr.x), y: r2(pr.y), z: r2(pr.z), owner: pr.owner,
     }));
-    const smokes = this.smokes.map(s => ({ id: s.id, x: s.x, y: s.y, z: s.z, t: r2(s.t) }));
     for (const viewer of this.players) {
       if (viewer.bot || !viewer.connected) continue;
       const snap: Snapshot = {
@@ -507,7 +489,7 @@ export class Match {
           frozen: viewer.frozen, chilled: viewer.chilled, blind: viewer.blind,
           nades: viewer.nades, nadeSel: viewer.nadeSel,
         },
-        players, projectiles, smokes,
+        players, projectiles,
       };
       this.host.send(viewer.id, snap);
     }

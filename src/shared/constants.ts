@@ -52,10 +52,11 @@ export const LUNGE_SPEED = 11;
 export const LUNGE_TIME = 0.14;
 
 // ── Grenades: hider kit, tune here ────────────────────────────────────────
-export type NadeKind = 'flash' | 'frost' | 'smoke' | 'boom';
-export const NADE_KINDS: NadeKind[] = ['flash', 'frost', 'smoke', 'boom'];
-export const NADE_LOADOUT: Record<NadeKind, number> = { flash: 2, frost: 1, smoke: 1, boom: 1 }; // per round
-export const NADE_FUSE: Record<NadeKind, number> = { flash: 1.2, frost: 1.4, smoke: 1.2, boom: 1.4 }; // seconds
+// Flash a seeker right before they jump; frost them mid-air so they drop into the mist.
+export type NadeKind = 'flash' | 'frost';
+export const NADE_KINDS: NadeKind[] = ['flash', 'frost'];
+export const NADE_LOADOUT: Record<NadeKind, number> = { flash: 2, frost: 1 }; // per round
+export const NADE_FUSE: Record<NadeKind, number> = { flash: 1.2, frost: 1.4 }; // seconds
 export const NADE_THROW_SPEED = 9.5;
 export const NADE_THROW_UP = 5.5;
 export const NADE_GRAVITY = 20;
@@ -65,16 +66,11 @@ export const AIM_SPEED = 0.4; // move speed multiplier while charging a throw
 export const NADE_RADIUS = 0.18;
 export const FLASH_RADIUS = 13; // seekers in line of sight within this get blinded
 export const FLASH_TIME = 3.2; // max blind seconds (less at range)
-export const FROST_RADIUS = 3.6; // seekers inside are frozen solid
+export const FROST_RADIUS = 3.6; // seekers inside are frozen solid (mid-air: they drop straight down)
 export const FROST_TIME = 4;
 export const CHILL_RADIUS = 6; // seekers inside are slowed
 export const CHILL_TIME = 7;
 export const CHILL_SPEED = 0.6;
-export const SMOKE_RADIUS = 3.4; // cloud that blocks flashes and covers you on screen
-export const SMOKE_TIME = 14;
-export const BOOM_RADIUS = 3.8; // knockback blast, shove seekers off roofs
-export const BOOM_KNOCK = 15;
-export const BOOM_DAMAGE = 20;
 
 // Round flow (hnsmod defaults)
 export const HIDE_TIME = 10;

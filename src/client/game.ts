@@ -190,7 +190,6 @@ export function startGame(): void {
     pred = null;
     pending = [];
     fx.syncProjectiles([], 0);
-    fx.syncSmokes([]);
     fx.hideArc();
     ui.hideLabelsExcept(new Set());
   }
@@ -348,7 +347,7 @@ export function startGame(): void {
         // Boomerang Fu holds the frame on a kill: freeze + zoom punch when it's near us
         if (sp.vol > 0.3 || e.id === myId || e.by === myId) { fx.freeze(0.12, 0.08); fx.addShake(0.4); }
         const victim = esc(ui.nameOf(e.id));
-        const icon = { stab: '🔪', backstab: '🗡️ backstab', fall: '💥 splat', void: '☁️ fell', boom: '💣' }[e.cause];
+        const icon = { stab: '🔪', backstab: '🗡️ backstab', fall: '💥 splat', void: e.by !== null ? '🧊 dropped' : '☁️ fell' }[e.cause];
         ui.killfeed(e.by !== null ? `${esc(ui.nameOf(e.by))} ${icon} ${victim}` : `${victim} ${icon}`);
         if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', 'Spectating · press Enter to switch', '#f0408f', 2200);
         if (e.by === myId) ui.banner(e.cause === 'backstab' ? 'BACKSTAB!' : 'GOTCHA!', '', '#ffd23f', 1100);
@@ -365,7 +364,7 @@ export function startGame(): void {
         const sp = spatial(e.x, e.z, L.x, L.z);
         fx.detonate(e.kind, e.x, e.y, e.z, sp.vol);
         const v = Math.max(0.2, sp.vol);
-        ({ flash: sfx.flash, frost: sfx.frost, smoke: sfx.smoke, boom: sfx.boom } as Record<NadeKind, (v: number, p: number) => void>)[e.kind](v, sp.pan);
+        ({ flash: sfx.flash, frost: sfx.frost } as Record<NadeKind, (v: number, p: number) => void>)[e.kind](v, sp.pan);
         if (e.hits.includes(myId) && e.kind === 'frost') ui.banner('FROZEN!', '', '#8fe3ff', 1200);
         break;
       }
@@ -501,7 +500,6 @@ export function startGame(): void {
     const snap = buffer.at(-1)?.snap;
     if (snap) {
       fx.syncProjectiles(snap.projectiles, dt);
-      fx.syncSmokes(snap.smokes);
     }
 
     // Camera: follow me, or whoever I'm spectating

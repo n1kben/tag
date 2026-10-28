@@ -107,11 +107,6 @@ export const sfx = {
     [1568, 2093, 2637, 3136].forEach((f, i) => tone(f, f * 1.01, 0.25, 'triangle', 0.1 * v, i * 0.045, pan));
     noise(0.4, 0.2 * v, 5000, 8000, 4, 0, 'bandpass', pan);
   },
-  smoke(v = 1, pan = 0) { noise(0.9, 0.25 * v, 800, 200, 0.7, 0, 'lowpass', pan); },
-  boom(v = 1, pan = 0) {
-    tone(110, 30, 0.6, 'sine', 0.8 * v, 0, pan);
-    noise(0.7, 0.6 * v, 1200, 80, 0.6, 0, 'lowpass', pan);
-  },
   hurt() { tone(500, 220, 0.2, 'sawtooth', 0.12); },
   beep(high = false) { tone(high ? 1320 : 880, high ? 1320 : 880, high ? 0.35 : 0.12, 'square', 0.08); },
   gong() {
