@@ -2,7 +2,8 @@
 // Usage: npx tsx scripts/mp-e2e.ts <baseUrl> <outDir>
 import { chromium, type Page } from 'playwright-core';
 
-const [base, outDir] = process.argv.slice(2);
+const [site, outDir] = process.argv.slice(2);
+const base = `${site}/?lite`; // half-res, no shadows: keeps two software-GL tabs responsive
 const browser = await chromium.launch({
   channel: 'chrome',
   headless: true,
@@ -41,7 +42,7 @@ check(/^[A-Z0-9]{5}$/.test(code), `room created with code ${code}`);
 check(a.url().endsWith(`#${code}`), 'invite link is in the URL hash');
 
 const b = await client('B');
-await b.goto(`${base}/#${code}`, { waitUntil: 'load' });
+await b.goto(`${base}#${code}`, { waitUntil: 'load' });
 await waitVisible(b, '.room-code');
 await a.waitForTimeout(500);
 check((await a.locator('.card').count()) === 2, 'A sees two players after B joins');

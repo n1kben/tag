@@ -42,14 +42,15 @@ export const KILL_Y = -6;
 export const MAX_HP = 100;
 
 // Seeker slash
-export const STAB_RANGE = 1.45;
+export const STAB_RANGE = 0.1; // gap between bodies: you have to be practically touching
 export const STAB_ARC_COS = 0.45; // ~63° half angle
 export const STAB_DAMAGE = 55;
 export const BACKSTAB_DAMAGE = 200;
 export const BACKSTAB_MAX_SPEED = 2.5; // victim slower than this counts as caught off guard
 export const STAB_COOLDOWN = 0.8;
-export const LUNGE_SPEED = 11;
-export const LUNGE_TIME = 0.14;
+export const LUNGE_SPEED = 5; // a small committed step-in, not a long reach
+export const LUNGE_TIME = 0.06;
+export const STAB_HEIGHT = 0.4; // the blade's line: anything taller in between (even a low wall) blocks it
 
 // ── Grenades: hider kit, tune here ────────────────────────────────────────
 // Flash a seeker right before they jump; frost them mid-air so they drop into the mist.

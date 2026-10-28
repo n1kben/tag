@@ -2,7 +2,8 @@
 // get caught as a hider, come back as a seeker. Usage: npx tsx scripts/dm-e2e.ts <baseUrl> <outDir>
 import { chromium, type Page } from 'playwright-core';
 
-const [base, outDir] = process.argv.slice(2);
+const [site, outDir] = process.argv.slice(2);
+const base = `${site}/?lite`; // half-res, no shadows: keeps two software-GL tabs responsive
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 let failures = 0;
 const check = (ok: boolean, what: string) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${what}`); if (!ok) failures++; };
@@ -53,7 +54,7 @@ await a.click('.lobby [data-m=dm]');
 
 const b = await client('B');
 watch(b);
-await b.goto(`${base}/#${code}`);
+await b.goto(`${base}#${code}`);
 check(await waitFor(visible(b, '.room-code')), 'B joined');
 await new Promise(r => setTimeout(r, 600));
 check(await b.locator('.lobby [data-m=dm].on').count() === 1, 'B sees the room switched to Deathmatch');

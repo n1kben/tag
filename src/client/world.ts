@@ -3,6 +3,7 @@
 // shadows, and walls that fade into a bright mist below.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   BUILDINGS, BRIDGES, PROPS, BUNTINGS, MAP_BOUNDS, type Building, type Prop, type RoofStyle,
 } from '../shared/map';
@@ -74,9 +75,11 @@ export const CAMERA_DIST = 31;
 
 export function createWorld(canvasParent: HTMLElement): World {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // ?lite: half resolution, no shadows (weak machines, headless tests)
+  const lite = new URLSearchParams(location.search).has('lite');
+  renderer.setPixelRatio(lite ? 0.5 : Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.enabled = !lite;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.localClippingEnabled = true;
   canvasParent.appendChild(renderer.domElement);
@@ -136,20 +139,63 @@ function rbox(w: number, h: number, d: number, r: number, color: number, segs = 
 
 const DEPTH = 34; // how far buildings extend down into the mist
 
-function buildCity(world: World): void {
-  const { scene } = world;
-  const rng = mulberry(7);
+/**
+ * The city never moves, so merge every mesh that shares a material (and shadow flags) into one.
+ * ~1,000 draw calls (plus the shadow pass) become a few dozen; instanced meshes are kept as is.
+ */
+function bakeStatic(root: THREE.Group): THREE.Group {
+  root.updateMatrixWorld(true);
+  const out = new THREE.Group();
+  const groups = new Map<string, { material: THREE.Material; cast: boolean; receive: boolean; geos: THREE.BufferGeometry[] }>();
+  const instanced: THREE.InstancedMesh[] = [];
+  root.traverse(o => {
+    if ((o as THREE.InstancedMesh).isInstancedMesh) { instanced.push(o as THREE.InstancedMesh); return; }
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const material = m.material as THREE.Material;
+    const key = `${material.uuid}|${m.castShadow}|${m.receiveShadow}`;
+    let g = groups.get(key);
+    if (!g) { g = { material, cast: m.castShadow, receive: m.receiveShadow, geos: [] }; groups.set(key, g); }
+    // World-space, non-indexed, position + normal only, so everything merges cleanly
+    let geo = m.geometry.clone().applyMatrix4(m.matrixWorld);
+    if (geo.index) geo = geo.toNonIndexed();
+    for (const name of Object.keys(geo.attributes)) if (name !== 'position' && name !== 'normal') geo.deleteAttribute(name);
+    geo.clearGroups();
+    g.geos.push(geo);
+  });
+  for (const g of groups.values()) {
+    const merged = mergeGeometries(g.geos);
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, g.material);
+    mesh.castShadow = g.cast;
+    mesh.receiveShadow = g.receive;
+    out.add(mesh);
+    for (const geo of g.geos) geo.dispose();
+  }
+  for (const im of instanced) {
+    im.updateMatrixWorld(true);
+    out.add(im); // re-parented; its own transform was identity-relative to the city
+  }
+  return out;
+}
 
-  for (const b of BUILDINGS) buildBuilding(scene, b, rng);
-  for (const br of BRIDGES) buildBridge(scene, br);
+function buildCity(world: World): void {
+  const rng = mulberry(7);
+  // Build everything into a scratch group, then bake it into a handful of merged meshes
+  const city = new THREE.Group();
+
+  for (const b of BUILDINGS) buildBuilding(city, b, rng);
+  for (const br of BRIDGES) buildBridge(city, br);
   for (const p of PROPS) {
     const obj = buildProp(p, rng);
     obj.position.set(p.x, p.base, p.z);
     if (p.rot) obj.rotation.y = p.rot;
-    scene.add(shadowed(obj));
+    city.add(shadowed(obj));
   }
-  for (const bt of BUNTINGS) scene.add(buildBunting(bt.ax, bt.az, bt.bx, bt.bz, bt.base));
-  buildSkyline(scene, rng);
+  for (const bt of BUNTINGS) city.add(buildBunting(bt.ax, bt.az, bt.bx, bt.bz, bt.base));
+  buildSkyline(city, rng);
+  const scene = world.scene;
+  scene.add(bakeStatic(city));
 
   // The far-below street: a flat mist floor so nothing reads as a hard edge
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshBasicMaterial({ color: MIST }));
@@ -158,7 +204,7 @@ function buildCity(world: World): void {
   scene.add(floor);
 }
 
-function buildBuilding(scene: THREE.Scene, b: Building, rng: () => number): void {
+function buildBuilding(scene: THREE.Object3D, b: Building, rng: () => number): void {
   const w = b.x1 - b.x0, d = b.z1 - b.z0;
   const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
   const style = ROOF[b.style];
@@ -233,7 +279,7 @@ function buildBuilding(scene: THREE.Scene, b: Building, rng: () => number): void
   scene.add(wins);
 }
 
-function buildBridge(scene: THREE.Scene, br: { x0: number; z0: number; x1: number; z1: number; h: number }): void {
+function buildBridge(scene: THREE.Object3D, br: { x0: number; z0: number; x1: number; z1: number; h: number }): void {
   const w = br.x1 - br.x0, d = br.z1 - br.z0;
   const alongX = w > d;
   const len = alongX ? w : d;
@@ -452,7 +498,7 @@ function buildBunting(ax: number, az: number, bx: number, bz: number, base: numb
   return g;
 }
 
-function buildSkyline(scene: THREE.Scene, rng: () => number): void {
+function buildSkyline(scene: THREE.Object3D, rng: () => number): void {
   // Lower blocks around the playable area, sunk into the mist, so the city keeps going
   const { x0, z0, x1, z1 } = MAP_BOUNDS;
   for (let i = 0; i < 46; i++) {

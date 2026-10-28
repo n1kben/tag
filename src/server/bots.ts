@@ -1,9 +1,9 @@
 // Server-side bots so a room is fun (and testable) with any number of humans.
 // They drive the same Input as players, so they obey the same physics and rules.
-import { buildingAt, heightAt } from '../shared/map';
+import { buildingAt, heightAt, lineOfSight } from '../shared/map';
 import { ROOF_NODES, navNodeAt, navNextEdge, openSpot, steerTo, type NavEdge, type NavNode } from '../shared/nav';
 import { BTN_ACTION, BTN_ALT, type Body, type Input } from '../shared/sim';
-import { STAB_RANGE, TICK_DT, type NadeKind } from '../shared/constants';
+import { STAB_RANGE, STAB_HEIGHT, PLAYER_RADIUS, TICK_DT, type NadeKind } from '../shared/constants';
 import type { Match, MPlayer } from './match';
 
 type Goal = { x: number; z: number; node: number };
@@ -127,7 +127,9 @@ export class Brain {
       const t = target.t.body;
       this.lastSeen = { x: t.x, z: t.z, y: t.y, t: this.think_t };
       // In knife range and level with them: face and stab (lead the target a little)
-      if (target.d < STAB_RANGE + 0.5 && Math.abs(t.y - b.y) < 1) {
+      // Close enough that the short lunge reaches, with nothing in between
+      const reach = STAB_RANGE + PLAYER_RADIUS * 2 + 0.2;
+      if (target.d < reach && Math.abs(t.y - b.y) < 1 && lineOfSight(b.x, b.y + STAB_HEIGHT, b.z, t.x, t.y + STAB_HEIGHT, t.z)) {
         const [dx, dz] = norm(t.x + t.vx * 0.08 - b.x, t.z + t.vz * 0.08 - b.z);
         const facingOk = Math.cos(Math.atan2(dx, dz) - b.facing) > 0.8;
         return { mx: dx, mz: dz, b: facingOk && b.attackCd <= 0 ? BTN_ACTION : 0 };

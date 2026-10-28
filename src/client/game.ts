@@ -474,7 +474,7 @@ export function startGame(): void {
     fx.update(dt);
     for (let i = slices.length - 1; i >= 0; i--) { slices[i].update(dt); if (slices[i].done) slices.splice(i, 1); }
 
-    ui.debug(debugOn ? `fps ${fps} · ping ${net.rtt.toFixed(0)}ms · pending ${pending.length} · buffer ${buffer.length} · tick ${latest?.tick ?? '-'}` : null);
+    ui.debug(debugOn ? `fps ${fps} · ping ${net.rtt.toFixed(0)}ms · pending ${pending.length} · buffer ${buffer.length} · tick ${latest?.tick ?? "-"} · draws ${world.renderer.info.render.calls}` : null);
     world.renderer.render(world.scene, world.camera);
     requestAnimationFrame(frame);
   }

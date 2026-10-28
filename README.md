@@ -37,7 +37,7 @@ There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where 
 | Teams swap only when seekers win | Same |
 | `hns_hiders_alivefrags`: +1 per surviving hider | +1 point per surviving hider, +1 per kill |
 | Hiders can't attack; kit: 2 flash, 1 frost (4s freeze / 60% chill), smoke, HE | **2 flash + 1 frost** (smoke and HE cut). Flash a seeker right before a jump; frost them mid-air and they drop into the mist (you get the kill). Tune in the grenade block of `src/shared/constants.ts` |
-| Knife: 2 front stabs (100 HP + armour), backstab one-shots | Slash is a Boomerang Fu lunge: 2 hits from the front, an instant kill from behind on a hider who isn't running |
+| Knife: 2 front stabs (100 HP + armour), backstab one-shots | Slash is a short Boomerang Fu step-in: you have to be practically touching (a gap of 0.3u or less), and walls, hedges, crates, ducts and huts block it. 2 hits from the front, an instant kill from behind on a hider who isn't running |
 | Fall damage; kill triggers off the map | Fall damage on big drops; falling into the mist kills |
 | Semiclip for teammates | Teammates pass through each other; opponents shove |
 | It's a chase, not a hiding game | Everyone is always visible |
@@ -67,6 +67,8 @@ The look was matched against frames from Boomerang Fu's official release trailer
 ## Dev scripts
 
 - `scripts/check-map.ts`: every roof is reachable and has a way back, spawns are clear, no obstacle has an in-between height, and every low obstacle can be cleared with the real jump.
+- `scripts/check-slash.ts`: slash reach through the real server tick (hits when touching, misses from half a body away) and that every obstacle type blocks it.
+- `scripts/fps.ts <url…>`: render fps in headless Chrome, to compare scene cost between builds. Add `?lite` to any URL for half resolution and no shadows.
 - `scripts/check-dm.ts [n] [matches]`: Deathmatch invariants. Team sizes stay fixed, every catch swaps that pair, caught hiders return as seekers, hiders earn survival points.
 - `scripts/sim-match.ts [n] [hns|dm]`: runs a full bots-only match in about 200ms and prints kills, swaps and grenade use.
 - `scripts/mp-e2e.ts <url> <outDir>` and `scripts/dm-e2e.ts <url> <outDir>`: two real Chrome clients create, join, rename, ready up and play Hide 'n Seek or Deathmatch (including die and respawn). Need the dev servers running.

@@ -74,10 +74,10 @@ export class Fx {
     const m = new THREE.Mesh(arcGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
     m.rotation.x = -Math.PI / 2;
     m.rotation.z = facing - Math.PI / 2;
-    m.position.set(x + Math.sin(facing) * 0.55, y + 0.55, z + Math.cos(facing) * 0.55);
-    m.scale.setScalar(0.9);
+    m.position.set(x + Math.sin(facing) * 0.4, y + 0.55, z + Math.cos(facing) * 0.4);
+    m.scale.setScalar(0.7);
     this.scene.add(m);
-    this.parts.push({ mesh: m, vel: new THREE.Vector3(Math.sin(facing) * 3, 0, Math.cos(facing) * 3), life: 0.16, max: 0.16, grow: 3, gravity: 0, fade: true });
+    this.parts.push({ mesh: m, vel: new THREE.Vector3(Math.sin(facing) * 2, 0, Math.cos(facing) * 2), life: 0.14, max: 0.14, grow: 2, gravity: 0, fade: true });
   }
 
   ring(x: number, y: number, z: number, color: number, radius: number, life = 0.45): void {
