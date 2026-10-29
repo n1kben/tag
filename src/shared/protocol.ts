@@ -51,6 +51,7 @@ export interface NetPlayer {
   aiming: number; // hider grenade charge 0..1 (0 = not aiming)
   nade: NadeKind | null; // grenade in hand while aiming
   prot: boolean; // spawn protection (deathmatch): blinks, can't be hurt
+  stun: number; // seconds left dizzy from a head stomp
 }
 
 export interface NetProjectile {
@@ -66,10 +67,11 @@ export interface Snapshot {
   phase: Phase;
   timeLeft: number;
   ack: number; // last input seq processed for the receiver
-  me: (Body & { hp: number; alive: boolean; role: Role; frozen: number; chilled: number; blind: number; nades: Record<NadeKind, number>; nadeSel: NadeKind; respawn: number }) | null;
+  me: (Body & { hp: number; alive: boolean; role: Role; frozen: number; chilled: number; blind: number; nades: Record<NadeKind, number>; nadeSel: NadeKind; respawn: number; stun: number }) | null;
   players: NetPlayer[];
   projectiles: NetProjectile[];
   scores: { id: number; score: number; kills: number }[]; // live points, for the HUD and Tab board
+  planks: number[]; // per map.bridges: 0 solid, 1 cracking, 2 collapsed
 }
 
 export type KillCause = 'stab' | 'fall' | 'void';
@@ -81,7 +83,8 @@ export type GameEvent =
   | { k: 'throw'; by: number; kind: NadeKind }
   | { k: 'det'; kind: NadeKind; x: number; y: number; z: number; hits: number[] }
   | { k: 'bounce'; x: number; y: number; z: number }
-  | { k: 'spawn'; id: number; x: number; y: number; z: number };
+  | { k: 'spawn'; id: number; x: number; y: number; z: number }
+  | { k: 'stomp'; by: number; id: number; x: number; y: number; z: number };
 
 export type ServerMessage =
   | { type: 'welcome'; roomId: string; playerId: number; practice: boolean }

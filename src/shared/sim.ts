@@ -1,7 +1,7 @@
 import {
   PLAYER_RADIUS, STEP_HEIGHT, RUN_SPEED, GROUND_ACCEL, GROUND_DECEL, AIR_CONTROL, GRAVITY, FALL_GRAVITY,
   JUMP_VELOCITY, JUMP_CUT, COYOTE_TIME, JUMP_BUFFER, JUMP_COOLDOWN, STAB_COOLDOWN, LUNGE_SPEED, LUNGE_TIME,
-  CHILL_SPEED, AIM_SPEED,
+  CHILL_SPEED, AIM_SPEED, PLAYER_HEIGHT, HEAD_JUMP_BOOST, STOMP_BOUNCE, STOMP_MIN_SPEED, BONK_BOUNCE, BONK_KNOCKBACK,
 } from './constants';
 import type { GameMap } from './map';
 
@@ -29,6 +29,13 @@ export interface Body {
   attackCd: number;
   lunge: number;
   prevB: number;
+  onHead: boolean; // standing on another player (jumping from here is a boost)
+}
+
+/** Everything that moves and isn't in the map: other players (solid, with heads to stand on) and broken planks. */
+export interface Dyn {
+  bodies: { id: number; x: number; y: number; z: number; role: Role }[];
+  broken?: ReadonlySet<number>; // indices into map.bridges that have collapsed
 }
 
 /** Per-player conditions the sim needs that are owned by the server (frozen, chilled, role). */
@@ -45,18 +52,19 @@ export interface StepEvents {
   lunged: boolean;
   pressed: number; // buttons that went down this step
   released: number;
+  stomped: number | null; // id of the enemy whose head we landed on
 }
 
 export function newBody(map: GameMap, x: number, z: number): Body {
   return {
     x, y: map.heightAt(x, z), z, vx: 0, vy: 0, vz: 0, facing: 0,
     grounded: true, airTime: 0, groundTime: 1, jumpBuf: 0, rising: false,
-    attackCd: 0, lunge: 0, prevB: 0,
+    attackCd: 0, lunge: 0, prevB: 0, onHead: false,
   };
 }
 
-export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: number): StepEvents {
-  const ev: StepEvents = { jumped: false, landed: 0, lunged: false, pressed: 0, released: 0 };
+export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: number, dyn?: Dyn): StepEvents {
+  const ev: StepEvents = { jumped: false, landed: 0, lunged: false, pressed: 0, released: 0, stomped: null };
   ev.pressed = input.b & ~s.prevB;
   ev.released = s.prevB & ~input.b;
   s.prevB = input.b;
@@ -115,7 +123,8 @@ export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: nu
   else if (!coolingDown) s.jumpBuf = Math.max(0, s.jumpBuf - dt);
 
   if (s.jumpBuf > 0 && !coolingDown && (s.grounded || s.airTime < COYOTE_TIME) && s.vy <= 0.01) {
-    s.vy = JUMP_VELOCITY;
+    s.vy = JUMP_VELOCITY * (s.onHead ? HEAD_JUMP_BOOST : 1); // off a teammate's head = boost
+    s.onHead = false;
     s.rising = true;
     s.grounded = false;
     s.airTime = COYOTE_TIME;
@@ -133,11 +142,18 @@ export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: nu
   s.x += s.vx * dt;
   s.z += s.vz * dt;
   collideWalls(map, s);
+  if (dyn) collideBodies(s, dyn);
 
-  // Vertical
-  const ground = map.heightAt(s.x, s.z);
+  // Vertical: the ground is the map (minus broken planks) or a head we're above
+  let ground = map.heightAt(s.x, s.z, dyn?.broken);
+  const head = dyn ? headUnder(s, dyn) : null;
+  const headTop = head ? head.y + PLAYER_HEIGHT : -Infinity;
+  if (headTop > ground) ground = headTop;
+  const onHeadNow = head !== null && headTop >= ground - 1e-6;
   if (s.grounded) {
-    if (ground >= s.y - STEP_HEIGHT && ground <= s.y + STEP_HEIGHT) {
+    // A head can rise under you (they jumped): get carried up rather than fall through
+    const reach = onHeadNow ? 0.6 : STEP_HEIGHT;
+    if (ground >= s.y - STEP_HEIGHT && ground <= s.y + reach) {
       s.y = ground; // follow steps and small drops
       s.vy = 0;
     } else {
@@ -149,18 +165,61 @@ export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: nu
     s.vy -= (s.vy > 0 ? GRAVITY : FALL_GRAVITY) * dt;
     const ny = s.y + s.vy * dt;
     if (s.vy <= 0 && ny <= ground && s.y >= ground - STEP_HEIGHT) {
-      ev.landed = -s.vy;
-      s.y = ground;
-      s.vy = 0;
-      s.grounded = true;
-      s.rising = false;
-      s.groundTime = 0;
+      if (onHeadNow && head!.role !== st.role && st.role === 'hider' && -s.vy >= STOMP_MIN_SPEED) {
+        // Hider stomps a seeker: bounce off (the server stuns them)
+        ev.stomped = head!.id;
+        s.y = ground;
+        s.vy = STOMP_BOUNCE;
+        s.airTime = COYOTE_TIME;
+      } else if (onHeadNow && head!.role !== st.role) {
+        // Seeker on a hider's head: bonk, knocked back the way they came (no standing on hiders)
+        s.y = ground;
+        s.vy = BONK_BOUNCE;
+        s.vx *= -BONK_KNOCKBACK;
+        s.vz *= -BONK_KNOCKBACK;
+        s.airTime = COYOTE_TIME;
+      } else {
+        ev.landed = -s.vy;
+        s.y = ground;
+        s.vy = 0;
+        s.grounded = true;
+        s.rising = false;
+        s.groundTime = 0;
+      }
     } else {
       s.y = ny;
     }
   }
+  s.onHead = s.grounded && onHeadNow;
 
   return ev;
+}
+
+/** The highest other player whose head is right under us (and that we're above). */
+function headUnder(s: Body, dyn: Dyn): Dyn['bodies'][number] | null {
+  let best: Dyn['bodies'][number] | null = null;
+  for (const o of dyn.bodies) {
+    if (Math.hypot(o.x - s.x, o.z - s.z) >= PLAYER_RADIUS * 1.25) continue;
+    if (s.y < o.y + PLAYER_HEIGHT - STEP_HEIGHT) continue; // we're beside them, not on top
+    if (!best || o.y > best.y) best = o;
+  }
+  return best;
+}
+
+/** Other players are solid cylinders: push out of any we overlap in height. */
+function collideBodies(s: Body, dyn: Dyn): void {
+  const min = PLAYER_RADIUS * 2;
+  for (const o of dyn.bodies) {
+    if (s.y >= o.y + PLAYER_HEIGHT - 0.1 || o.y >= s.y + PLAYER_HEIGHT - 0.1) continue; // one is on top of the other
+    const dx = s.x - o.x, dz = s.z - o.z;
+    const d = Math.hypot(dx, dz);
+    if (d >= min) continue;
+    const nx = d > 1e-6 ? dx / d : 1, nz = d > 1e-6 ? dz / d : 0;
+    s.x = o.x + nx * min;
+    s.z = o.z + nz * min;
+    const vn = s.vx * nx + s.vz * nz;
+    if (vn < 0) { s.vx -= vn * nx; s.vz -= vn * nz; } // stop dead against them (no sliding through)
+  }
 }
 
 function collideWalls(map: GameMap, s: Body): void {

@@ -109,6 +109,11 @@ export class Nav {
   /** Roofs (buildings) only: handy for bots picking somewhere to go. */
   readonly roofs: NavNode[];
 
+  /** Nav node of plank i (roofs come first, then planks). */
+  plankNode(i: number): number {
+    return this.map.buildings.length + i;
+  }
+
   constructor(readonly map: GameMap) {
     const surfaces: Solid[] = [
       ...map.buildings.map(b => ({ x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, top: b.h })),
@@ -173,8 +178,8 @@ export class Nav {
     return best;
   }
 
-  /** BFS over surfaces; first edge to take from `from` towards `to`. */
-  nextEdge(from: number, to: number): NavEdge | null {
+  /** BFS over surfaces; first edge to take from `from` towards `to`, avoiding `blocked` nodes. */
+  nextEdge(from: number, to: number, blocked?: ReadonlySet<number>): NavEdge | null {
     if (from === to) return null;
     const prev = new Map<number, { node: number; edge: NavEdge }>();
     const queue = [from];
@@ -183,7 +188,7 @@ export class Nav {
       const n = queue.shift()!;
       if (n === to) break;
       for (const e of this.nodes[n].edges) {
-        if (seen.has(e.to)) continue;
+        if (seen.has(e.to) || blocked?.has(e.to)) continue;
         seen.add(e.to);
         prev.set(e.to, { node: n, edge: e });
         queue.push(e.to);

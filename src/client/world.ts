@@ -68,6 +68,8 @@ export interface World {
   renderer: THREE.WebGLRenderer;
   sun: THREE.DirectionalLight;
   city: THREE.Group | null; // the baked rooftops for the current map
+  planks: { group: THREE.Group; state: number; t: number }[]; // weak planks: kept separate so they can shake and fall
+  debris: { group: THREE.Group; vy: number; spin: number; t: number }[];
   map: GameMap;
 }
 
@@ -116,7 +118,7 @@ export function createWorld(canvasParent: HTMLElement): World {
   sun.shadow.radius = 3;
   scene.add(sun, sun.target);
 
-  const world: World = { scene, camera, renderer, sun, city: null, map: FULL_MAP };
+  const world: World = { scene, camera, renderer, sun, city: null, map: FULL_MAP, planks: [], debris: [] };
   // The far-below street: a flat mist floor so nothing reads as a hard edge
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshBasicMaterial({ color: MIST }));
   floor.rotation.x = -Math.PI / 2;
@@ -246,6 +248,7 @@ export function setMap(world: World, map: GameMap): void {
   if (world.city && world.map === map) return;
   if (world.city) {
     world.scene.remove(world.city);
+    for (const pl of world.planks) pl.group.removeFromParent();
     world.city.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
   }
   const rng = mulberry(7);
@@ -253,7 +256,8 @@ export function setMap(world: World, map: GameMap): void {
   const city = new THREE.Group();
   const inPlay = new Set(map.roofIds);
   for (const b of BUILDINGS) buildBuilding(city, inPlay.has(b.id) ? b : { ...b, h: OUT_OF_PLAY_H }, rng);
-  for (const br of map.bridges) buildBridge(city, br);
+  // Planks stay live objects (not baked): they crack, fall and come back
+  world.planks = map.bridges.map(br => ({ group: buildBridge(world.scene, br), state: 0, t: 0 }));
   for (const p of map.props) {
     const obj = buildProp(p, rng);
     obj.position.set(p.x, p.base, p.z);
@@ -343,7 +347,7 @@ function buildBuilding(scene: THREE.Object3D, b: Building, rng: () => number): v
   scene.add(wins);
 }
 
-function buildBridge(scene: THREE.Object3D, br: { x0: number; z0: number; x1: number; z1: number; h: number }): void {
+function buildBridge(scene: THREE.Object3D, br: { x0: number; z0: number; x1: number; z1: number; h: number }): THREE.Group {
   const w = br.x1 - br.x0, d = br.z1 - br.z0;
   const alongX = w > d;
   const len = alongX ? w : d;
@@ -362,7 +366,8 @@ function buildBridge(scene: THREE.Object3D, br: { x0: number; z0: number; x1: nu
     g.add(rail);
   }
   g.position.set((br.x0 + br.x1) / 2, br.h, (br.z0 + br.z1) / 2);
-  scene.add(shadowed(g));
+  scene.add(shadowed(g, false, true));
+  return g;
 }
 
 function buildProp(p: Prop, rng: () => number): THREE.Group {
@@ -594,3 +599,46 @@ export function mulberry(seed: number): () => number {
   };
 }
 
+/**
+ * Weak planks: shake while cracking (1), drop away as tumbling debris when collapsed (2),
+ * pop back when rebuilt (0). Returns which planks changed state this frame.
+ */
+export function updatePlanks(world: World, states: number[], dt: number): { i: number; to: number }[] {
+  const changes: { i: number; to: number }[] = [];
+  world.planks.forEach((pl, i) => {
+    const to = states[i] ?? 0;
+    const g = pl.group;
+    const base = g.userData.base ?? (g.userData.base = g.position.clone());
+    if (to !== pl.state) {
+      changes.push({ i, to });
+      if (to === 2) {
+        // Drop a copy as debris; hide the real one until it's rebuilt
+        const falling = g.clone();
+        world.scene.add(falling);
+        world.debris.push({ group: falling, vy: 0, spin: (Math.random() - 0.5) * 3, t: 0 });
+        g.visible = false;
+      }
+      if (to === 0) { g.visible = true; pl.t = 0; }
+      pl.state = to;
+    }
+    pl.t += dt;
+    if (pl.state === 1) {
+      // Creaking: jitter that grows until it gives way
+      const k = 0.02 + Math.min(1, pl.t) * 0.05;
+      g.position.set(base.x + (Math.random() - 0.5) * k, base.y - Math.random() * k, base.z + (Math.random() - 0.5) * k);
+    } else if (pl.state === 0) {
+      g.position.copy(base);
+      g.scale.setScalar(Math.min(1, 0.6 + pl.t * 1.6)); // rebuilt: little pop
+    }
+  });
+  for (let i = world.debris.length - 1; i >= 0; i--) {
+    const d = world.debris[i];
+    d.t += dt;
+    d.vy -= 20 * dt;
+    d.group.position.y += d.vy * dt;
+    d.group.rotation.z += d.spin * dt;
+    d.group.rotation.x += d.spin * 0.6 * dt;
+    if (d.t > 2.5) { d.group.removeFromParent(); world.debris.splice(i, 1); }
+  }
+  return changes;
+}

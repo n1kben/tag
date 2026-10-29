@@ -10,6 +10,7 @@ type Goal = { x: number; z: number; node: number };
 
 export class Brain {
   private nav!: Nav; // the room's map graph, refreshed each think
+  private match!: Match;
   private goal: Goal | null = null;
   private edge: NavEdge | null = null;
   private edgeFrom = -1;
@@ -37,6 +38,7 @@ export class Brain {
 
   think(m: Match, me: MPlayer): Input {
     this.nav = navFor(m.map);
+    this.match = m;
     this.think_t += TICK_DT;
     this.nadeCd -= TICK_DT;
     return me.role === 'hider' ? this.hider(m, me) : this.seeker(m, me);
@@ -188,7 +190,9 @@ export class Brain {
       return this.walk(b, goal.x, goal.z, speed, d < 1.5 ? 0.6 : 1);
     }
 
-    const edge = this.nav.nextEdge(here.id, goal.node);
+    // Route around collapsed planks
+    const blocked = new Set([...this.match.broken].map(i => this.nav.plankNode(i)));
+    const edge = this.nav.nextEdge(here.id, goal.node, blocked);
     // No route (e.g. goal is a crate we can't path to): just walk toward it
     if (!edge) return this.walk(b, goal.x, goal.z, speed);
     this.edge = edge;

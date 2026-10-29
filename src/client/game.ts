@@ -1,14 +1,14 @@
 // Client glue: lobby flow, fixed-step prediction + reconciliation for the local player,
 // snapshot interpolation for everyone else, and turning server events into juice.
 import * as THREE from 'three';
-import { createWorld, aimCamera, adaptResolution, setMap, CAMERA_DIST, type World } from './world';
+import { createWorld, aimCamera, adaptResolution, setMap, updatePlanks, CAMERA_DIST, type World } from './world';
 import { Character, SliceDeath, CHAR_DEFS } from './characters';
 import { Fx } from './fx';
 import { UI, esc, type HudState } from './ui';
 import { Network } from './net';
 import { readInput, isHeld, setInputEnabled } from './input';
 import { sfx, spatial, setMuted, isMuted } from './audio';
-import { stepBody, BTN_ACTION, type Body, type Input, type Role, type Status } from '../shared/sim';
+import { stepBody, BTN_ACTION, type Body, type Dyn, type Input, type Role, type Status } from '../shared/sim';
 import { FULL_MAP, mapFor, roofsForPlayers } from '../shared/map';
 import { TICK_DT, TICK_RATE, NADE_CHARGE_TIME, COLOR_SEEKER, type NadeKind } from '../shared/constants';
 import type { GameEvent, GameMode, LobbyPlayer, NetPlayer, Phase, ServerMessage, Snapshot, Standing } from '../shared/protocol';
@@ -18,7 +18,7 @@ type Mode = 'title' | 'lobby' | 'match' | 'end';
 interface Buffered { tick: number; players: Map<number, NetPlayer>; snap: Snapshot }
 
 const INTERP_TICKS = 6; // render remote players ~100ms in the past
-const BODY_KEYS: (keyof Body)[] = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'grounded', 'airTime', 'groundTime', 'jumpBuf', 'rising', 'attackCd', 'lunge', 'prevB'];
+const BODY_KEYS: (keyof Body)[] = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'grounded', 'airTime', 'groundTime', 'jumpBuf', 'rising', 'attackCd', 'lunge', 'prevB', 'onHead'];
 
 export function startGame(): void {
   const world: World = createWorld(document.getElementById('app')!);
@@ -234,9 +234,17 @@ export function startGame(): void {
     if (!me) return null;
     return {
       role: me.role,
-      frozen: me.frozen > 0,
+      frozen: me.frozen > 0 || me.stun > 0, // frozen solid or dizzy from a stomp
       chilled: me.chilled > 0,
       locked: !me.alive || latest!.phase === 'end' || (latest!.phase === 'hide' && me.role === 'seeker'),
+    };
+  }
+
+  /** Other players (solid, with heads) and collapsed planks, as the server saw them in a snapshot. */
+  function dynFrom(s: Snapshot): Dyn {
+    return {
+      bodies: s.players.filter(p => p.id !== myId && p.alive).map(p => ({ id: p.id, x: p.x, y: p.y, z: p.z, role: p.role })),
+      broken: new Set(s.planks.flatMap((st, i) => (st === 2 ? [i] : []))),
     };
   }
 
@@ -289,7 +297,8 @@ export function startGame(): void {
     pending = pending.filter(p => p.seq > s.ack);
     const st = myStatus()!;
     // The server doesn't step bodies at round end or when dead; neither do we
-    if (me.alive && s.phase !== 'end') for (const p of pending) stepBody(world.map, server, p.input, st, TICK_DT);
+    const dyn = dynFrom(s);
+    if (me.alive && s.phase !== 'end') for (const p of pending) stepBody(world.map, server, p.input, st, TICK_DT, dyn);
     if (pred && me.alive) {
       const dx = pred.x - server.x, dy = pred.y - server.y, dz = pred.z - server.z;
       if (Math.hypot(dx, dy, dz) < 3) errOffset.add(new THREE.Vector3(dx, dy, dz));
@@ -309,7 +318,7 @@ export function startGame(): void {
     const frozenScene = phase === 'end' || !latest.me?.alive;
     const ev = frozenScene
       ? { jumped: false, landed: 0, lunged: false, pressed: input.b & ~pred.prevB, released: 0 }
-      : stepBody(world.map, pred, input, st, TICK_DT);
+      : stepBody(world.map, pred, input, st, TICK_DT, dynFrom(latest));
     if (frozenScene) pred.prevB = input.b;
     const c = chars.get(myId);
     if (ev.jumped) { fx.puff(pred.x, pred.y, pred.z, 5); sfx.jump(); }
@@ -403,6 +412,14 @@ export function startGame(): void {
         const v = Math.max(0.2, sp.vol);
         ({ flash: sfx.flash, frost: sfx.frost } as Record<NadeKind, (v: number, p: number) => void>)[e.kind](v, sp.pan);
         if (e.hits.includes(myId) && e.kind === 'frost') ui.banner('FROZEN!', '', '#8fe3ff', 1200);
+        break;
+      }
+      case 'stomp': {
+        const sp = spatial(e.x, e.z, L.x, L.z);
+        sfx.boing(Math.max(0.3, sp.vol), sp.pan);
+        fx.puff(e.x, e.y, e.z, 8, 0xffd23f, 0.14);
+        if (e.by === myId) ui.banner('STOMP!', '', '#ffd23f', 900);
+        if (e.id === myId) { ui.banner('DIZZY!', '', '#ef767a', 900); fx.addShake(0.3); }
         break;
       }
       case 'spawn': {
@@ -529,7 +546,7 @@ export function startGame(): void {
       myChar.setRole(me.role);
       myChar.update(dt, {
         speed: Math.hypot(pred.vx, pred.vz), vy: pred.vy, grounded: pred.grounded, lunge: pred.lunge,
-        aiming: charging, frozen: me.frozen > 0, chilled: me.chilled > 0,
+        aiming: charging, frozen: me.frozen > 0, chilled: me.chilled > 0, stunned: me.stun > 0,
         ground: world.map.heightAt(pred.x + errOffset.x, pred.z + errOffset.z),
       });
       if (charging > 0) fx.showArc(pred.x, pred.y, pred.z, pred.facing, pred.vx, pred.vz, charging); else fx.hideArc();
@@ -552,7 +569,7 @@ export function startGame(): void {
       c.setNade(p.nade);
       c.update(dt, {
         speed: Math.hypot(p.vx, p.vz), vy: p.vy, grounded: Math.abs(p.vy) < 0.01, lunge: p.lunge,
-        aiming: p.aiming, frozen: p.frozen > 0, chilled: p.chilled > 0, ground: world.map.heightAt(p.x, p.z),
+        aiming: p.aiming, frozen: p.frozen > 0, chilled: p.chilled > 0, stunned: p.stun > 0, ground: world.map.heightAt(p.x, p.z),
       });
       shown.add(id);
     }
@@ -561,6 +578,13 @@ export function startGame(): void {
     const snap = buffer.at(-1)?.snap;
     if (snap) {
       fx.syncProjectiles(snap.projectiles, dt);
+      // Weak planks: shake, collapse, rebuild (with sound when it's near)
+      for (const ch of updatePlanks(world, snap.planks, dt)) {
+        const br = world.map.bridges[ch.i];
+        const sp = spatial((br.x0 + br.x1) / 2, (br.z0 + br.z1) / 2, camTarget.x, camTarget.z);
+        if (ch.to === 1) sfx.creak(sp.vol, sp.pan);
+        if (ch.to === 2) { sfx.crash(sp.vol, sp.pan); fx.puff((br.x0 + br.x1) / 2, br.h, (br.z0 + br.z1) / 2, 8, 0xc9a27c, 0.2); }
+      }
     }
 
     // Camera: follow me, or whoever I'm spectating

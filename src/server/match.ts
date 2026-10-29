@@ -9,10 +9,11 @@ import {
   NADE_KINDS, NADE_LOADOUT, NADE_FUSE, NADE_THROW_SPEED, NADE_THROW_UP, NADE_GRAVITY,
   NADE_MIN_CHARGE, NADE_CHARGE_TIME, FROST_RADIUS, FROST_TIME, CHILL_RADIUS, CHILL_TIME, FLASH_RADIUS,
   FLASH_TIME,
-  HIDE_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, DM_TIME, RESPAWN_TIME, SPAWN_PROTECTION, SWAP_PROTECTION, SURVIVE_POINT_EVERY, type NadeKind,
+  HIDE_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, DM_TIME, RESPAWN_TIME, SPAWN_PROTECTION, SWAP_PROTECTION, SURVIVE_POINT_EVERY,
+  STOMP_STUN, PLANK_CRACK_TIME, PLANK_FIX_TIME, type NadeKind,
 } from '../shared/constants';
 import { SEEKER_SPAWNS, HIDER_SPAWNS, FULL_MAP, mapFor, roundTimeFor, type GameMap } from '../shared/map';
-import { newBody, stepBody, BTN_ACTION, BTN_ALT, type Body, type Input, type Role, type Status } from '../shared/sim';
+import { newBody, stepBody, BTN_ACTION, BTN_ALT, type Body, type Dyn, type Input, type Role, type Status } from '../shared/sim';
 import type {
   GameEvent, GameMode, KillCause, LobbyPlayer, NetPlayer, NetProjectile, Phase, ServerMessage, Snapshot, Standing,
 } from '../shared/protocol';
@@ -49,6 +50,8 @@ export interface MPlayer {
   respawnT: number; // deathmatch: seconds until back in, 0 = not waiting
   prot: number; // deathmatch spawn protection left
   survT: number; // deathmatch: time alive as a hider since the last survival point
+  stun: number; // dizzy from a head stomp: can't move
+  plankFallT: number; // just dropped through a collapsing plank (not their fault)
   score: number;
   kills: number;
   survived: number;
@@ -73,6 +76,9 @@ export class Match {
   round = 0;
   tick = 0;
   private swapPending = false;
+  // Weak planks (per map.bridges): 0 solid, 1 cracking, 2 collapsed; t = time left in that state
+  private planks: { state: 0 | 1 | 2; t: number }[] = [];
+  broken = new Set<number>(); // collapsed planks (bots route around them)
   private projectiles: Projectile[] = [];
   private events: GameEvent[] = [];
   private nextId = 1;
@@ -84,6 +90,7 @@ export class Match {
 
   constructor(private host: MatchHost, roster: LobbyPlayer[], readonly mode: GameMode = 'hns', roofs?: number[]) {
     this.map = roofs ? mapFor(roofs) : FULL_MAP;
+    this.resetPlanks();
     for (const p of roster) this.addPlayer(p);
   }
 
@@ -98,7 +105,7 @@ export class Match {
       body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, starved: 0,
       role: 'hider', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
       nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
-      respawnT: 0, prot: 0, survT: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
+      respawnT: 0, prot: 0, survT: 0, stun: 0, plankFallT: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
     };
     this.players.push(mp);
     // Joining a running deathmatch: drop into the smaller team after a short beat
@@ -188,6 +195,7 @@ export class Match {
       p.brain?.reset();
     }
     this.projectiles = [];
+    this.resetPlanks();
     this.phase = 'hide';
     this.timeLeft = HIDE_TIME;
 
@@ -256,7 +264,7 @@ export class Match {
     }
 
     for (const p of this.active()) this.stepPlayer(p);
-    this.collidePlayers();
+    this.stepPlanks();
     this.stepProjectiles();
 
     if (this.mode === 'dm') {
@@ -305,7 +313,7 @@ export class Match {
   private status(p: MPlayer): Status {
     return {
       role: p.role,
-      frozen: p.frozen > 0,
+      frozen: p.frozen > 0 || p.stun > 0, // frozen solid, or dizzy from a stomp
       chilled: p.chilled > 0,
       locked: !p.alive || this.phase === 'end' || (this.phase === 'hide' && p.role === 'seeker'),
     };
@@ -330,11 +338,14 @@ export class Match {
     p.blind = Math.max(0, p.blind - TICK_DT);
     p.shovedT = Math.max(0, p.shovedT - TICK_DT);
     p.prot = Math.max(0, p.prot - TICK_DT);
+    p.stun = Math.max(0, p.stun - TICK_DT);
+    p.plankFallT = Math.max(0, p.plankFallT - TICK_DT);
     if (!p.alive && p.respawnT > 0 && this.phase !== 'end' && (p.respawnT -= TICK_DT) <= 0) this.spawn(p, true);
     if (!p.alive || this.phase === 'end') return; // freeze the scene on the round result
 
     const st = this.status(p);
-    const ev = stepBody(this.map, p.body, input, st, TICK_DT);
+    const ev = stepBody(this.map, p.body, input, st, TICK_DT, this.dynFor(p));
+    if (ev.stomped !== null) this.stomp(p, ev.stomped);
     const canAct = !st.locked && !st.frozen;
 
     if (ev.lunged) {
@@ -431,7 +442,7 @@ export class Match {
     t.aimT = -1;
     if (by && this.enemies(by, t)) { by.score += 1; by.kills += 1; }
     if (this.mode === 'dm') {
-      if (!by && (cause === 'fall' || cause === 'void')) t.score -= 1; // CS-style suicide penalty
+      if (!by && (cause === 'fall' || cause === 'void') && t.plankFallT <= 0) t.score -= 1; // CS-style suicide penalty (not for planks giving way)
       if (by && by.role === 'seeker' && t.role === 'hider') {
         // HNS deathmatch swap: the catcher runs now, the caught one hunts after respawning
         by.role = 'hider';
@@ -451,22 +462,50 @@ export class Match {
     });
   }
 
-  private collidePlayers(): void {
-    // Semiclip: teammates pass through each other, opponents shove (CS hns_semiclip)
-    const ps = this.active().filter(p => p.alive);
-    const minD = PLAYER_RADIUS * 2;
-    for (let i = 0; i < ps.length; i++) {
-      for (let j = i + 1; j < ps.length; j++) {
-        const a = ps[i], b = ps[j];
-        if (!this.enemies(a, b) || a.prot > 0 || b.prot > 0 || Math.abs(a.body.y - b.body.y) > 1) continue;
-        const dx = b.body.x - a.body.x, dz = b.body.z - a.body.z;
-        const d = Math.hypot(dx, dz);
-        if (d >= minD || d < 1e-4) continue;
-        const nx = dx / d, nz = dz / d, push = (minD - d) / 2;
-        a.body.x -= nx * push; a.body.z -= nz * push;
-        b.body.x += nx * push; b.body.z += nz * push;
+  /** Other living players as solid bodies for this player's physics step (plus collapsed planks). */
+  private dynFor(p: MPlayer): Dyn {
+    return {
+      bodies: this.active().filter(q => q !== p && q.alive).map(q => ({ id: q.id, x: q.body.x, y: q.body.y, z: q.body.z, role: q.role })),
+      broken: this.broken,
+    };
+  }
+
+  /** Landing on an enemy's head: they're dizzy for a moment (the stomper already bounced in the sim). */
+  private stomp(by: MPlayer, id: number): void {
+    const v = this.players.find(q => q.id === id);
+    if (!v || !v.alive || v.prot > 0 || !this.enemies(by, v)) return;
+    v.stun = STOMP_STUN;
+    v.stabPending = false;
+    v.shovedBy = by.id; v.shovedT = 3; // if they stumble off a roof dizzy, the stomper gets it
+    this.events.push({ k: 'stomp', by: by.id, id, x: v.body.x, y: v.body.y + 1, z: v.body.z });
+  }
+
+  private resetPlanks(): void {
+    this.planks = this.map.bridges.map(() => ({ state: 0 as const, t: 0 }));
+    this.broken = new Set();
+  }
+
+  /** Weak planks crack under a player over the gap, collapse, then get rebuilt once clear. */
+  private stepPlanks(): void {
+    this.planks.forEach((pl, i) => {
+      const br = this.map.bridges[i];
+      const on = this.active().filter(p => p.alive && p.body.grounded && Math.abs(p.body.y - br.h) < 0.05
+        && p.body.x >= br.x0 && p.body.x <= br.x1 && p.body.z >= br.z0 && p.body.z <= br.z1);
+      if (pl.state === 0) {
+        // Only weight over the gap counts (the plank ends rest on the roofs)
+        const without = new Set(this.broken).add(i);
+        if (on.some(p => this.map.heightAt(p.body.x, p.body.z, without) < br.h - 0.01)) { pl.state = 1; pl.t = PLANK_CRACK_TIME; }
+      } else if (pl.state === 1) {
+        if ((pl.t -= TICK_DT) <= 0) {
+          pl.state = 2; pl.t = PLANK_FIX_TIME;
+          this.broken.add(i);
+          for (const p of on) p.plankFallT = 3;
+        }
+      } else if ((pl.t -= TICK_DT) <= 0 && on.length === 0) {
+        pl.state = 0;
+        this.broken.delete(i);
       }
-    }
+    });
   }
 
   // ── Grenades ────────────────────────────────────────────────────────────
@@ -551,6 +590,7 @@ export class Match {
       lunge: r2(b.lunge), aiming: p.aimT >= 0 ? r2(Math.min(1, p.aimT / NADE_CHARGE_TIME)) : 0,
       nade: p.aimT >= 0 ? p.nadeSel : null,
       prot: p.prot > 0,
+      stun: r2(p.stun),
     };
   }
 
@@ -568,9 +608,9 @@ export class Match {
         me: {
           ...viewer.body, hp: Math.round(viewer.hp), alive: viewer.alive, role: viewer.role,
           frozen: viewer.frozen, chilled: viewer.chilled, blind: viewer.blind,
-          nades: viewer.nades, nadeSel: viewer.nadeSel, respawn: r2(viewer.respawnT),
+          nades: viewer.nades, nadeSel: viewer.nadeSel, respawn: r2(viewer.respawnT), stun: r2(viewer.stun),
         },
-        players, projectiles, scores,
+        players, projectiles, scores, planks: this.planks.map(pl => pl.state),
       };
       this.host.send(viewer.id, snap);
     }

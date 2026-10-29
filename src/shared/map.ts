@@ -83,6 +83,11 @@ export const BRIDGES: Bridge[] = [
   { x0: -16.6, z0: 17.6, x1: -15.4, z1: 21.5, h: ROOF_H },
   { x0: -16, z0: 19, x1: -2, z1: 20.2, h: ROOF_H },
   { x0: 5, z0: -19, x1: 8, z1: -17.8, h: ROOF_H },
+  // Around the plaza (in every map size): weak planks over the alleys
+  { x0: -0.6, z0: -12.2, x1: 0.6, z1: -8.8, h: ROOF_H }, // plaza ↔ north garden
+  { x0: 8.3, z0: -1.4, x1: 11.2, z1: -0.2, h: ROOF_H }, // plaza ↔ east terrace
+  { x0: 2.4, z0: 2.8, x1: 3.6, z1: 6.2, h: ROOF_H }, // plaza ↔ south roof
+  { x0: -11.2, z0: -1.6, x1: -8.3, z1: -0.4, h: ROOF_H }, // plaza ↔ west tower roof
 ];
 
 // ── Obstacle layouts ──────────────────────────────────────────────────────
@@ -282,11 +287,16 @@ export class GameMap {
     return this.buildings.find(b => inRect(b, x, z));
   }
 
-  /** Highest walkable top under a point, or -Infinity over the void. */
-  heightAt(x: number, z: number): number {
+  /** Highest walkable top under a point, or -Infinity over the void. `broken` = collapsed plank indices. */
+  heightAt(x: number, z: number, broken?: ReadonlySet<number>): number {
     let h = -Infinity;
-    for (const s of this.solids) {
-      if (x >= s.x0 && x <= s.x1 && z >= s.z0 && z <= s.z1 && s.top > h) h = s.top;
+    const b0 = this.buildings.length, b1 = b0 + this.bridges.length;
+    for (let i = 0; i < this.solids.length; i++) {
+      const s = this.solids[i];
+      if (x >= s.x0 && x <= s.x1 && z >= s.z0 && z <= s.z1 && s.top > h) {
+        if (broken && i >= b0 && i < b1 && broken.has(i - b0)) continue;
+        h = s.top;
+      }
     }
     return h;
   }

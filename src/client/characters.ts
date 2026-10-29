@@ -180,6 +180,7 @@ export interface AnimState {
   frozen: boolean;
   chilled: boolean;
   ground?: number; // world y of the surface below (for the blob shadow); defaults to the feet
+  stunned?: boolean; // stomped: stars spin round the head
 }
 
 const NADE_COLORS: Record<NadeKind, number> = { flash: 0xfff2a8, frost: 0x8fe3ff };
@@ -200,6 +201,7 @@ export class Character {
   private ring: THREE.Mesh;
   private shadow = new THREE.Group(); // blob shadow + team ring, pinned to the surface below
   private ice: THREE.Mesh;
+  private stars = new THREE.Group();
   private phase = 0;
   private squash = 0;
   private blinkT = 2 + Math.random() * 3;
@@ -269,6 +271,15 @@ export class Character {
     addMist(iceMat);
     this.ice = new THREE.Mesh(rounded(0.95, 1.25, 0.95, 0.18), iceMat);
     this.ice.position.y = 0.6;
+    // Dizzy stars for a stomped player
+    for (let i = 0; i < 3; i++) {
+      const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.09), new THREE.MeshBasicMaterial({ color: 0xffd23f }));
+      star.scale.set(1, 0.5, 1);
+      this.stars.add(star);
+    }
+    this.stars.position.y = d.headY + 0.35;
+    this.stars.visible = false;
+    this.body.add(this.stars);
     this.root.add(this.ice);
 
     this.setRole('hider');
@@ -350,7 +361,15 @@ export class Character {
     if (this.blinkT < 0) this.blinkT = 2 + Math.random() * 3.5;
     this.eyes.scale.y = a.frozen ? 1 : blink;
 
-    this.ice.visible = a.frozen;
+    this.ice.visible = a.frozen && !a.stunned;
+    this.stars.visible = !!a.stunned;
+    if (a.stunned) {
+      this.stars.children.forEach((st, i) => {
+        const ang = this.t * 6 + (i / 3) * Math.PI * 2;
+        st.position.set(Math.cos(ang) * 0.35, Math.sin(this.t * 9 + i) * 0.04, Math.sin(ang) * 0.35);
+        st.rotation.y = ang * 2;
+      });
+    }
     if (a.frozen) this.ice.rotation.y = Math.sin(this.t * 0.5) * 0.04;
   }
 

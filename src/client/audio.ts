@@ -118,4 +118,10 @@ export const sfx = {
   win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, f, 0.22, 'triangle', 0.16, i * 0.09)); },
   lose() { [523, 440, 349].forEach((f, i) => tone(f, f * 0.98, 0.28, 'triangle', 0.14, i * 0.14)); },
   ui() { tone(700, 1100, 0.06, 'sine', 0.1); },
+  boing(v = 1, pan = 0) { tone(180, 720, 0.18, 'sine', 0.35 * v, 0, pan); tone(360, 1200, 0.12, 'triangle', 0.12 * v, 0.02, pan); },
+  creak(v = 1, pan = 0) { tone(140, 95, 0.35, 'sawtooth', 0.06 * v, 0, pan); noise(0.3, 0.08 * v, 400, 250, 6, 0, 'bandpass', pan); },
+  crash(v = 1, pan = 0) {
+    noise(0.45, 0.4 * v, 1800, 200, 0.8, 0, 'lowpass', pan);
+    for (let i = 0; i < 3; i++) tone(260 - i * 40, 120, 0.12, 'square', 0.06 * v, 0.05 + i * 0.07, pan);
+  },
 };

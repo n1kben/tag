@@ -8,6 +8,7 @@ export const SNAPSHOT_EVERY = 2; // ticks → 30Hz snapshots
 
 // Player body
 export const PLAYER_RADIUS = 0.4;
+export const PLAYER_HEIGHT = 1.0; // players are solid: block each other and can stand on heads
 export const EYE_HEIGHT = 0.9;
 export const STEP_HEIGHT = 0.35;
 
@@ -25,6 +26,19 @@ export const JUMP_VELOCITY = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT);
 export const JUMP_CUT = 0.45; // releasing Space while rising keeps this much upward speed
 export const COYOTE_TIME = 0.1;
 export const JUMP_BUFFER = 0.12;
+
+// Heads: a teammate's head is a boost; a hider landing on a seeker = stomp (seeker stunned);
+// a seeker landing on a hider = bonk (knocked back, so a hider guarding an edge sends chasers into the alley)
+export const HEAD_JUMP_BOOST = 1.25; // jump velocity multiplier off a head (≈1.56× the height)
+export const STOMP_STUN = 0.8; // seconds the stomped player can't move
+export const STOMP_BOUNCE = 7; // upward bounce for the stomper
+export const STOMP_MIN_SPEED = 2; // falling at least this fast counts as a stomp
+export const BONK_BOUNCE = 3.5; // seeker hitting a hider's head: small hop…
+export const BONK_KNOCKBACK = 0.6; // …and sent back the way they came at this fraction of their speed
+
+// Weak planks: crack when stood on over the gap, collapse, then get rebuilt
+export const PLANK_CRACK_TIME = 1.2;
+export const PLANK_FIX_TIME = 12;
 
 // No jump spam: after landing you wait this long before the next jump (a press is queued, not lost)
 export const JUMP_COOLDOWN = 0.3;
