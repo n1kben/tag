@@ -26,7 +26,13 @@ const lobby = next(ws, 'lobby');
 ws.send(JSON.stringify({ type: 'profile', character: 1.5, name: { evil: true } }));
 ws.send(JSON.stringify({ type: 'profile', character: 3 }));
 const l = await lobby as { players: { character: number }[]; mode: string };
-await new Promise(r => setTimeout(r, 200));
+// UDP signalling junk: answers and candidates that aren't, out of order, repeated starts
+for (const m of [
+  { type: 'rtc_answer', sdp: 'garbage' }, { type: 'rtc_ice', candidate: 'x', mid: '0' }, { type: 'rtc_start' },
+  { type: 'rtc_answer', sdp: 12 }, { type: 'rtc_ice', candidate: null, mid: {} }, { type: 'rtc_start' }, { type: 'rtc_start' },
+  { type: 'rtc_answer', sdp: 'v=0\r\nbogus' }, { type: 'rtc_ice', candidate: 'candidate:1 1 UDP 1 999.1.1.1 1 typ host', mid: 'zz' },
+]) ws.send(JSON.stringify(m));
+await new Promise(r => setTimeout(r, 1000));
 const probe = await open();
 const pong = next(probe, 'pong');
 probe.send(JSON.stringify({ type: 'ping', t: 1 }));
