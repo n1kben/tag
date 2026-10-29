@@ -15,8 +15,9 @@ export type ClientMessage =
   | { type: 'remove_bot' }
   | { type: 'leave' }
   | { type: 'ping'; t: number }
-  // One message per 60Hz client tick; the server consumes exactly one per tick per player
-  | { type: 'input'; seq: number; mx: number; mz: number; b: number };
+  // One message per 60Hz client tick, each run exactly once, in order. v = the server tick
+  // the client was showing everyone else at (for lag-compensated slashes)
+  | { type: 'input'; seq: number; mx: number; mz: number; b: number; v?: number };
 
 // ── Server → Client ───────────────────────────────────────────────────────
 export interface LobbyPlayer {

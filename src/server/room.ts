@@ -109,7 +109,7 @@ export class Room {
         if (!Number.isFinite(msg.seq)) return;
         this.match?.pushInput(id, msg.seq, {
           mx: clamp1(msg.mx), mz: clamp1(msg.mz), b: (Number(msg.b) || 0) & 7,
-        });
+        }, Number.isFinite(msg.v) ? Number(msg.v) : undefined);
         break;
       case 'profile':
         if (this.match) return;

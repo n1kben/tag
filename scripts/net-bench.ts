@@ -71,7 +71,7 @@ interface Client {
   cn: ClientNet;
   brain: Brain;
   down: Link<ServerMessage>;
-  up: Link<{ seq: number; input: Input }>;
+  up: Link<{ seq: number; input: Input; v: number }>;
   nextFrame: number;
   acc: number;
   contact: { target: number; at: number } | null; // last swing that touched someone on our screen
@@ -122,7 +122,7 @@ function run(profile: Profile, runSeed: number, tot: Totals): void {
     const nextClient = Math.min(...[...clients.values()].map(c => c.nextFrame));
     now = Math.min(nextTick, nextClient);
     if (now === nextTick) {
-      for (const c of clients.values()) for (const u of c.up.poll(now)) m.pushInput(c.id, u.seq, u.input);
+      for (const c of clients.values()) for (const u of c.up.poll(now)) m.pushInput(c.id, u.seq, u.input, u.v);
       M.step();
       nextTick += TICK_DT * 1000;
       continue;
@@ -182,7 +182,7 @@ function frame(c: Client, dt: number, now: number, tot: Totals): void {
       : { mx: 0, mz: 0, b: 0 };
     const step = cn.predict(input);
     if (!step) continue;
-    c.up.send({ seq: step.msg.seq, input }, now);
+    c.up.send({ seq: step.msg.seq, input, v: step.msg.v }, now);
     if (step.ev.lunged) {
       // Did this swing touch an enemy on our screen?
       const pred = cn.pred!;

@@ -5,7 +5,7 @@
 //   tagger. Points for catches, drops and time survived; most points when the clock runs out.
 import {
   TICK_DT, SNAPSHOT_EVERY, PLAYER_RADIUS, EYE_HEIGHT, SAFE_FALL_SPEED, FATAL_FALL_SPEED, KILL_Y, MAX_HP,
-  STAB_RANGE, STAB_ARC_COS, STAB_DAMAGE, STAB_HEIGHT,
+  STAB_RANGE, STAB_ARC_COS, STAB_DAMAGE, STAB_HEIGHT, UNLAG_MAX_TICKS, UNLAG_NOW_SLACK,
   NADE_KINDS, NADE_LOADOUT, NADE_FUSE, NADE_THROW_SPEED, NADE_THROW_UP, NADE_GRAVITY,
   NADE_MIN_CHARGE, NADE_CHARGE_TIME, FROST_RADIUS, FROST_TIME, CHILL_RADIUS, CHILL_TIME, FLASH_RADIUS,
   FLASH_TIME,
@@ -35,7 +35,9 @@ export interface MPlayer {
   connected: boolean;
   body: Body;
   input: Input;
-  queue: { seq: number; input: Input }[];
+  queue: { seq: number; input: Input; v?: number }[];
+  viewTick: number; // tick the client was showing others at for the input being run
+  hist: { t: number; x: number; y: number; z: number; alive: boolean }[]; // recent positions, for rewinds
   ack: number;
   credit: number; // inputs this player may still run: +1 per tick, banked up to INPUT_BANK
   waitT: number; // ticks since an input last arrived
@@ -108,7 +110,7 @@ export class Match {
   addPlayer(p: LobbyPlayer): MPlayer {
     const mp: MPlayer = {
       id: p.id, name: p.name, character: p.character, bot: p.bot, connected: true,
-      body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, credit: 0, waitT: 0, owed: 0, net: { dropped: 0, waited: 0 },
+      body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], viewTick: 0, hist: [], ack: 0, credit: 0, waitT: 0, owed: 0, net: { dropped: 0, waited: 0 },
       role: 'runner', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
       nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
       respawnT: 0, prot: 0, survT: 0, stun: 0, plankFallT: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
@@ -142,10 +144,10 @@ export class Match {
     this.interval = null;
   }
 
-  pushInput(id: number, seq: number, input: Input): void {
+  pushInput(id: number, seq: number, input: Input, v?: number): void {
     const p = this.players.find(q => q.id === id);
     if (!p || seq <= p.ack) return;
-    p.queue.push({ seq, input });
+    p.queue.push({ seq, input, v });
   }
 
   private frame(): void {
@@ -270,6 +272,11 @@ export class Match {
     }
 
     for (const p of this.active()) this.stepPlayer(p);
+    // Where everyone was this tick, for checking slashes against an attacker's (older) view
+    for (const p of this.players) {
+      p.hist.push({ t: this.tick, x: p.body.x, y: p.body.y, z: p.body.z, alive: p.alive });
+      if (p.hist.length > UNLAG_MAX_TICKS + 4) p.hist.shift();
+    }
     this.stepPlanks();
     this.stepProjectiles();
 
@@ -341,7 +348,7 @@ export class Match {
       return;
     }
 
-    if (p.bot) { this.runInput(p, p.brain!.think(this, p)); return; }
+    if (p.bot) { p.viewTick = this.tick; this.runInput(p, p.brain!.think(this, p)); return; }
     // Humans: run every input that arrived, in order, each exactly once, so the client's
     // prediction (which ran the same inputs) agrees. Nothing arrived: wait, don't guess.
     // Late inputs bank credit, so a burst after a network stall is caught up at once, but
@@ -367,6 +374,7 @@ export class Match {
       p.credit--;
       p.ack = next.seq;
       p.input = next.input;
+      p.viewTick = next.v ?? this.tick;
       this.runInput(p, next.input);
     }
   }
@@ -440,15 +448,38 @@ export class Match {
     if (p.nades[kind] === 0) this.cycleNade(p);
   }
 
+  /**
+   * Where a player was at (fractional) tick v, from the history; v is clamped to the last
+   * UNLAG_MAX_TICKS. Null if they weren't alive then.
+   */
+  private rewound(t: MPlayer, v: number): { x: number; y: number; z: number } | null {
+    v = Math.max(this.tick - UNLAG_MAX_TICKS, Math.min(this.tick, v));
+    const h = t.hist;
+    for (let i = h.length - 1; i > 0; i--) {
+      const a = h[i - 1], b = h[i];
+      if (a.t > v) continue;
+      if (!a.alive || !b.alive) return null;
+      const k = b.t > a.t ? Math.min(1, (v - a.t) / (b.t - a.t)) : 1;
+      return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k };
+    }
+    return t.alive ? t.body : null;
+  }
+
   private tryStab(p: MPlayer): void {
     const fx = Math.sin(p.body.facing), fz = Math.cos(p.body.facing);
     for (const t of this.active()) {
       if (!t.alive || !this.enemies(p, t) || t.prot > 0) continue; // spawn protection: no hit, no knockback
-      const dx = t.body.x - p.body.x, dz = t.body.z - p.body.z;
+      // Lag compensation: judge the slash against where the attacker saw the target...
+      const at = this.rewound(t, p.viewTick);
+      if (!at) continue;
+      const dx = at.x - p.body.x, dz = at.z - p.body.z;
       const d = Math.hypot(dx, dz);
-      if (d > STAB_RANGE + PLAYER_RADIUS * 2 || Math.abs(t.body.y - p.body.y) > 1.2) continue; // range = gap between bodies
+      if (d > STAB_RANGE + PLAYER_RADIUS * 2 || Math.abs(at.y - p.body.y) > 1.2) continue; // range = gap between bodies
       if (d > 0.3 && (dx * fx + dz * fz) / d < STAB_ARC_COS) continue;
+      // ...but someone who has really got away (on the server, now) can't be reached back in time
+      if (Math.hypot(t.body.x - p.body.x, t.body.z - p.body.z) > STAB_RANGE + PLAYER_RADIUS * 2 + UNLAG_NOW_SLACK) continue;
       // No slashing through walls, hedges, crates or huts
+      if (!this.map.lineOfSight(p.body.x, p.body.y + STAB_HEIGHT, p.body.z, at.x, at.y + STAB_HEIGHT, at.z)) continue;
       if (!this.map.lineOfSight(p.body.x, p.body.y + STAB_HEIGHT, p.body.z, t.body.x, t.body.y + STAB_HEIGHT, t.body.z)) continue;
       p.stabPending = false;
       this.damage(t, STAB_DAMAGE, p, 'stab', fx, fz); // one hit kills

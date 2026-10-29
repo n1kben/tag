@@ -135,7 +135,7 @@ export class ClientNet {
    * One fixed 60Hz client tick: number the input, predict it locally.
    * Returns the message to send and the sim events (null before the first snapshot).
    */
-  predict(input: Input): { msg: { type: 'input'; seq: number; mx: number; mz: number; b: number }; ev: ReturnType<typeof stepBody> } | null {
+  predict(input: Input): { msg: { type: 'input'; seq: number; mx: number; mz: number; b: number; v: number }; ev: ReturnType<typeof stepBody> } | null {
     const st = this.myStatus();
     const latest = this.latest, pred = this.pred;
     if (!latest || !pred || !st) return null;
@@ -147,7 +147,8 @@ export class ClientNet {
       ? { jumped: false, landed: 0, lunged: false, pressed: input.b & ~pred.prevB, released: 0, stomped: null }
       : stepBody(this.map, pred, input, st, TICK_DT, this.dynFrom(latest));
     if (frozenScene) pred.prevB = input.b;
-    return { msg: { type: 'input', seq: this.seq, mx: input.mx, mz: input.mz, b: input.b }, ev };
+    // v: the tick we're showing everyone else at, so the server can judge our slashes by it
+    return { msg: { type: 'input', seq: this.seq, mx: input.mx, mz: input.mz, b: input.b, v: Math.round(this.renderTick * 10) / 10 }, ev };
   }
 
   /** Our best guess at the server's current tick. */
