@@ -1,6 +1,6 @@
 import {
   PLAYER_RADIUS, STEP_HEIGHT, RUN_SPEED, GROUND_ACCEL, GROUND_DECEL, AIR_CONTROL, GRAVITY, FALL_GRAVITY,
-  JUMP_VELOCITY, JUMP_CUT, COYOTE_TIME, JUMP_BUFFER, BHOP_WINDOW, BHOP_GAIN, BHOP_MAX, STAB_COOLDOWN, LUNGE_SPEED, LUNGE_TIME,
+  JUMP_VELOCITY, JUMP_CUT, COYOTE_TIME, JUMP_BUFFER, JUMP_COOLDOWN, STAB_COOLDOWN, LUNGE_SPEED, LUNGE_TIME,
   CHILL_SPEED, AIM_SPEED,
 } from './constants';
 import type { GameMap } from './map';
@@ -23,10 +23,9 @@ export interface Body {
   facing: number; // radians, 0 = +z (towards camera)
   grounded: boolean;
   airTime: number; // since leaving ground (coyote)
-  groundTime: number; // since landing (bhop window)
+  groundTime: number; // since landing (jump cooldown)
   jumpBuf: number;
   rising: boolean; // in a jump that can still be cut short by releasing Space
-  hop: number; // bunny-hop speed multiplier
   attackCd: number;
   lunge: number;
   prevB: number;
@@ -51,7 +50,7 @@ export interface StepEvents {
 export function newBody(map: GameMap, x: number, z: number): Body {
   return {
     x, y: map.heightAt(x, z), z, vx: 0, vy: 0, vz: 0, facing: 0,
-    grounded: true, airTime: 0, groundTime: 1, jumpBuf: 0, rising: false, hop: 1,
+    grounded: true, airTime: 0, groundTime: 1, jumpBuf: 0, rising: false,
     attackCd: 0, lunge: 0, prevB: 0,
   };
 }
@@ -89,35 +88,33 @@ export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: nu
     // Hiders charging a throw shuffle slowly so the stick can aim (Boomerang Fu charge-throw)
     const aiming = st.role === 'hider' && (input.b & BTN_ACTION) !== 0;
     const speedMul = (st.chilled ? CHILL_SPEED : 1) * (aiming ? AIM_SPEED : 1);
-    const cap = RUN_SPEED * speedMul * s.hop;
+    const cap = RUN_SPEED * speedMul;
     const tx = mx * cap, tz = mz * cap;
     if (s.grounded) {
       const k = 1 - Math.exp(-(len > 0.2 ? GROUND_ACCEL : GROUND_DECEL) * dt);
       s.vx += (tx - s.vx) * k;
       s.vz += (tz - s.vz) * k;
     } else if (len > 0.2) {
-      // Steer freely, but never brake below the speed you jumped with (keeps bunny hops alive)
+      // Steer freely, but never brake below the speed you jumped with
       const k = 1 - Math.exp(-AIR_CONTROL * dt);
       const oldSpeed = Math.hypot(s.vx, s.vz);
       s.vx += (tx - s.vx) * k;
       s.vz += (tz - s.vz) * k;
       const newSpeed = Math.hypot(s.vx, s.vz);
-      const keep = Math.min(oldSpeed, cap * BHOP_MAX);
+      const keep = Math.min(oldSpeed, cap);
       if (newSpeed < keep && newSpeed > 1e-6) { s.vx *= keep / newSpeed; s.vz *= keep / newSpeed; }
     }
   }
   if (st.frozen) { s.vx = 0; s.vz = 0; }
 
-  // Jump with buffer + coyote time; landing inside the bhop window keeps building speed
-  if (canAct && (ev.pressed & BTN_JUMP)) s.jumpBuf = JUMP_BUFFER;
-  else s.jumpBuf = Math.max(0, s.jumpBuf - dt);
+  // Jump with buffer + coyote time, and a cooldown after landing. A press during the cooldown
+  // (or just before touching down) is held and fires the moment the cooldown ends.
   if (s.grounded) s.groundTime += dt; else s.airTime += dt;
-  if (s.grounded && s.groundTime > BHOP_WINDOW) s.hop = Math.max(1, s.hop - dt * 2);
+  const coolingDown = s.grounded && s.groundTime < JUMP_COOLDOWN;
+  if (canAct && (ev.pressed & BTN_JUMP)) s.jumpBuf = JUMP_BUFFER;
+  else if (!coolingDown) s.jumpBuf = Math.max(0, s.jumpBuf - dt);
 
-  if (s.jumpBuf > 0 && (s.grounded || s.airTime < COYOTE_TIME) && s.vy <= 0.01) {
-    if (s.groundTime <= BHOP_WINDOW && Math.hypot(s.vx, s.vz) > RUN_SPEED * 0.8) {
-      s.hop = Math.min(BHOP_MAX, s.hop * BHOP_GAIN);
-    }
+  if (s.jumpBuf > 0 && !coolingDown && (s.grounded || s.airTime < COYOTE_TIME) && s.vy <= 0.01) {
     s.vy = JUMP_VELOCITY;
     s.rising = true;
     s.grounded = false;

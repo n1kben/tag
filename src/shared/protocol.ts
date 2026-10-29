@@ -72,7 +72,7 @@ export interface Snapshot {
   scores: { id: number; score: number; kills: number }[]; // live points, for the HUD and Tab board
 }
 
-export type KillCause = 'stab' | 'backstab' | 'fall' | 'void';
+export type KillCause = 'stab' | 'fall' | 'void';
 
 export type GameEvent =
   | { k: 'stab'; by: number }

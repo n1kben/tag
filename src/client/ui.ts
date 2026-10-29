@@ -1,7 +1,7 @@
 // DOM UI in Boomerang Fu's menu style: chunky outlined display type, candy pills, sky blues.
 import * as THREE from 'three';
 import { Character } from './characters';
-import { CHARACTERS, MAX_HP, NADE_KINDS, type NadeKind } from '../shared/constants';
+import { CHARACTERS, NADE_KINDS, type NadeKind } from '../shared/constants';
 import type { GameMode, LobbyPlayer, Phase, Standing } from '../shared/protocol';
 import type { Role } from '../shared/sim';
 
@@ -197,7 +197,6 @@ export interface HudState {
   timeLeft: number;
   role: Role;
   alive: boolean;
-  hp: number;
   frozen: number;
   blind: number;
   nades: Record<NadeKind, number>;
@@ -403,10 +402,6 @@ export class UI {
       this.hud.append(el('div', 'dyn mini', s.board.map((r, i) => `<div class="${r.me ? 'me' : ''}"><span>${i + 1}. ${esc(r.name)}</span><span>${r.score}</span></div>`).join('')));
       if (!s.alive && s.respawn > 0) this.hud.append(el('div', 'dyn respawn', `Back in ${s.respawn.toFixed(1)}…`));
     }
-    if (s.alive) {
-      const hearts = Math.ceil(s.hp / (MAX_HP / 2));
-      this.hud.append(el('div', 'dyn hp', [0, 1].map(i => `<span class="heart">${i < hearts ? '❤️' : '🤍'}</span>`).join('')));
-    }
     if (s.alive && s.role === 'hider') {
       const inv = el('div', 'dyn inv', NADE_KINDS.map(k => `
         <div class="slot ${k === s.nadeSel && s.nades[k] > 0 ? 'sel' : ''} ${s.nades[k] ? '' : 'empty'}">
@@ -414,7 +409,7 @@ export class UI {
       this.hud.append(inv);
       this.hud.append(el('div', 'dyn keys', '<kbd>Enter</kbd> hold &amp; release to throw · <kbd>Q</kbd> switch<br>Flash them before a jump, frost them mid-air · <kbd>Space</kbd> jump'));
     } else if (s.alive && s.role === 'seeker') {
-      const tip = s.mode === 'dm' ? 'catch a hider and you swap' : 'from behind = instant';
+      const tip = s.mode === 'dm' ? 'one hit, then you swap' : 'one hit catches';
       this.hud.append(el('div', 'dyn keys', `<kbd>Enter</kbd> slash (${tip})<br><kbd>Space</kbd> jump (hold = higher)`));
     }
     if (s.spectating) this.hud.append(el('div', 'dyn spect', `Spectating ${esc(s.spectating)} · <kbd>Enter</kbd> next`));
@@ -461,14 +456,14 @@ export class UI {
   }
 
   // ── Floating name labels ────────────────────────────────────────────────
-  label(id: number, x: number, y: number, text: string, color: string, hp: number | null): void {
+  label(id: number, x: number, y: number, text: string, color: string): void {
     let e = this.labelEls.get(id);
     if (!e) {
       e = el('div', 'label');
       this.labels.appendChild(e);
       this.labelEls.set(id, e);
     }
-    const html = `<span class="tagp" style="background:${color};border-color:${color}">${esc(text)}</span>${hp !== null && hp < MAX_HP ? `<div class="bar"><i style="width:${Math.max(0, hp)}%;background:${hp > 50 ? 'var(--teal)' : 'var(--pink)'}"></i></div>` : ''}`;
+    const html = `<span class="tagp" style="background:${color};border-color:${color}">${esc(text)}</span>`;
     if (e.dataset.h !== html) { e.innerHTML = html; e.dataset.h = html; }
     e.style.left = `${x}px`;
     e.style.top = `${y}px`;

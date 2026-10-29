@@ -5,7 +5,7 @@
 //   seeker. Points for catches, drops and time survived; most points when the clock runs out.
 import {
   TICK_DT, SNAPSHOT_EVERY, PLAYER_RADIUS, EYE_HEIGHT, SAFE_FALL_SPEED, FATAL_FALL_SPEED, KILL_Y, MAX_HP,
-  STAB_RANGE, STAB_ARC_COS, STAB_DAMAGE, BACKSTAB_DAMAGE, BACKSTAB_MAX_SPEED, STAB_HEIGHT,
+  STAB_RANGE, STAB_ARC_COS, STAB_DAMAGE, STAB_HEIGHT,
   NADE_KINDS, NADE_LOADOUT, NADE_FUSE, NADE_THROW_SPEED, NADE_THROW_UP, NADE_GRAVITY,
   NADE_MIN_CHARGE, NADE_CHARGE_TIME, FROST_RADIUS, FROST_TIME, CHILL_RADIUS, CHILL_TIME, FLASH_RADIUS,
   FLASH_TIME,
@@ -409,13 +409,8 @@ export class Match {
       if (d > 0.3 && (dx * fx + dz * fz) / d < STAB_ARC_COS) continue;
       // No slashing through walls, hedges, crates or huts
       if (!this.map.lineOfSight(p.body.x, p.body.y + STAB_HEIGHT, p.body.z, t.body.x, t.body.y + STAB_HEIGHT, t.body.z)) continue;
-      // Backstab: attacker behind a victim who isn't running (caught standing still).
-      // A fleeing hider always faces away, so without the speed check every chase would one-shot.
-      const tfx = Math.sin(t.body.facing), tfz = Math.cos(t.body.facing);
-      const sneaking = Math.hypot(t.body.vx, t.body.vz) < BACKSTAB_MAX_SPEED;
-      const back = sneaking && d > 0.05 && (dx * tfx + dz * tfz) / d > 0.35;
       p.stabPending = false;
-      this.damage(t, back ? BACKSTAB_DAMAGE : STAB_DAMAGE, p, back ? 'backstab' : 'stab', fx, fz);
+      this.damage(t, STAB_DAMAGE, p, 'stab', fx, fz); // one hit kills
       // Knock the victim along the swing so hits read clearly
       t.body.vx += fx * 6; t.body.vz += fz * 6;
       t.shovedBy = p.id; t.shovedT = 3;
@@ -427,7 +422,7 @@ export class Match {
     if (!t.alive || t.prot > 0) return;
     t.hp -= dmg;
     if (t.hp <= 0) this.kill(t, by, cause, dx, dz);
-    else this.events.push({ k: 'hurt', id: t.id, hp: Math.round(t.hp), cause: cause === 'backstab' ? 'stab' : cause });
+    else this.events.push({ k: 'hurt', id: t.id, hp: Math.round(t.hp), cause });
   }
 
   private kill(t: MPlayer, by: MPlayer | null, cause: KillCause, dx: number, dz: number): void {

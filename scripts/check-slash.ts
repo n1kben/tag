@@ -3,7 +3,7 @@
 // Run: npx tsx scripts/check-slash.ts
 import { Match, type MPlayer } from '../src/server/match';
 import { FULL_MAP, ROOF_H } from '../src/shared/map';
-import { BTN_ACTION } from '../src/shared/sim';
+import { BTN_ACTION, newBody, stepBody } from '../src/shared/sim';
 import { PLAYER_RADIUS } from '../src/shared/constants';
 
 let failures = 0;
@@ -23,13 +23,13 @@ function slash(ax: number, az: number, tx: number, tz: number): boolean {
   }
   const dx = tx - ax, dz = tz - az, l = Math.hypot(dx, dz);
   s.body.facing = Math.atan2(dx, dz);
-  h.body.facing = s.body.facing + Math.PI; // facing the attacker: no backstab
+  h.body.facing = s.body.facing + Math.PI; // facing the attacker
   // One input per tick like a real client (the server drops backlog): Enter on the first tick
   for (let i = 1; i <= 20; i++) {
     m.pushInput(1, i, { mx: (dx / l) * 0.01, mz: (dz / l) * 0.01, b: i === 1 ? BTN_ACTION : 0 });
     I.step();
   }
-  return h.hp < 100;
+  return !h.alive; // one hit kills: a landed slash leaves them dead, not hurt
 }
 
 // 1) Reach on open roof (plaza middle, nothing in between)
@@ -48,6 +48,18 @@ for (const kind of ['wall', 'hedge', 'duct', 'crate', 'hut'] as const) {
   const [ax, az, tx, tz] = acrossX ? [p.x - half, p.z, p.x + half, p.z] : [p.x, p.z - half, p.x, p.z + half];
   if (FULL_MAP.heightAt(ax, az) !== ROOF_H || FULL_MAP.heightAt(tx, tz) !== ROOF_H) { console.log(`  (skip ${kind}: no clear standing spots)`); continue; }
   check(!slash(ax, az, tx, tz), `${kind} (${p.h}u tall) between you blocks the slash`);
+}
+// 3) Cooldown (in the shared sim, so client prediction and server agree): a second swing is
+//    blocked 0.2s after the first and allowed 0.35s after
+for (const [gap, want] of [[12, 1], [21, 2]] as const) {
+  const b = newBody(FULL_MAP, -2, -3);
+  const st = { role: 'seeker' as const, frozen: false, chilled: false, locked: false };
+  let swings = 0;
+  for (let i = 0; i < 40; i++) {
+    const press = i === 0 || i === gap;
+    if (stepBody(FULL_MAP, b, { mx: 0, mz: 0, b: press ? BTN_ACTION : 0 }, st, 1 / 60).lunged) swings++;
+  }
+  check(swings === want, `second press ${(gap / 60).toFixed(2)}s later → ${swings} swing(s), expected ${want}`);
 }
 console.log(failures ? `${failures} FAILURE(S)` : 'ALL PASS');
 process.exit(failures ? 1 : 0);

@@ -18,7 +18,7 @@ type Mode = 'title' | 'lobby' | 'match' | 'end';
 interface Buffered { tick: number; players: Map<number, NetPlayer>; snap: Snapshot }
 
 const INTERP_TICKS = 6; // render remote players ~100ms in the past
-const BODY_KEYS: (keyof Body)[] = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'grounded', 'airTime', 'groundTime', 'jumpBuf', 'rising', 'hop', 'attackCd', 'lunge', 'prevB'];
+const BODY_KEYS: (keyof Body)[] = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'grounded', 'airTime', 'groundTime', 'jumpBuf', 'rising', 'attackCd', 'lunge', 'prevB'];
 
 export function startGame(): void {
   const world: World = createWorld(document.getElementById('app')!);
@@ -384,10 +384,10 @@ export function startGame(): void {
         // Boomerang Fu holds the frame on a kill: freeze + zoom punch when it's near us
         if (sp.vol > 0.3 || e.id === myId || e.by === myId) { fx.freeze(0.12, 0.08); fx.addShake(0.4); }
         const victim = esc(ui.nameOf(e.id));
-        const icon = { stab: '🔪', backstab: '🗡️ backstab', fall: '💥 splat', void: e.by !== null ? '👋 knocked off' : '☁️ fell' }[e.cause];
+        const icon = { stab: '🔪', fall: '💥 splat', void: e.by !== null ? '👋 knocked off' : '☁️ fell' }[e.cause];
         ui.killfeed(e.by !== null ? `${esc(ui.nameOf(e.by))} ${icon} ${victim}` : `${victim} ${icon}`);
         if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', gameMode === 'dm' ? (e.by === null ? '−1 for falling off' : roles[myId] === 'hider' ? 'Caught! You\'ll come back as a seeker' : '') : 'Spectating · press Enter to switch', '#f0408f', 2200);
-        if (e.by === myId) ui.banner(e.cause === 'backstab' ? 'BACKSTAB!' : 'GOTCHA!', '', '#ffd23f', 1100);
+        if (e.by === myId) ui.banner('GOTCHA!', '', '#ffd23f', 1100);
         break;
       }
       case 'throw': {
@@ -588,9 +588,9 @@ export function startGame(): void {
       v.set(c.root.position.x, c.root.position.y + 1.45, c.root.position.z).project(world.camera);
       const sx = (v.x * 0.5 + 0.5) * window.innerWidth, sy = (-v.y * 0.5 + 0.5) * window.innerHeight;
       const role = id === myId ? me?.role : remote.get(id)?.role;
-      const color = id === myId ? '#f0408f' : role === 'seeker' ? hex(COLOR_SEEKER) : '#14bfa0';
-      const hp = id === myId ? me?.hp ?? null : remote.get(id)?.hp ?? null;
-      ui.label(id, sx, sy, id === myId ? 'YOU' : ui.nameOf(id), color, hp);
+      // Everyone (you too) wears their team colour
+      const color = role === 'seeker' ? hex(COLOR_SEEKER) : '#14bfa0';
+      ui.label(id, sx, sy, id === myId ? 'YOU' : ui.nameOf(id), color);
     }
     ui.hideLabelsExcept(shown);
 
@@ -598,7 +598,7 @@ export function startGame(): void {
     if (me) {
       const teams = Object.entries(roles).map(([id, role]) => ({ id: Number(id), role, alive: !dead.has(Number(id)) }));
       const hud: HudState = {
-        phase, timeLeft, role: me.role, alive: me.alive, hp: me.hp, frozen: me.frozen, blind: me.blind,
+        phase, timeLeft, role: me.role, alive: me.alive, frozen: me.frozen, blind: me.blind,
         nades: me.nades, nadeSel: me.nadeSel, teams,
         spectating: gameMode === 'hns' && !me.alive && spectate !== null ? ui.nameOf(spectate) : null,
         mode: gameMode,
