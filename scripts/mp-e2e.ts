@@ -10,6 +10,12 @@ const browser = await chromium.launch({
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
 let failures = 0;
+async function waitFor(fn: () => Promise<boolean>, ms = 15000): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { if (await fn().catch(() => false)) return true; await new Promise(r => setTimeout(r, 250)); }
+  return false;
+}
+
 /** Poll instead of waitForSelector: rAF-based polling starves while SwiftShader renders WebGL. */
 async function waitVisible(page: Page, sel: string, ms = 15000): Promise<void> {
   const end = Date.now() + ms;
@@ -74,14 +80,15 @@ await b.keyboard.down('KeyD');
 await a.waitForTimeout(1500);
 await a.keyboard.up('KeyS');
 await b.keyboard.up('KeyD');
-const roleA = (await a.textContent('.role-chip'))?.trim();
-const roleB = (await b.textContent('.role-chip'))?.trim();
+const roleA = await a.getAttribute('.hud', 'data-role');
+const roleB = await b.getAttribute('.hud', 'data-role');
 check(!!roleA && !!roleB, `roles assigned (A=${roleA}, B=${roleB})`);
 await a.screenshot({ path: `${outDir}/mp-a-start.png` });
 await b.screenshot({ path: `${outDir}/mp-b-start.png` });
-await a.waitForTimeout(10000);
-const timerA = (await a.textContent('.timer'))?.trim() ?? '';
-check(/^\d:\d\d$/.test(timerA) || timerA === '—', `chase phase reached (timer "${timerA}")`);
+// Bots can tag standing humans fast and start the next round's head start, so poll for the clock
+let timerA = '';
+const chased = await waitFor(async () => /^\d:\d\d$/.test(timerA = (await a.textContent('.timer'))?.trim() ?? ''), 12000);
+check(chased, `chase phase reached (timer "${timerA}")`);
 await a.keyboard.down('Enter');
 await a.waitForTimeout(80);
 await a.keyboard.up('Enter');

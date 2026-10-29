@@ -8,7 +8,7 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 page.on('pageerror', e => console.log('[pageerror]', e.message));
 await page.goto(`${base}/?practice=1`);
 await page.waitForTimeout(3500);
-const role = (await page.textContent('.role-chip').catch(() => ''))?.trim();
+const role = await page.getAttribute('.hud', 'data-role').catch(() => '');
 console.log('role', role);
 // Taggers are locked during the head start, so wait it out in that case
 if (role === 'TAGGER') await page.waitForTimeout(8000);

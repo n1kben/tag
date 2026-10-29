@@ -12,8 +12,7 @@ for (let i = 0; i < 4 && seen.size < 2; i++) {
   await p.waitForTimeout(4000);
   const r = await p.evaluate(`(() => {
     const you = [...document.querySelectorAll('.tagp')].find(e => e.textContent === 'YOU');
-    const chip = document.querySelector('.role-chip');
-    return { role: chip && chip.textContent.trim(), you: you ? getComputedStyle(you).backgroundColor : null };
+    return { role: document.querySelector('.hud').dataset.role, you: you ? getComputedStyle(you).backgroundColor : null };
   })()`) as { role: string; you: string | null };
   const expected = r.role === 'RUNNER' ? 'rgb(20, 191, 160)' : 'rgb(239, 118, 122)';
   const ok = r.you === expected;

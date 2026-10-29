@@ -17,7 +17,7 @@ async function waitFor(fn: () => Promise<boolean>, ms = 15000): Promise<boolean>
   return false;
 }
 const visible = (page: Page, sel: string) => () => page.locator(sel).first().isVisible();
-const chip = async (page: Page) => (await page.textContent('.role-chip').catch(() => ''))?.trim() ?? '';
+const chip = async (page: Page) => (await page.getAttribute('.hud', 'data-role').catch(() => '')) ?? '';
 
 async function client(name: string): Promise<Page> {
   const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
@@ -67,9 +67,9 @@ await a.locator('[data-a=ready]').click();
 await new Promise(r => setTimeout(r, 300));
 await b.locator('[data-a=ready]').click();
 
-check(await waitFor(visible(a, '.role-chip')) && await waitFor(visible(b, '.role-chip')), 'match started on both');
+check(await waitFor(visible(a, '.timer')) && await waitFor(visible(b, '.timer')), 'match started on both');
 const roleA = await chip(a), roleB = await chip(b);
-check(/^(RUNNER|TAGGER) · DM$/.test(roleA) && /^(RUNNER|TAGGER) · DM$/.test(roleB), `teams in deathmatch (A=${roleA}, B=${roleB})`);
+check(/^(RUNNER|TAGGER)$/.test(roleA) && /^(RUNNER|TAGGER)$/.test(roleB), `teams in deathmatch (A=${roleA}, B=${roleB})`);
 check(((await a.textContent('.timer')) ?? '').startsWith('RUN'), 'runners get the head start');
 check(await waitFor(visible(a, '.teams'), 3000) && await a.locator('.mini').count() === 0, 'team pips shown, no always-on leaderboard');
 await a.screenshot({ path: `${outDir}/dm-start.png` });
@@ -82,8 +82,9 @@ if (!runner) {
   console.log('SKIP catch/swap check: both humans started as taggers this time');
 } else {
   // The catch can land within a second of the chase, so watch for the outcome, not the 2s overlay
-  const swapped = await waitFor(async () => (await chip(runner)) === 'TAGGER · DM', 90000);
+  const swapped = await waitFor(async () => (await chip(runner)) === 'TAGGER', 90000);
   check(swapped && caughtIds.has(runnerId(runner)), 'human runner got caught (kill event) and is back in as a TAGGER');
+  if (!swapped || !caughtIds.has(runnerId(runner))) console.log('debug', { swapped, role: await chip(runner), id: runnerId(runner), caught: [...caughtIds] });
   await runner.screenshot({ path: `${outDir}/dm-swapped.png` });
 }
 await a.keyboard.down('Tab');

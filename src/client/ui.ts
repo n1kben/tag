@@ -81,7 +81,6 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .team { display: flex; gap: 5px; align-items: center; }
 .pip { width: 18px; height: 18px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 0 rgba(59,42,92,0.3); }
 .pip.dead { opacity: 0.3; }
-.role-chip { position: absolute; top: 16px; left: 16px; font-family: 'Lilita One'; font-size: 20px; padding: 6px 16px; border-radius: 999px; color: #fff; box-shadow: 0 4px 0 rgba(59,42,92,0.3); }
 .hp { position: absolute; top: 58px; left: 18px; display: flex; gap: 4px; }
 .heart { font-size: 22px; filter: drop-shadow(0 2px 0 rgba(59,42,92,0.4)); }
 .inv { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
@@ -392,9 +391,8 @@ export class UI {
     const timer = el('div', `dyn timer ${s.phase === 'start' ? 'start' : ''} ${s.phase === 'chase' && t <= 15 ? 'low' : ''}`, timeStr);
     const pips = (role: Role) => s.teams.filter(p => p.role === role)
       .map(p => `<div class="pip ${p.alive ? '' : 'dead'}" style="background:${role === 'runner' ? 'var(--teal)' : 'var(--red)'}"></div>`).join('');
-    const chip = el('div', 'dyn role-chip', `${s.role === 'runner' ? 'RUNNER' : 'TAGGER'}${s.mode === 'dm' ? ' · DM' : ''}`);
-    chip.style.background = s.role === 'runner' ? '#14bfa0' : '#e0505a';
-    this.hud.append(timer, chip);
+    this.hud.dataset.role = s.role.toUpperCase(); // no badge (the YOU tag is team-coloured); tests read this
+    this.hud.append(timer);
     this.hud.append(el('div', 'dyn teams', `<div class="team">${pips('runner')}</div><div class="team">${pips('tagger')}</div>`));
     if (s.mode === 'dm') {
       if (!s.alive && s.respawn > 0) this.hud.append(el('div', 'dyn respawn', `Back in ${s.respawn.toFixed(1)}…`));
