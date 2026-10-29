@@ -1,3 +1,4 @@
+import { ROUND_TIME, MIN_ROUND_TIME } from './constants';
 // "Rooftops" — a city of flat roofs over a misty drop, laid out like hns/awp_rooftops.
 // Every roof is the same height: the skill is timing jumps across the alleys and through the
 // obstacles. Obstacles come in exactly two heights so they read at a glance:
@@ -230,54 +231,131 @@ const PLAZA_PROPS: Prop[] = ([
   ['chimney', 7.3, 2.2, 1.0, 1.0], ['vent', -7.4, 2.3, 0.6, 0.6],
 ] as [PropKind, number, number, number, number][]).map(([kind, x, z, w, d]) => ({ kind, x, z, w, d, h: PROP_SIZE[kind][2], base: ROOF_H }));
 
-export const PROPS: Prop[] = [
-  ...PLAZA_PROPS,
-  ...BUILDINGS.filter(b => b.style !== 'plaza').flatMap(b => layoutProps(b, LAYOUTS[LAYOUT_FOR[b.id]])),
-];
+// Each roof's obstacles, computed once and seeded by roof id: a roof looks the same at every map size
+const ROOF_PROPS = new Map<number, Prop[]>(BUILDINGS.map(b =>
+  [b.id, b.style === 'plaza' ? PLAZA_PROPS : layoutProps(b, LAYOUTS[LAYOUT_FOR[b.id]])]));
 
-export const BUNTINGS: Bunting[] = [
+const ALL_BUNTINGS: Bunting[] = [
   { ax: -8, az: -8.8, bx: 8, bz: -8.8, base: ROOF_H },
   { ax: -5, az: -12.5, bx: 5, bz: -12.5, base: ROOF_H },
   { ax: 12, az: 3.5, bx: 23, bz: 3.5, base: ROOF_H },
   { ax: -2, az: 24.5, bx: 14, bz: 24.5, base: ROOF_H },
 ];
 
-export function buildingAt(x: number, z: number): Building | undefined {
-  return BUILDINGS.find(b => x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1);
-}
-
-export const SOLIDS: Solid[] = [
-  ...BUILDINGS.map(b => ({ x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, top: b.h })),
-  ...BRIDGES.map(b => ({ x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, top: b.h })),
-  ...PROPS.map(p => ({ x0: p.x - p.w / 2, z0: p.z - p.d / 2, x1: p.x + p.w / 2, z1: p.z + p.d / 2, top: p.base + p.h })),
-];
-
 export const MAP_BOUNDS = { x0: -36, z0: -27, x1: 36, z1: 27 };
+export const PLAZA_ID = 7;
 
-/** Highest walkable top under a point, or -Infinity over the void. */
-export function heightAt(x: number, z: number): number {
-  let h = -Infinity;
-  for (const s of SOLIDS) {
-    if (x >= s.x0 && x <= s.x1 && z >= s.z0 && z <= s.z1 && s.top > h) h = s.top;
-  }
-  return h;
+function inRect(r: { x0: number; z0: number; x1: number; z1: number }, x: number, z: number): boolean {
+  return x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
 }
 
-/** Line of sight between two points: blocked by any solid rising above the sight line
- * (roof edges, tanks, booths). Grenades need it to reach a seeker. */
-export function lineOfSight(
-  ax: number, ay: number, az: number,
-  bx: number, by: number, bz: number,
-): boolean {
-  const dx = bx - ax, dy = by - ay, dz = bz - az;
-  const len = Math.hypot(dx, dz);
-  const steps = Math.max(2, Math.ceil(len / 0.25));
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const h = heightAt(ax + dx * t, az + dz * t);
-    if (h > ay + dy * t - 0.05) return false;
+function overlaps(a: { x0: number; z0: number; x1: number; z1: number }, b: { x0: number; z0: number; x1: number; z1: number }): boolean {
+  return a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
+}
+
+/**
+ * A playable map: a subset of the city's roofs (the rest stays in the backdrop, out of reach).
+ * Matches size it to the player count; physics, bots and rendering all take one of these.
+ */
+export class GameMap {
+  readonly buildings: Building[];
+  readonly bridges: Bridge[];
+  readonly props: Prop[];
+  readonly buntings: Bunting[];
+  readonly solids: Solid[];
+
+  constructor(readonly roofIds: number[]) {
+    const ids = new Set(roofIds);
+    this.buildings = BUILDINGS.filter(b => ids.has(b.id));
+    // Planks only if every roof they touch is in play
+    this.bridges = BRIDGES.filter(br => BUILDINGS.filter(b => overlaps(br, b)).every(b => ids.has(b.id)));
+    this.props = this.buildings.flatMap(b => ROOF_PROPS.get(b.id)!);
+    this.buntings = ALL_BUNTINGS.filter(bt => this.buildingAt(bt.ax, bt.az) && this.buildingAt(bt.bx, bt.bz));
+    this.solids = [
+      ...this.buildings.map(b => ({ x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, top: b.h })),
+      ...this.bridges.map(b => ({ x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, top: b.h })),
+      ...this.props.map(p => ({ x0: p.x - p.w / 2, z0: p.z - p.d / 2, x1: p.x + p.w / 2, z1: p.z + p.d / 2, top: p.base + p.h })),
+    ];
   }
-  return true;
+
+  buildingAt(x: number, z: number): Building | undefined {
+    return this.buildings.find(b => inRect(b, x, z));
+  }
+
+  /** Highest walkable top under a point, or -Infinity over the void. */
+  heightAt(x: number, z: number): number {
+    let h = -Infinity;
+    for (const s of this.solids) {
+      if (x >= s.x0 && x <= s.x1 && z >= s.z0 && z <= s.z1 && s.top > h) h = s.top;
+    }
+    return h;
+  }
+
+  /** Line of sight between two points: blocked by any solid rising above the sight line
+   * (walls, hedges, tanks, huts). Grenades and slashes need it. */
+  lineOfSight(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = Math.hypot(dx, dz);
+    const steps = Math.max(2, Math.ceil(len / 0.25));
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      if (this.heightAt(ax + dx * t, az + dz * t) > ay + dy * t - 0.05) return false;
+    }
+    return true;
+  }
+}
+
+const mapCache = new Map<string, GameMap>();
+
+/** Shared instance per roof set (rooms of the same size reuse it, and its bot nav). */
+export function mapFor(roofIds: number[]): GameMap {
+  const ids = [...new Set(roofIds)].filter(id => BUILDINGS.some(b => b.id === id)).sort((a, b) => a - b);
+  if (!ids.includes(PLAZA_ID)) ids.unshift(PLAZA_ID);
+  const key = ids.join(',');
+  let m = mapCache.get(key);
+  if (!m) { m = new GameMap(ids); mapCache.set(key, m); }
+  return m;
+}
+
+export const FULL_MAP = mapFor(BUILDINGS.map(b => b.id));
+
+// ── Map size per player count ─────────────────────────────────────────────
+// One roof per player plus the plaza (min 5 roofs), grown outward from the plaza through
+// jumpable gaps/planks so the play area is always one connected patch.
+export const MIN_ROOFS = 5;
+export const ROOFS_PER_PLAYER = 1.25; // roofs added per player, on top of the plaza (1.0 got too crowded for hiders)
+const JUMPABLE_GAP = 3.4;
+
+function gapBetween(a: Building, b: Building): number {
+  return Math.hypot(Math.max(0, Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1)), Math.max(0, Math.max(a.z0, b.z0) - Math.min(a.z1, b.z1)));
+}
+
+function linked(a: Building, b: Building): boolean {
+  if (gapBetween(a, b) <= JUMPABLE_GAP) return true;
+  return BRIDGES.some(br => overlaps(br, a) && overlaps(br, b));
+}
+
+/** Hide 'n Seek round length for a map: less ground to cover = less time to survive. */
+export function roundTimeFor(map: GameMap): number {
+  const t = (map.buildings.length - MIN_ROOFS) / (BUILDINGS.length - MIN_ROOFS);
+  return Math.round(MIN_ROUND_TIME + Math.max(0, Math.min(1, t)) * (ROUND_TIME - MIN_ROUND_TIME));
+}
+
+export function roofsForPlayers(players: number, perPlayer = ROOFS_PER_PLAYER): number[] {
+  const want = Math.min(BUILDINGS.length, Math.max(MIN_ROOFS, Math.ceil(players * perPlayer) + 1));
+  const plaza = BUILDINGS.find(b => b.id === PLAZA_ID)!;
+  const pcx = (plaza.x0 + plaza.x1) / 2, pcz = (plaza.z0 + plaza.z1) / 2;
+  const dist = (b: Building) => Math.hypot((b.x0 + b.x1) / 2 - pcx, (b.z0 + b.z1) / 2 - pcz);
+  const chosen = [plaza];
+  while (chosen.length < want) {
+    // Nearest roof (to the plaza) that links to the patch so far
+    const next = BUILDINGS
+      .filter(b => !chosen.includes(b) && chosen.some(c => linked(b, c)))
+      .sort((a, b) => dist(a) - dist(b) || a.id - b.id)[0];
+    if (!next) break;
+    chosen.push(next);
+  }
+  return chosen.map(b => b.id).sort((a, b) => a - b);
 }
 
 // ── Spawns ────────────────────────────────────────────────────────────────

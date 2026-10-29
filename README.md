@@ -13,6 +13,8 @@ Two modes, picked on the title screen or in the lobby:
 - **Hide 'n Seek**: rooftop tag with CS 1.6 HNS rules (below).
 - **Deathmatch** (CS "HNS deathmatch"): the same teams and kit (seekers slash, hiders flash and frost) with no rounds, for 3:00. Catch a hider and you swap: you become a hider with fresh grenades and 1s of grace, and they respawn as a seeker 2s later on the roof farthest from everyone (1.5s of spawn protection, you blink). Points: +1 per catch, +1 for dropping a seeker (frost or a knock-off), +1 for every 15s a hider stays alive, −1 for falling off on your own.
 
+The play area scales with the lobby: 1.25 roofs per player on top of the plaza (minimum 5 roofs; 13 or more players get the whole city), grown outward from the plaza through jumpable gaps, so it's always one connected patch. The other roofs sink into the mist as backdrop. Hide 'n Seek rounds scale with the map too, from 70s on the smallest to 2:00 on the full city. Tune with `ROOFS_PER_PLAYER` (map.ts) and `MIN_ROUND_TIME` (constants.ts). Preview a size with `/?cam=0,-3,80&players=4`.
+
 Press **PLAY VS BOTS** for a practice match, or **CREATE ROOM** and share the link (the room code sits in the URL hash). Anyone can add bots in the lobby.
 
 ## Playing online (VPS + Tailscale Funnel)
@@ -91,9 +93,10 @@ The look was matched against frames from Boomerang Fu's official release trailer
 
 ## Dev scripts
 
-- `scripts/check-map.ts`: every roof is reachable and has a way back, spawns are clear, no obstacle has an in-between height, and every low obstacle can be cleared with the real jump.
+- `scripts/check-map.ts`: for every map size (1–18 players), every roof is reachable and has a way back, spawns are clear, no obstacle has an in-between height, and every low obstacle can be cleared with the real jump.
 - `scripts/check-slash.ts`: slash reach through the real server tick (hits when touching, misses from half a body away) and that every obstacle type blocks it.
 - `scripts/fps.ts <url…>`: render fps in headless Chrome, to compare scene cost between builds. Add `?lite` to any URL for half resolution and no shadows.
+- `scripts/balance.ts [matches]`: Hide 'n Seek hider win rate by map size (bots-only; bots favour seekers even on the full city, so use it for comparisons, not absolute balance).
 - `scripts/check-dm.ts [n] [matches]`: Deathmatch invariants. Team sizes stay fixed, every catch swaps that pair, caught hiders return as seekers, hiders earn survival points.
 - `scripts/sim-match.ts [n] [hns|dm]`: runs a full bots-only match in about 200ms and prints kills, swaps and grenade use.
 - `scripts/mp-e2e.ts <url> <outDir>` and `scripts/dm-e2e.ts <url> <outDir>`: two real Chrome clients create, join, rename, ready up and play Hide 'n Seek or Deathmatch (including die and respawn). Need the dev servers running.

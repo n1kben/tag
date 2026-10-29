@@ -83,7 +83,8 @@ export const SURVIVE_POINT_EVERY = 15; // hiders score a point for every this-ma
 
 // Round flow (hnsmod defaults)
 export const HIDE_TIME = 10;
-export const ROUND_TIME = 120;
+export const ROUND_TIME = 120; // on the full city; smaller maps get shorter rounds
+export const MIN_ROUND_TIME = 70; // on the smallest (5-roof) map
 export const ROUND_END_TIME = 5;
 export const ROUNDS_PER_MATCH = 8;
 export const MAX_PLAYERS = 10;

@@ -86,7 +86,7 @@ export type GameEvent =
 export type ServerMessage =
   | { type: 'welcome'; roomId: string; playerId: number; practice: boolean }
   | { type: 'lobby'; players: LobbyPlayer[]; inMatch: boolean; mode: GameMode; lastStandings?: Standing[] }
-  | { type: 'match_start'; roster: LobbyPlayer[]; rounds: number; mode: GameMode }
+  | { type: 'match_start'; roster: LobbyPlayer[]; rounds: number; mode: GameMode; roofs: number[] } // roofs in play (map size)
   | { type: 'round_start'; round: number; roles: Record<number, Role> }
   | { type: 'round_end'; round: number; winner: Role; swap: boolean; standings: Standing[] }
   | { type: 'match_end'; standings: Standing[] }

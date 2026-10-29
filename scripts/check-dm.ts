@@ -2,6 +2,7 @@
 // exactly that pair, the caught hider comes back as a seeker, hiders earn survival points.
 // Run: npx tsx scripts/check-dm.ts [bots=6] [matches=3]
 import { Match } from '../src/server/match';
+import { roofsForPlayers } from '../src/shared/map';
 import type { GameEvent, LobbyPlayer } from '../src/shared/protocol';
 
 const n = Number(process.argv[2] ?? 6), runs = Number(process.argv[3] ?? 3);
@@ -19,7 +20,7 @@ for (let run = 0; run < runs; run++) {
       if (msg.type === 'match_end') ended = true;
     },
     onMatchEnd() {},
-  }, roster, 'dm');
+  }, roster, 'dm', roofsForPlayers(roster.length));
   const I = m as unknown as { step(): void; startRound(first: boolean): void };
   I.startRound(true);
   // The silent "human" is a dead bystander: keep them out of play

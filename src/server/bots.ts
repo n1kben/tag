@@ -1,7 +1,7 @@
 // Server-side bots so a room is fun (and testable) with any number of humans.
 // They drive the same Input as players, so they obey the same physics and rules.
-import { buildingAt, heightAt, lineOfSight } from '../shared/map';
-import { ROOF_NODES, navNodeAt, navNextEdge, openSpot, steerTo, type NavEdge, type NavNode } from '../shared/nav';
+import { navFor, steerTo, type Nav, type NavEdge, type NavNode } from '../shared/nav';
+import type { GameMap } from '../shared/map';
 import { BTN_ACTION, BTN_ALT, type Body, type Input } from '../shared/sim';
 import { STAB_RANGE, STAB_HEIGHT, PLAYER_RADIUS, TICK_DT, type NadeKind } from '../shared/constants';
 import type { Match, MPlayer } from './match';
@@ -9,6 +9,7 @@ import type { Match, MPlayer } from './match';
 type Goal = { x: number; z: number; node: number };
 
 export class Brain {
+  private nav!: Nav; // the room's map graph, refreshed each think
   private goal: Goal | null = null;
   private edge: NavEdge | null = null;
   private edgeFrom = -1;
@@ -35,6 +36,7 @@ export class Brain {
   }
 
   think(m: Match, me: MPlayer): Input {
+    this.nav = navFor(m.map);
     this.think_t += TICK_DT;
     this.nadeCd -= TICK_DT;
     return me.role === 'hider' ? this.hider(m, me) : this.seeker(m, me);
@@ -60,7 +62,7 @@ export class Brain {
     if (spotted && near && near.d < 9 && this.nadeCd <= 0 && totalNades(me) > 0) {
       // Frost the gap they have to jump (it pops while they're in the air);
       // flash a chaser who's about to reach us on the same roof
-      const gap = gapBetween(near.t.body, b);
+      const gap = gapBetween(this.nav.map, near.t.body, b);
       const want: NadeKind | null = gap && me.nades.frost > 0 ? 'frost' : near.d < 6 && me.nades.flash > 0 ? 'flash' : null;
       if (want) {
         if (me.nadeSel !== want) {
@@ -93,19 +95,19 @@ export class Brain {
 
   private hideGoal(x: number, z: number): Goal {
     // Somewhere far from the plaza spawn, not too far from here
-    const n = [...ROOF_NODES]
+    const n = [...this.nav.roofs]
       .map(r => ({ r, score: Math.hypot(r.cx, r.cz + 3) + Math.random() * 14 - Math.hypot(r.cx - x, r.cz - z) * 0.2 }))
       .sort((a, c) => c.score - a.score)[0].r;
-    return spotOn(n);
+    return spotOn(this.nav, n);
   }
 
   private fleeGoal(x: number, z: number, sx: number, sz: number): Goal {
-    const here = navNodeAt(x, z, 99);
+    const here = this.nav.nodeAt(x, z, 99);
     let best: Goal | null = null, bestScore = -Infinity;
-    for (const n of ROOF_NODES) {
+    for (const n of this.nav.roofs) {
       if (here && n.id === here.id) continue;
       const score = Math.hypot(n.cx - sx, n.cz - sz) - Math.hypot(n.cx - x, n.cz - z) * 0.6 + Math.random() * 4;
-      if (score > bestScore) { bestScore = score; best = spotOn(n); }
+      if (score > bestScore) { bestScore = score; best = spotOn(this.nav, n); }
     }
     return best ?? this.hideGoal(x, z);
   }
@@ -129,15 +131,15 @@ export class Brain {
       // In knife range and level with them: face and stab (lead the target a little)
       // Close enough that the short lunge reaches, with nothing in between
       const reach = STAB_RANGE + PLAYER_RADIUS * 2 + 0.2;
-      if (target.d < reach && Math.abs(t.y - b.y) < 1 && lineOfSight(b.x, b.y + STAB_HEIGHT, b.z, t.x, t.y + STAB_HEIGHT, t.z)) {
+      if (target.d < reach && Math.abs(t.y - b.y) < 1 && this.nav.map.lineOfSight(b.x, b.y + STAB_HEIGHT, b.z, t.x, t.y + STAB_HEIGHT, t.z)) {
         const [dx, dz] = norm(t.x + t.vx * 0.08 - b.x, t.z + t.vz * 0.08 - b.z);
         const facingOk = Math.cos(Math.atan2(dx, dz) - b.facing) > 0.8;
         return { mx: dx, mz: dz, b: facingOk && b.attackCd <= 0 ? BTN_ACTION : 0 };
       }
-      const node = navNodeAt(t.x, t.z, t.y + 0.1);
+      const node = this.nav.nodeAt(t.x, t.z, t.y + 0.1);
       if (node) this.goal = { x: t.x, z: t.z, node: node.id };
     } else if (this.lastSeen && this.think_t - this.lastSeen.t < 6) {
-      const node = navNodeAt(this.lastSeen.x, this.lastSeen.z, this.lastSeen.y + 0.1);
+      const node = this.nav.nodeAt(this.lastSeen.x, this.lastSeen.z, this.lastSeen.y + 0.1);
       if (node && (!this.goal || this.goal.node !== node.id)) this.goal = { x: this.lastSeen.x, z: this.lastSeen.z, node: node.id };
       if (this.distToGoal(b.x, b.z) < 1) this.lastSeen = null;
     }
@@ -146,8 +148,8 @@ export class Brain {
       this.stuckT = 0;
       // Sweep: random bush (where hiders like to be) or random roof
       if (!this.goal || this.distToGoal(b.x, b.z) < 0.8) {
-        const n = ROOF_NODES[Math.floor(Math.random() * ROOF_NODES.length)];
-        this.goal = spotOn(n);
+        const n = this.nav.roofs[Math.floor(Math.random() * this.nav.roofs.length)];
+        this.goal = spotOn(this.nav, n);
       }
     }
     return this.navigate(me, this.goal);
@@ -164,29 +166,29 @@ export class Brain {
 
     // Mid-leap: keep committing to the landing spot
     if (this.leaping && this.edge) {
-      if (b.grounded && navNodeAt(b.x, b.z, b.y)?.id !== this.edgeFrom) {
+      if (b.grounded && this.nav.nodeAt(b.x, b.z, b.y)?.id !== this.edgeFrom) {
         this.leaping = false;
         this.edge = null;
       } else if (b.grounded && speed < 0.3) {
         this.leaping = false; // bailed on the edge
         this.edge = null;
       } else {
-        return steerTo(b, this.edge.tx, this.edge.tz);
+        return steerTo(this.nav.map, b, this.edge.tx, this.edge.tz);
       }
     }
     // Airborne from a hop: keep heading where we were walking, not at some far roof
-    if (!b.grounded) return steerTo(b, this.walkX, this.walkZ, 1, false);
+    if (!b.grounded) return steerTo(this.nav.map, b, this.walkX, this.walkZ, 1, false);
 
-    const here = navNodeAt(b.x, b.z, b.y);
+    const here = this.nav.nodeAt(b.x, b.z, b.y);
     if (!here) return this.walk(b, goal.x, goal.z, speed);
 
-    if (here.id === goal.node || (buildingAt(goal.x, goal.z) && navNodeAt(goal.x, goal.z, 99)?.id === here.id)) {
+    if (here.id === goal.node || (this.nav.map.buildingAt(goal.x, goal.z) && this.nav.nodeAt(goal.x, goal.z, 99)?.id === here.id)) {
       const d = Math.hypot(goal.x - b.x, goal.z - b.z);
       if (d < 0.5) return { mx: 0, mz: 0, b: 0 };
       return this.walk(b, goal.x, goal.z, speed, d < 1.5 ? 0.6 : 1);
     }
 
-    const edge = navNextEdge(here.id, goal.node);
+    const edge = this.nav.nextEdge(here.id, goal.node);
     // No route (e.g. goal is a crate we can't path to): just walk toward it
     if (!edge) return this.walk(b, goal.x, goal.z, speed);
     this.edge = edge;
@@ -195,13 +197,13 @@ export class Brain {
     // Edges are validated at full speed; a chilled or frozen bot waits at the run-up
     if (me.chilled > 0 || me.frozen > 0) return { mx: 0, mz: 0, b: 0 };
     this.leaping = true;
-    return steerTo(b, edge.tx, edge.tz);
+    return steerTo(this.nav.map, b, edge.tx, edge.tz);
   }
 
   private walk(b: Body, x: number, z: number, speed: number, run = 1): Input {
     this.walkX = x;
     this.walkZ = z;
-    return this.unstick(b, speed, steerTo(b, x, z, run, false));
+    return this.unstick(b, speed, steerTo(this.nav.map, b, x, z, run, false));
   }
 
   private unstick(b: Body, speed: number, input: Input): Input {
@@ -210,15 +212,15 @@ export class Brain {
       // Wiggle sideways around the obstacle, but never off a ledge
       const side = Math.sin(this.think_t * 3) > 0 ? 1 : -1;
       const mx = input.mx * 0.3 - input.mz * side, mz = input.mz * 0.3 + input.mx * side;
-      if (heightAt(b.x + mx * 0.7, b.z + mz * 0.7) < b.y - 0.3) return { mx: 0, mz: 0, b: 0 };
+      if (this.nav.map.heightAt(b.x + mx * 0.7, b.z + mz * 0.7) < b.y - 0.3) return { mx: 0, mz: 0, b: 0 };
       return { mx, mz, b: input.b };
     }
     return input;
   }
 }
 
-function spotOn(n: NavNode): Goal {
-  const { x, z } = openSpot(n);
+function spotOn(nav: Nav, n: NavNode): Goal {
+  const { x, z } = nav.openSpot(n);
   return { x, z, node: n.id };
 }
 
@@ -232,12 +234,12 @@ function totalNades(p: MPlayer): number {
 }
 
 /** First drop between two players (where a chaser has to jump), if any. */
-function gapBetween(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }): { x: number; z: number } | null {
+function gapBetween(map: GameMap, from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }): { x: number; z: number } | null {
   const d = Math.hypot(to.x - from.x, to.z - from.z);
   const floor = Math.min(from.y, to.y) - 0.5;
   for (let s = 0.5; s < d; s += 0.4) {
     const x = from.x + ((to.x - from.x) * s) / d, z = from.z + ((to.z - from.z) * s) / d;
-    if (heightAt(x, z) < floor) return { x, z };
+    if (map.heightAt(x, z) < floor) return { x, z };
   }
   return null;
 }

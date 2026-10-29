@@ -9,9 +9,9 @@ import {
   NADE_KINDS, NADE_LOADOUT, NADE_FUSE, NADE_THROW_SPEED, NADE_THROW_UP, NADE_GRAVITY,
   NADE_MIN_CHARGE, NADE_CHARGE_TIME, FROST_RADIUS, FROST_TIME, CHILL_RADIUS, CHILL_TIME, FLASH_RADIUS,
   FLASH_TIME,
-  HIDE_TIME, ROUND_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, DM_TIME, RESPAWN_TIME, SPAWN_PROTECTION, SWAP_PROTECTION, SURVIVE_POINT_EVERY, type NadeKind,
+  HIDE_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, DM_TIME, RESPAWN_TIME, SPAWN_PROTECTION, SWAP_PROTECTION, SURVIVE_POINT_EVERY, type NadeKind,
 } from '../shared/constants';
-import { heightAt, lineOfSight, SEEKER_SPAWNS, HIDER_SPAWNS, BUILDINGS, PROPS } from '../shared/map';
+import { SEEKER_SPAWNS, HIDER_SPAWNS, FULL_MAP, mapFor, roundTimeFor, type GameMap } from '../shared/map';
 import { newBody, stepBody, BTN_ACTION, BTN_ALT, type Body, type Input, type Role, type Status } from '../shared/sim';
 import type {
   GameEvent, GameMode, KillCause, LobbyPlayer, NetPlayer, NetProjectile, Phase, ServerMessage, Snapshot, Standing,
@@ -80,7 +80,10 @@ export class Match {
   private last = 0;
   private acc = 0;
 
-  constructor(private host: MatchHost, roster: LobbyPlayer[], readonly mode: GameMode = 'hns') {
+  readonly map: GameMap;
+
+  constructor(private host: MatchHost, roster: LobbyPlayer[], readonly mode: GameMode = 'hns', roofs?: number[]) {
+    this.map = roofs ? mapFor(roofs) : FULL_MAP;
     for (const p of roster) this.addPlayer(p);
   }
 
@@ -92,7 +95,7 @@ export class Match {
   addPlayer(p: LobbyPlayer): MPlayer {
     const mp: MPlayer = {
       id: p.id, name: p.name, character: p.character, bot: p.bot, connected: true,
-      body: newBody(0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, starved: 0,
+      body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, starved: 0,
       role: 'hider', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
       nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
       respawnT: 0, prot: 0, survT: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
@@ -172,7 +175,7 @@ export class Match {
       const [x, z] = p.role === 'seeker'
         ? SEEKER_SPAWNS[si++ % SEEKER_SPAWNS.length]
         : hiderSpots[hi++ % hiderSpots.length];
-      p.body = newBody(x, z);
+      p.body = newBody(this.map, x, z);
       p.body.facing = p.role === 'seeker' ? Math.PI : 0;
       p.hp = MAX_HP;
       p.alive = true;
@@ -213,13 +216,13 @@ export class Match {
     const others = this.active().filter(q => q.alive && q !== p);
     let best: [number, number] = [0, 0], bestD = -1;
     for (let i = 0; i < 24; i++) {
-      const b = BUILDINGS[Math.floor(Math.random() * BUILDINGS.length)];
+      const b = this.map.buildings[Math.floor(Math.random() * this.map.buildings.length)];
       const x = b.x0 + 1 + Math.random() * (b.x1 - b.x0 - 2), z = b.z0 + 1 + Math.random() * (b.z1 - b.z0 - 2);
-      if (Math.abs(heightAt(x, z) - b.h) > 0.01 || PROPS.some(pr => Math.abs(pr.x - x) < pr.w / 2 + 0.6 && Math.abs(pr.z - z) < pr.d / 2 + 0.6)) continue;
+      if (Math.abs(this.map.heightAt(x, z) - b.h) > 0.01 || this.map.props.some(pr => Math.abs(pr.x - x) < pr.w / 2 + 0.6 && Math.abs(pr.z - z) < pr.d / 2 + 0.6)) continue;
       const d = others.length ? Math.min(...others.map(q => Math.hypot(q.body.x - x, q.body.z - z))) : Math.random();
       if (d > bestD) { bestD = d; best = [x, z]; }
     }
-    p.body = newBody(best[0], best[1]);
+    p.body = newBody(this.map, best[0], best[1]);
     p.body.facing = Math.random() * Math.PI * 2;
     p.hp = MAX_HP;
     p.alive = true;
@@ -249,7 +252,7 @@ export class Match {
 
     if (this.phase === 'hide' && this.timeLeft <= 0) {
       this.phase = 'seek';
-      this.timeLeft = this.mode === 'dm' ? DM_TIME : ROUND_TIME;
+      this.timeLeft = this.mode === 'dm' ? DM_TIME : roundTimeFor(this.map);
     }
 
     for (const p of this.active()) this.stepPlayer(p);
@@ -331,7 +334,7 @@ export class Match {
     if (!p.alive || this.phase === 'end') return; // freeze the scene on the round result
 
     const st = this.status(p);
-    const ev = stepBody(p.body, input, st, TICK_DT);
+    const ev = stepBody(this.map, p.body, input, st, TICK_DT);
     const canAct = !st.locked && !st.frozen;
 
     if (ev.lunged) {
@@ -405,7 +408,7 @@ export class Match {
       if (d > STAB_RANGE + PLAYER_RADIUS * 2 || Math.abs(t.body.y - p.body.y) > 1.2) continue; // range = gap between bodies
       if (d > 0.3 && (dx * fx + dz * fz) / d < STAB_ARC_COS) continue;
       // No slashing through walls, hedges, crates or huts
-      if (!lineOfSight(p.body.x, p.body.y + STAB_HEIGHT, p.body.z, t.body.x, t.body.y + STAB_HEIGHT, t.body.z)) continue;
+      if (!this.map.lineOfSight(p.body.x, p.body.y + STAB_HEIGHT, p.body.z, t.body.x, t.body.y + STAB_HEIGHT, t.body.z)) continue;
       // Backstab: attacker behind a victim who isn't running (caught standing still).
       // A fleeing hider always faces away, so without the speed check every chase would one-shot.
       const tfx = Math.sin(t.body.facing), tfz = Math.cos(t.body.facing);
@@ -484,9 +487,9 @@ export class Match {
     pr.vy -= NADE_GRAVITY * TICK_DT;
     const nx = pr.x + pr.vx * TICK_DT, nz = pr.z + pr.vz * TICK_DT, ny = pr.y + pr.vy * TICK_DT;
     // Walls: bounce off columns rising above the grenade
-    if (heightAt(nx, pr.z) > ny) { pr.vx *= -0.5; this.bounce(pr); } else pr.x = nx;
-    if (heightAt(pr.x, nz) > ny) { pr.vz *= -0.5; this.bounce(pr); } else pr.z = nz;
-    const g = heightAt(pr.x, pr.z);
+    if (this.map.heightAt(nx, pr.z) > ny) { pr.vx *= -0.5; this.bounce(pr); } else pr.x = nx;
+    if (this.map.heightAt(pr.x, nz) > ny) { pr.vz *= -0.5; this.bounce(pr); } else pr.z = nz;
+    const g = this.map.heightAt(pr.x, pr.z);
     if (ny <= g && pr.vy < 0) {
       pr.y = g;
       if (pr.vy < -2) this.bounce(pr);
@@ -516,7 +519,7 @@ export class Match {
     const reach = (p: MPlayer, r: number): number => {
       const d = Math.hypot(p.body.x - pr.x, p.body.y + EYE_HEIGHT - eyeY, p.body.z - pr.z);
       if (d > r) return -1;
-      if (!lineOfSight(pr.x, eyeY, pr.z, p.body.x, p.body.y + EYE_HEIGHT, p.body.z)) return -1;
+      if (!this.map.lineOfSight(pr.x, eyeY, pr.z, p.body.x, p.body.y + EYE_HEIGHT, p.body.z)) return -1;
       return d;
     };
     if (kind === 'flash') {

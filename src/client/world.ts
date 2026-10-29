@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
-  BUILDINGS, BRIDGES, PROPS, BUNTINGS, MAP_BOUNDS, type Building, type Prop, type RoofStyle,
+  BUILDINGS, MAP_BOUNDS, FULL_MAP, type GameMap, type Building, type Prop, type RoofStyle,
 } from '../shared/map';
 
 export const MIST = new THREE.Color(0xe3e9f6);
@@ -67,6 +67,8 @@ export interface World {
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
   sun: THREE.DirectionalLight;
+  city: THREE.Group | null; // the baked rooftops for the current map
+  map: GameMap;
 }
 
 export const CAMERA_FOV = 30;
@@ -114,8 +116,13 @@ export function createWorld(canvasParent: HTMLElement): World {
   sun.shadow.radius = 3;
   scene.add(sun, sun.target);
 
-  const world: World = { scene, camera, renderer, sun };
-  buildCity(world);
+  const world: World = { scene, camera, renderer, sun, city: null, map: FULL_MAP };
+  // The far-below street: a flat mist floor so nothing reads as a hard edge
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshBasicMaterial({ color: MIST }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = MIST_BOTTOM - 2;
+  scene.add(floor);
+  setMap(world, FULL_MAP);
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -232,29 +239,33 @@ function bakeStatic(root: THREE.Group): THREE.Group {
   return out;
 }
 
-function buildCity(world: World): void {
+const OUT_OF_PLAY_H = -10; // roofs not in this match sink deep into the mist: still a city, clearly unreachable
+
+/** (Re)build the rooftops for a map: its roofs and obstacles in play, the rest sunk as backdrop. */
+export function setMap(world: World, map: GameMap): void {
+  if (world.city && world.map === map) return;
+  if (world.city) {
+    world.scene.remove(world.city);
+    world.city.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
+  }
   const rng = mulberry(7);
   // Build everything into a scratch group, then bake it into a handful of merged meshes
   const city = new THREE.Group();
-
-  for (const b of BUILDINGS) buildBuilding(city, b, rng);
-  for (const br of BRIDGES) buildBridge(city, br);
-  for (const p of PROPS) {
+  const inPlay = new Set(map.roofIds);
+  for (const b of BUILDINGS) buildBuilding(city, inPlay.has(b.id) ? b : { ...b, h: OUT_OF_PLAY_H }, rng);
+  for (const br of map.bridges) buildBridge(city, br);
+  for (const p of map.props) {
     const obj = buildProp(p, rng);
     obj.position.set(p.x, p.base, p.z);
     if (p.rot) obj.rotation.y = p.rot;
     city.add(shadowed(obj));
   }
-  for (const bt of BUNTINGS) city.add(buildBunting(bt.ax, bt.az, bt.bx, bt.bz, bt.base));
+  for (const bt of map.buntings) city.add(buildBunting(bt.ax, bt.az, bt.bx, bt.bz, bt.base));
   buildSkyline(city, rng);
-  const scene = world.scene;
-  scene.add(bakeStatic(city));
-
-  // The far-below street: a flat mist floor so nothing reads as a hard edge
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshBasicMaterial({ color: MIST }));
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = MIST_BOTTOM - 2;
-  scene.add(floor);
+  world.city = bakeStatic(city);
+  world.scene.add(world.city);
+  world.map = map;
+  world.renderer.shadowMap.needsUpdate = true; // static shadows: redraw once for the new layout
 }
 
 function buildBuilding(scene: THREE.Object3D, b: Building, rng: () => number): void {

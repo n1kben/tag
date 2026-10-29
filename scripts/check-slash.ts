@@ -2,7 +2,7 @@
 // how close you must be on open roof, and that walls/obstacles block it.
 // Run: npx tsx scripts/check-slash.ts
 import { Match, type MPlayer } from '../src/server/match';
-import { PROPS, heightAt, ROOF_H } from '../src/shared/map';
+import { FULL_MAP, ROOF_H } from '../src/shared/map';
 import { BTN_ACTION } from '../src/shared/sim';
 import { PLAYER_RADIUS } from '../src/shared/constants';
 
@@ -19,7 +19,7 @@ function slash(ax: number, az: number, tx: number, tz: number): boolean {
   s.role = 'seeker'; h.role = 'hider';
   I.phase = 'seek'; I.timeLeft = 100;
   for (const [p, x, z] of [[s, ax, az], [h, tx, tz]] as const) {
-    p.body.x = x; p.body.z = z; p.body.y = heightAt(x, z); p.body.vx = p.body.vz = p.body.vy = 0; p.body.grounded = true;
+    p.body.x = x; p.body.z = z; p.body.y = FULL_MAP.heightAt(x, z); p.body.vx = p.body.vz = p.body.vy = 0; p.body.grounded = true;
   }
   const dx = tx - ax, dz = tz - az, l = Math.hypot(dx, dz);
   s.body.facing = Math.atan2(dx, dz);
@@ -41,12 +41,12 @@ check(!results.find(r => r.g === 0.6)!.hit && !results.find(r => r.g === 0.9)!.h
 
 // 2) Obstacles block it: put a low wall/duct/hedge/crate between two players near-touching
 for (const kind of ['wall', 'hedge', 'duct', 'crate', 'hut'] as const) {
-  const p = PROPS.find(q => q.kind === kind);
+  const p = FULL_MAP.props.find(q => q.kind === kind);
   if (!p) continue;
   const acrossX = p.w <= p.d; // slash across the thin side
   const half = (acrossX ? p.w : p.d) / 2 + PLAYER_RADIUS + 0.05;
   const [ax, az, tx, tz] = acrossX ? [p.x - half, p.z, p.x + half, p.z] : [p.x, p.z - half, p.x, p.z + half];
-  if (heightAt(ax, az) !== ROOF_H || heightAt(tx, tz) !== ROOF_H) { console.log(`  (skip ${kind}: no clear standing spots)`); continue; }
+  if (FULL_MAP.heightAt(ax, az) !== ROOF_H || FULL_MAP.heightAt(tx, tz) !== ROOF_H) { console.log(`  (skip ${kind}: no clear standing spots)`); continue; }
   check(!slash(ax, az, tx, tz), `${kind} (${p.h}u tall) between you blocks the slash`);
 }
 console.log(failures ? `${failures} FAILURE(S)` : 'ALL PASS');

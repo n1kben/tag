@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import {
   FROST_RADIUS, NADE_THROW_SPEED, NADE_THROW_UP, NADE_MIN_CHARGE, NADE_GRAVITY, type NadeKind,
 } from '../shared/constants';
-import { heightAt } from '../shared/map';
+import { FULL_MAP, type GameMap } from '../shared/map';
 import { mat } from './world';
 
 interface Particle {
@@ -27,6 +27,7 @@ export class Fx {
   private projectiles = new Map<number, THREE.Object3D>();
   private arc: THREE.Mesh[] = [];
   shake = 0;
+  map: GameMap = FULL_MAP; // set by the game when a match's map loads
   hitstop = 0;
   zoomPunch = 0;
 
@@ -151,7 +152,7 @@ export class Fx {
         uy -= NADE_GRAVITY * step;
         px += ux * step; py += uy * step; pz += uz * step;
       }
-      if (py < heightAt(px, pz)) hidden = true;
+      if (py < this.map.heightAt(px, pz)) hidden = true;
       const dot = this.arc[i];
       dot.visible = !hidden;
       dot.position.set(px, py, pz);
@@ -177,7 +178,7 @@ export class Fx {
       p.vel.multiplyScalar(p.gravity ? 1 : Math.exp(-5 * dt));
       p.mesh.position.addScaledVector(p.vel, dt);
       if (p.gravity) {
-        const g = heightAt(p.mesh.position.x, p.mesh.position.z);
+        const g = this.map.heightAt(p.mesh.position.x, p.mesh.position.z);
         if (p.mesh.position.y < g + 0.04 && p.mesh.position.y > g - 0.5) {
           p.mesh.position.y = g + 0.04;
           p.vel.set(p.vel.x * 0.3, 0, p.vel.z * 0.3);

@@ -2,6 +2,7 @@ import { WebSocket } from 'ws';
 import type { ClientMessage, GameMode, LobbyPlayer, ServerMessage, Standing } from '../shared/protocol';
 import { CHARACTERS, MAX_PLAYERS } from '../shared/constants';
 import { Match } from './match';
+import { roofsForPlayers } from '../shared/map';
 
 const ADJECTIVES = ['Sneaky', 'Zippy', 'Sly', 'Jolly', 'Turbo', 'Fuzzy', 'Dizzy', 'Lucky', 'Sassy', 'Brave', 'Bouncy', 'Shifty'];
 
@@ -75,7 +76,7 @@ export class Room {
         const live = this.match.players.filter(q => q.connected);
         mp.role = live.filter(q => q.role === 'seeker').length * 2 < live.length - 1 ? 'seeker' : 'hider';
       }
-      this.sendTo(p.id, { type: 'match_start', roster: this.roster, rounds: 0, mode: this.match.mode });
+      this.sendTo(p.id, { type: 'match_start', roster: this.roster, rounds: 0, mode: this.match.mode, roofs: this.match.map.roofIds });
     }
     this.broadcastLobby();
     return true;
@@ -176,8 +177,8 @@ export class Room {
         this.lastStandings = standings;
         this.broadcastLobby();
       },
-    }, this.roster, this.mode);
-    this.broadcastAll({ type: 'match_start', roster: this.roster, rounds: 0, mode: this.mode });
+    }, this.roster, this.mode, roofsForPlayers(this.roster.length)); // one roof per player + the plaza
+    this.broadcastAll({ type: 'match_start', roster: this.roster, rounds: 0, mode: this.mode, roofs: this.match.map.roofIds });
     this.match.start();
     this.broadcastLobby();
   }

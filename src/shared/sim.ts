@@ -3,7 +3,7 @@ import {
   JUMP_VELOCITY, JUMP_CUT, COYOTE_TIME, JUMP_BUFFER, BHOP_WINDOW, BHOP_GAIN, BHOP_MAX, STAB_COOLDOWN, LUNGE_SPEED, LUNGE_TIME,
   CHILL_SPEED, AIM_SPEED,
 } from './constants';
-import { SOLIDS, heightAt } from './map';
+import type { GameMap } from './map';
 
 export const BTN_JUMP = 1;
 export const BTN_ACTION = 2; // seeker: slash · hider: hold to aim grenade, release to throw
@@ -48,15 +48,15 @@ export interface StepEvents {
   released: number;
 }
 
-export function newBody(x: number, z: number): Body {
+export function newBody(map: GameMap, x: number, z: number): Body {
   return {
-    x, y: heightAt(x, z), z, vx: 0, vy: 0, vz: 0, facing: 0,
+    x, y: map.heightAt(x, z), z, vx: 0, vy: 0, vz: 0, facing: 0,
     grounded: true, airTime: 0, groundTime: 1, jumpBuf: 0, rising: false, hop: 1,
     attackCd: 0, lunge: 0, prevB: 0,
   };
 }
 
-export function stepBody(s: Body, input: Input, st: Status, dt: number): StepEvents {
+export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: number): StepEvents {
   const ev: StepEvents = { jumped: false, landed: 0, lunged: false, pressed: 0, released: 0 };
   ev.pressed = input.b & ~s.prevB;
   ev.released = s.prevB & ~input.b;
@@ -135,10 +135,10 @@ export function stepBody(s: Body, input: Input, st: Status, dt: number): StepEve
   // Integrate horizontal, then push out of anything taller than a step
   s.x += s.vx * dt;
   s.z += s.vz * dt;
-  collideWalls(s);
+  collideWalls(map, s);
 
   // Vertical
-  const ground = heightAt(s.x, s.z);
+  const ground = map.heightAt(s.x, s.z);
   if (s.grounded) {
     if (ground >= s.y - STEP_HEIGHT && ground <= s.y + STEP_HEIGHT) {
       s.y = ground; // follow steps and small drops
@@ -166,11 +166,11 @@ export function stepBody(s: Body, input: Input, st: Status, dt: number): StepEve
   return ev;
 }
 
-function collideWalls(s: Body): void {
+function collideWalls(map: GameMap, s: Body): void {
   const r = PLAYER_RADIUS;
   for (let iter = 0; iter < 3; iter++) {
     let moved = false;
-    for (const w of SOLIDS) {
+    for (const w of map.solids) {
       if (w.top <= s.y + STEP_HEIGHT) continue;
       const cx = Math.max(w.x0, Math.min(s.x, w.x1));
       const cz = Math.max(w.z0, Math.min(s.z, w.z1));

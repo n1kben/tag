@@ -1,6 +1,7 @@
 // Runs a full bots-only match as fast as possible and prints what happened.
 // Run: npx tsx scripts/sim-match.ts [bots=6] [hns|dm]
 import { Match } from '../src/server/match';
+import { roofsForPlayers } from '../src/shared/map';
 import type { LobbyPlayer, ServerMessage } from '../src/shared/protocol';
 
 const n = Number(process.argv[2] ?? 6);
@@ -37,7 +38,7 @@ const m = new Match({
     }
   },
   onMatchEnd() {},
-}, roster, mode);
+}, roster, mode, process.argv[4] === "full" ? undefined : roofsForPlayers(roster.length)); // 3rd arg "full" = whole city
 
 // The watcher is a connected "human" that sits out every round as a dead spectator
 const internals = m as unknown as { step(): void; startRound(first: boolean): void };

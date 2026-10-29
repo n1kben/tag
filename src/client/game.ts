@@ -1,7 +1,7 @@
 // Client glue: lobby flow, fixed-step prediction + reconciliation for the local player,
 // snapshot interpolation for everyone else, and turning server events into juice.
 import * as THREE from 'three';
-import { createWorld, aimCamera, adaptResolution, CAMERA_DIST, type World } from './world';
+import { createWorld, aimCamera, adaptResolution, setMap, CAMERA_DIST, type World } from './world';
 import { Character, SliceDeath, CHAR_DEFS } from './characters';
 import { Fx } from './fx';
 import { UI, esc, type HudState } from './ui';
@@ -9,7 +9,7 @@ import { Network } from './net';
 import { readInput, isHeld, setInputEnabled } from './input';
 import { sfx, spatial, setMuted, isMuted } from './audio';
 import { stepBody, BTN_ACTION, type Body, type Input, type Role, type Status } from '../shared/sim';
-import { heightAt } from '../shared/map';
+import { FULL_MAP, mapFor, roofsForPlayers } from '../shared/map';
 import { TICK_DT, TICK_RATE, NADE_CHARGE_TIME, COLOR_SEEKER, type NadeKind } from '../shared/constants';
 import type { GameEvent, GameMode, LobbyPlayer, NetPlayer, Phase, ServerMessage, Snapshot, Standing } from '../shared/protocol';
 
@@ -128,7 +128,10 @@ export function startGame(): void {
       case 'match_start':
         gameMode = msg.mode;
         ui.setNames(msg.roster);
-        startMatch(msg.roster);
+        startMatch(msg.roster); // clears the old match (and resets to the full city)…
+        // …then build just the roofs this match uses: map size follows the player count
+        setMap(world, mapFor(msg.roofs));
+        fx.map = world.map;
         break;
       case 'round_start':
         roundStart(msg.round, msg.roles);
@@ -185,6 +188,9 @@ export function startGame(): void {
   }
 
   function cleanupMatch(): void {
+    // Back to the whole city for the menu backdrop
+    setMap(world, FULL_MAP);
+    fx.map = world.map;
     for (const c of chars.values()) c.dispose();
     chars.clear();
     for (const s of slices) s.update(99);
@@ -283,7 +289,7 @@ export function startGame(): void {
     pending = pending.filter(p => p.seq > s.ack);
     const st = myStatus()!;
     // The server doesn't step bodies at round end or when dead; neither do we
-    if (me.alive && s.phase !== 'end') for (const p of pending) stepBody(server, p.input, st, TICK_DT);
+    if (me.alive && s.phase !== 'end') for (const p of pending) stepBody(world.map, server, p.input, st, TICK_DT);
     if (pred && me.alive) {
       const dx = pred.x - server.x, dy = pred.y - server.y, dz = pred.z - server.z;
       if (Math.hypot(dx, dy, dz) < 3) errOffset.add(new THREE.Vector3(dx, dy, dz));
@@ -303,7 +309,7 @@ export function startGame(): void {
     const frozenScene = phase === 'end' || !latest.me?.alive;
     const ev = frozenScene
       ? { jumped: false, landed: 0, lunged: false, pressed: input.b & ~pred.prevB, released: 0 }
-      : stepBody(pred, input, st, TICK_DT);
+      : stepBody(world.map, pred, input, st, TICK_DT);
     if (frozenScene) pred.prevB = input.b;
     const c = chars.get(myId);
     if (ev.jumped) { fx.puff(pred.x, pred.y, pred.z, 5); sfx.jump(); }
@@ -369,7 +375,7 @@ export function startGame(): void {
         dead.add(e.id);
         if (c) {
           const facing = e.id === myId && pred ? pred.facing : c.root.rotation.y;
-          slices.push(new SliceDeath(world.scene, c, e.x, e.y, e.z, facing, e.dx, e.dz));
+          slices.push(new SliceDeath(world.scene, world.map, c, e.x, e.y, e.z, facing, e.dx, e.dz));
           if (e.cause !== 'void') fx.juice(e.x, e.y, e.z, c.def.juice, e.dx, e.dz);
           c.root.visible = false;
         }
@@ -378,7 +384,7 @@ export function startGame(): void {
         // Boomerang Fu holds the frame on a kill: freeze + zoom punch when it's near us
         if (sp.vol > 0.3 || e.id === myId || e.by === myId) { fx.freeze(0.12, 0.08); fx.addShake(0.4); }
         const victim = esc(ui.nameOf(e.id));
-        const icon = { stab: '🔪', backstab: '🗡️ backstab', fall: '💥 splat', void: e.by !== null ? '🧊 dropped' : '☁️ fell' }[e.cause];
+        const icon = { stab: '🔪', backstab: '🗡️ backstab', fall: '💥 splat', void: e.by !== null ? '👋 knocked off' : '☁️ fell' }[e.cause];
         ui.killfeed(e.by !== null ? `${esc(ui.nameOf(e.by))} ${icon} ${victim}` : `${victim} ${icon}`);
         if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', gameMode === 'dm' ? (e.by === null ? '−1 for falling off' : roles[myId] === 'hider' ? 'Caught! You\'ll come back as a seeker' : '') : 'Spectating · press Enter to switch', '#f0408f', 2200);
         if (e.by === myId) ui.banner(e.cause === 'backstab' ? 'BACKSTAB!' : 'GOTCHA!', '', '#ffd23f', 1100);
@@ -488,6 +494,9 @@ export function startGame(): void {
   // Dev: ?cam=x,z,dist parks the camera and hides the UI (map screenshots)
   const devCam = new URLSearchParams(location.search).get('cam')?.split(',').map(Number);
   if (devCam) ui.root.style.display = 'none';
+  // Dev: &players=N previews the map size that many players get
+  const devPlayers = Number(new URLSearchParams(location.search).get('players'));
+  if (devCam && devPlayers > 0) setMap(world, mapFor(roofsForPlayers(devPlayers)));
 
   function renderIdle(dt: number): void {
     if (devCam) { aimCamera(world, devCam[0], 0, devCam[1], devCam[2] || CAMERA_DIST); return; }
@@ -521,7 +530,7 @@ export function startGame(): void {
       myChar.update(dt, {
         speed: Math.hypot(pred.vx, pred.vz), vy: pred.vy, grounded: pred.grounded, lunge: pred.lunge,
         aiming: charging, frozen: me.frozen > 0, chilled: me.chilled > 0,
-        ground: heightAt(pred.x + errOffset.x, pred.z + errOffset.z),
+        ground: world.map.heightAt(pred.x + errOffset.x, pred.z + errOffset.z),
       });
       if (charging > 0) fx.showArc(pred.x, pred.y, pred.z, pred.facing, pred.vx, pred.vz, charging); else fx.hideArc();
       shown.add(myId);
@@ -543,7 +552,7 @@ export function startGame(): void {
       c.setNade(p.nade);
       c.update(dt, {
         speed: Math.hypot(p.vx, p.vz), vy: p.vy, grounded: Math.abs(p.vy) < 0.01, lunge: p.lunge,
-        aiming: p.aiming, frozen: p.frozen > 0, chilled: p.chilled > 0, ground: heightAt(p.x, p.z),
+        aiming: p.aiming, frozen: p.frozen > 0, chilled: p.chilled > 0, ground: world.map.heightAt(p.x, p.z),
       });
       shown.add(id);
     }

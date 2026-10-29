@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mat, addMist } from './world';
-import { heightAt } from '../shared/map';
+import type { GameMap } from '../shared/map';
 import { COLOR_HIDER, COLOR_SEEKER, type NadeKind } from '../shared/constants';
 
 interface CharDef {
@@ -406,7 +406,7 @@ export class SliceDeath {
   private t = 0;
   done = false;
 
-  constructor(private scene: THREE.Scene, ch: Character, x: number, y: number, z: number, facing: number, dirX: number, dirZ: number) {
+  constructor(private scene: THREE.Scene, private map: GameMap, ch: Character, x: number, y: number, z: number, facing: number, dirX: number, dirZ: number) {
     // Diagonal cut straight through the face, like a sword slash in the trailer; halves
     // fly apart along the cut normal and get shoved along the hit direction
     const tilt = 0.45;
@@ -455,7 +455,7 @@ export class SliceDeath {
         h.obj.rotation.x += h.spin.x * dt;
         h.obj.rotation.y += h.spin.y * dt;
         h.obj.rotation.z += h.spin.z * dt;
-        const g = heightAt(h.obj.position.x, h.obj.position.z);
+        const g = this.map.heightAt(h.obj.position.x, h.obj.position.z);
         if (h.obj.position.y < g + 0.2 && h.vel.y < 0 && h.obj.position.y > g - 0.5) {
           h.obj.position.y = g + 0.2;
           h.vel.multiplyScalar(0.35);
