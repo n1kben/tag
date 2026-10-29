@@ -34,6 +34,8 @@ tailscale funnel --bg --https=10000 http://127.0.0.1:8080
 
 Funnel has to be allowed for the node once in the Tailscale admin console; the first `funnel` command prints the link. Turn it off with `tailscale funnel --https=10000 off`. Restarting the server ends matches in progress.
 
+**UDP.** Funnel only carries TCP, so behind it every player stays on the WebSocket (it works, just with TCP's stalls on lossy connections). For UDP, the server needs one public UDP port: `RTC_PORT` (default 40000) on a box with a public IP, open in its firewall (`ufw allow 40000/udp`, plus the provider's panel if it has one). The page and WebSocket can stay behind Funnel; the browser connects to that UDP port directly, and falls back to the WebSocket by itself when it can't. Press **P** in game: the netgraph's first word says `UDP` or `WS`.
+
 ## Controls
 
 | | Keyboard | Gamepad |
@@ -67,15 +69,17 @@ There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where 
   - `map.ts`: the rooftops, obstacles and line of sight. Every roof is the same height, so the challenge is timing jumps across alleys and over obstacles. Obstacles come in two clear heights: low ones (ducts, walls, hedges, crates, AC units, vents) are always jumpable; tall ones (huts, tanks, chimneys, stalls) you run around. Each roof gets a seeded layout (staggered ducts, a hut courtyard, a slalom, hedge rows, or a yard), mirrored per roof and scattered with extra low clutter. Obstacles always leave a 1.1-unit gap to run through, a clear strip along roof edges for run-ups, and room to land past anything low.
   - `sim.ts`: the deterministic movement step, used for server authority and client prediction.
   - `nav.ts`: the bot route graph. An edge exists only if the real movement sim completes that jump from several start conditions.
-- `src/server/`: rooms and lobby (`room.ts`), the match at a 60Hz tick (`match.ts`), bots (`bots.ts`).
+  - `wire.ts`: binary snapshots and input packets.
+- `src/server/`: rooms and lobby (`room.ts`), the match at a 60Hz tick (`match.ts`), bots (`bots.ts`), the UDP data channel (`rtc.ts`).
 - `src/client/`:
   - `world.ts`: rooftops, lighting and the height mist.
   - `characters.ts`: the food characters and the slice death.
   - `fx.ts`: effects and juice.
   - `ui.ts`: the DOM UI.
-  - `game.ts`: prediction and reconciliation, interpolation, and wiring events to effects.
+  - `netcode.ts`: prediction and reconciliation, the snapshot buffer and render clock, event timing, net stats. No DOM, so the net bench runs it too.
+  - `net.ts`: the WebSocket and the UDP data channel.
+  - `game.ts`: screens, and wiring snapshots and events to characters and effects.
 - Movement is tuned against Boomerang Fu trailer footage: about 6–7 body-widths/s, full speed in about 0.13s, a short skid when you let go. The jump is snappy: about 0.5s in the air, a heavier fall, variable height, near-full air control, and a blob shadow on the surface below to show where you'll land. `npx tsx scripts/jump-metrics.ts` prints the numbers.
-- Networking: the client sends one input per 60Hz tick, and the server consumes exactly one per tick and acks it. The client replays inputs the server hasn't acked yet, and smooths any correction away. Other players are drawn about 100ms in the past from 30Hz snapshots.
 
 The look was matched against frames from Boomerang Fu's official release trailer:
 - the same camera pitch
@@ -83,13 +87,34 @@ The look was matched against frames from Boomerang Fu's official release trailer
 - pale rims on platform edges and soft lavender shadows
 - purple-brown crates, red stall roofs, bunting
 
+## Networking
+
+Server-authoritative at 60Hz, like CS 1.6, tuned with `scripts/net-bench.ts` (below).
+
+- **Your own player** is predicted: the client runs your input at once and sends it; the server runs every input it receives, exactly once and in order, and acks it; the client replays whatever isn't acked yet on top of each snapshot and slides away any difference. Inputs that arrive late are caught up in a burst (up to 1s, never faster than real time overall). Nothing at all for 250ms (a stall, a background tab) and the server stands you still, so nobody hangs in the air.
+- **Everyone else** is drawn a little in the past, between two snapshots (30Hz). How far adapts to the connection: one snapshot interval plus how late snapshots tend to arrive (about 60ms on a good line). A late snapshot doesn't freeze anyone: they carry on along their velocity for up to 100ms.
+- **Slashes are lag-compensated**: the server checks a slash against where the target was on the attacker's screen (up to 200ms back), as long as they're still within reach now (1.2m slack), so someone who has really got away is safe. `UNLAG_MAX_TICKS` / `UNLAG_NOW_SLACK` in constants.ts.
+- **Events play on your screen's clock**: a kill, spawn or grenade shows when your view of the world reaches the moment it happened, so you die when the tagger's lunge reaches you, not 100ms before. Your own kills and throws show instantly.
+- **On the wire**: snapshots are binary (about 550 bytes for 13 players; your own state exact, others to 1cm). With UDP (WebRTC data channel, unreliable and unordered) snapshots come down it and inputs go up it, each packet repeating the last 3 inputs so a lost one costs nothing. Lobby, rounds and events stay on the WebSocket, which is also the fallback. `?udp=0` forces the WebSocket. Server env: `RTC=off`, `RTC_PORT`, `RTC_STUN` (only if the server is behind NAT).
+- **Netgraph**: press **P** for the transport, ping, how far behind others are drawn, late snapshots, frozen time, corrections and teleports.
+
+What the bench measures (6 clients + 2 bots, 6 deathmatches each; victim gap = distance between you and the tagger on your screen when you're shown dying, hit% = slashes that touched on the attacker's screen and landed):
+
+| profile (rtt, loss) | before: teleports/min, frozen, hit%, victim gap p95 | now over WebSocket | now over UDP |
+|---|---|---|---|
+| good (30ms) | 0.0, 0%, 26%, 0.68m | 0.0, 0%, 96%, 0.68m | 0.0, 0%, 98%, 0.68m |
+| typical (80ms ±12, 0.5%) | 1.1, 1.3%, 11%, 0.76m | 0.1, 0.6%, 91%, 1.42m | 0.1, 0%, 98%, 1.23m |
+| bad (150ms ±30, 2%) | 30.7, 8.4%, 8%, 1.80m | 1.2, 1.9%, 20%, 2.14m | 0.4, 0%, 56%, 2.06m |
+
+The victim's median gap went from 0.3–0.5m to under 0.2m on good and typical lines (about 0.35m on bad, as before); the worst 5% got a little wider, the price of lag compensation favouring the attacker (capped).
+
 ## Performance
 
 - The static city is baked into merged meshes (about 120 draw calls in play) and the shadow map is drawn once at load; characters use blob shadows.
 - Resolution adapts: it starts at the screen's pixel density (max 2×), steps down when frames take longer than 20ms, and climbs back when there's headroom.
 - MSAA is off on high-density (Retina) screens, where it costs about 40% for no visible gain.
 - URL options: `?dpr=1` pins the resolution, `?noaa` turns anti-aliasing off, `?noshadow` turns shadows off, `?lite` gives half resolution with no shadows.
-- Press **P** for fps, draw calls, triangles, resolution, and JS vs render milliseconds.
+- Press **P** for fps, draw calls, triangles, resolution, and JS vs render milliseconds (under the netgraph).
 
 ## Dev scripts
 
@@ -99,5 +124,9 @@ The look was matched against frames from Boomerang Fu's official release trailer
 - `scripts/balance.ts [matches]`: Tag runner win rate by map size (bots-only; bots favour taggers even on the full city, so use it for comparisons, not absolute balance).
 - `scripts/check-dm.ts [n] [matches]`: Deathmatch invariants. Team sizes stay fixed, every tag swaps that pair, tagged runners return as taggers, runners earn survival points.
 - `scripts/sim-match.ts [n] [tag|dm]`: runs a full bots-only match in about 200ms and prints kills, swaps and grenade use.
+- `scripts/net-bench.ts [profile|all] [seconds] [runs] [clients] [bots] [tcp|udp|both]`: the real server match and client netcode over a simulated network (delay, jitter, loss; TCP-like or UDP-like) on a simulated clock, bots playing from what their client sees. Prints rubber-banding, teleports, freezes, how far others are drawn behind, the victim's view at a kill, the attacker's hit rate. Deterministic, about 5s per profile.
+- `scripts/check-inputs.ts`: server input handling. Moves straight away after a silence, catches up after a stall and burst, can't outrun real time.
+- `scripts/check-codec.ts`: binary snapshots round-trip (own state exact, others within rounding) and fit one UDP packet.
+- `scripts/check-udp.ts <url>`: a real Chrome against the dev server opens the data channel, gets snapshots over it and moves; `?udp=0` does the same over the WebSocket.
 - `scripts/mp-e2e.ts <url> <outDir>` and `scripts/dm-e2e.ts <url> <outDir>`: two real Chrome clients create, join, rename, ready up and play Tag or Deathmatch (including die and respawn). Need the dev servers running.
 - `scripts/play-shots.ts`, `scripts/juice-shots.ts`, `scripts/shot.ts`: screenshots taken with the locally installed Chrome (`playwright-core`, no browser download).

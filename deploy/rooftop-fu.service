@@ -12,6 +12,9 @@ Environment=NODE_ENV=production
 Environment=PORT=8080
 # Only reachable through the local tunnel (Tailscale Funnel), never directly
 Environment=HOST=127.0.0.1
+# UDP for gameplay (WebRTC): one public UDP port, open it in the firewall to use it.
+# Without it players fall back to the WebSocket. RTC=off disables UDP entirely.
+Environment=RTC_PORT=40000
 ExecStart=%h/.local/bin/node dist/server/index.mjs
 Restart=always
 RestartSec=2

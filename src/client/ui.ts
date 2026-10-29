@@ -127,7 +127,7 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .seg button.on { background: #fff; box-shadow: 0 3px 0 #c3b8e6; }
 .seg button.on.dm { background: var(--yellow); box-shadow: 0 3px 0 #c99d12; }
 .respawn { position: absolute; left: 0; right: 0; top: 58%; text-align: center; font-family: 'Lilita One'; font-size: 28px; color: #fff; text-shadow: 0 3px 0 var(--ink); }
-.debug { position: fixed; top: 8px; right: 8px; background: rgba(0,0,0,0.6); color: #9f9; font: 12px monospace; padding: 6px 10px; border-radius: 6px; display: none; z-index: 30; pointer-events: none; }
+.debug { position: fixed; top: 8px; right: 8px; background: rgba(0,0,0,0.6); color: #9f9; font: 12px monospace; padding: 6px 10px; border-radius: 6px; display: none; z-index: 30; pointer-events: none; white-space: pre; }
 .mute { position: fixed; bottom: 14px; right: 14px; z-index: 20; }
 @media (max-width: 640px) { .teams { width: 92vw; } .keys { display: none; } .btn { min-width: 200px; } }
 `;

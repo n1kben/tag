@@ -159,6 +159,7 @@ export function startGame(): void {
   function startMatch(roster: LobbyPlayer[]): void {
     cleanupMatch();
     mode = 'match';
+    cn.stats.reset(); // the netgraph counts per match
     ui.showHud();
     for (const p of roster) ensureChar(p.id, p.character);
     standings = roster.map(p => ({ id: p.id, name: p.name, character: p.character, score: 0, kills: 0, survived: 0 }));
@@ -429,7 +430,12 @@ export function startGame(): void {
     fx.update(dt);
     for (let i = slices.length - 1; i >= 0; i--) { slices[i].update(dt); if (slices[i].done) slices.splice(i, 1); }
 
-    ui.debug(debugOn ? `fps ${fps} · ping ${net.rtt.toFixed(0)}ms · pending ${cn.pending.length} · buffer ${cn.buffer.length} · tick ${cn.latest?.tick ?? "-"} · draws ${world.renderer.info.render.calls} · tris ${(world.renderer.info.render.triangles / 1000).toFixed(0)}k · dpr ${world.renderer.getPixelRatio().toFixed(2)} · js ${jsMs.toFixed(1)}ms · render ${renderMs.toFixed(1)}ms` : null);
+    const ns = cn.stats;
+    // Netgraph: how we're connected and what the network is doing to us (totals this match)
+    ui.debug(debugOn ? `${net.transport.toUpperCase()} · ping ${net.rtt.toFixed(0)}ms · others ${Math.round(cn.delay * TICK_DT * 1000)}ms behind\n`
+      + `late snapshots ${ns.gaps} (worst ${Math.round(ns.maxGap)}ms) · frozen ${(ns.starvedMs / 1000).toFixed(1)}s\n`
+      + `corrections ${ns.corrections} · teleports ${ns.teleports} · unacked ${cn.pending.length}\n`
+      + `fps ${fps} · tick ${cn.latest?.tick ?? "-"} · draws ${world.renderer.info.render.calls} · tris ${(world.renderer.info.render.triangles / 1000).toFixed(0)}k\ndpr ${world.renderer.getPixelRatio().toFixed(2)} · js ${jsMs.toFixed(1)}ms · render ${renderMs.toFixed(1)}ms` : null);
     const tRender = performance.now();
     world.renderer.render(world.scene, world.camera);
     // Smoothed CPU cost per frame: game logic vs. submitting the render (shown in the P HUD)
