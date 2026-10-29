@@ -1,13 +1,15 @@
-// Snapshots on the wire: binary, so one fits a single UDP packet (~500 bytes for 13 players
+// What travels at 30-60Hz, in binary. Snapshots: small enough for a single UDP packet (~500 bytes for 13 players
 // instead of ~3.3KB of JSON). Other players are quantized (positions to 1cm, angles to a byte,
 // timers to 1/20s): they're only drawn. Our own body stays exact (float64): prediction replays
 // inputs from it, and any rounding would show up as corrections.
 import type { NetPlayer, NetProjectile, Phase, Snapshot } from './protocol';
 import type { NadeKind } from './constants';
+import type { Input } from './sim';
 
 const PHASES: Phase[] = ['start', 'chase', 'end'];
 const NADES: NadeKind[] = ['flash', 'frost'];
 export const SNAPSHOT_TAG = 1; // first byte; every other server message is JSON text
+export const INPUTS_TAG = 2; // client → server over UDP: the last few inputs
 
 const ME_F64 = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'airTime', 'groundTime', 'jumpBuf', 'attackCd', 'lunge'] as const;
 const ME_F32 = ['frozen', 'chilled', 'blind', 'respawn', 'stun'] as const;
@@ -132,4 +134,43 @@ export function decodeSnapshot(data: ArrayBuffer | ArrayBufferView): Snapshot {
   const planks: number[] = [];
   for (let i = r.u8(); i > 0; i--) planks.push(r.u8());
   return { type: 'snap', tick, phase, timeLeft, ack, me, players, projectiles, scores, planks };
+}
+
+// ── Inputs ─────────────────────────────────────────────────────────────────
+export interface WireInput { seq: number; mx: number; mz: number; b: number; v: number }
+
+/**
+ * Stick values travel as 1/127 steps. The client predicts with the rounded input too, so the
+ * server runs exactly what the client ran, whichever way it was sent.
+ */
+export function quantizeInput(i: Input): Input {
+  const q = (x: number) => Math.round(Math.max(-1, Math.min(1, x)) * 127) / 127;
+  return { mx: q(i.mx), mz: q(i.mz), b: i.b };
+}
+
+/** One UDP packet carries the newest few inputs, so a lost packet costs nothing. */
+export function encodeInputs(list: WireInput[]): Uint8Array {
+  const w = new Writer();
+  w.u8(INPUTS_TAG);
+  w.u8(list.length);
+  for (const i of list) {
+    w.u32(i.seq);
+    w.u8(Math.round(i.mx * 127) & 255);
+    w.u8(Math.round(i.mz * 127) & 255);
+    w.u8(i.b);
+    w.f32(i.v);
+  }
+  return w.bytes();
+}
+
+export function decodeInputs(data: ArrayBuffer | ArrayBufferView): WireInput[] {
+  const r = new Reader(data);
+  if (r.u8() !== INPUTS_TAG) return [];
+  const out: WireInput[] = [];
+  for (let n = r.u8(); n > 0; n--) {
+    const seq = r.u32();
+    const mx = ((r.u8() << 24) >> 24) / 127, mz = ((r.u8() << 24) >> 24) / 127;
+    out.push({ seq, mx, mz, b: r.u8(), v: r.f32() });
+  }
+  return out;
 }

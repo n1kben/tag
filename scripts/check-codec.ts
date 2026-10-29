@@ -3,7 +3,7 @@
 // enough for one UDP packet. Run: npx tsx scripts/check-codec.ts
 import { Match } from '../src/server/match';
 import { roofsForPlayers } from '../src/shared/map';
-import { encodeSnapshot, decodeSnapshot } from '../src/shared/snapcodec';
+import { encodeSnapshot, decodeSnapshot } from '../src/shared/wire';
 import type { LobbyPlayer, Snapshot } from '../src/shared/protocol';
 
 let failures = 0;

@@ -22,6 +22,10 @@ export function startGame(): void {
   const ui = new UI();
   const net = new Network(handle);
   const cn = new ClientNet(world.map); // prediction, snapshot buffer, render clock
+  // For the netgraph and browser tests
+  (window as unknown as { __net: unknown }).__net = { transport: () => net.transport, stats: cn.stats, delay: () => cn.delay, rtt: () => net.rtt,
+    server: () => ({ ack: cn.latest?.ack ?? 0, x: cn.latest?.me?.x ?? 0, z: cn.latest?.me?.z ?? 0, alive: !!cn.latest?.me?.alive, phase: cn.latest?.phase, frozen: cn.latest?.me?.frozen ?? 0, stun: cn.latest?.me?.stun ?? 0 }),
+  };
 
   let mode: Mode = 'title';
   let myId = -1;
@@ -251,7 +255,7 @@ export function startGame(): void {
     const input = readInput();
     const step = cn.predict(input);
     if (!step) return;
-    net.send(step.msg);
+    net.sendInputs(cn.pending.slice(-3).map(p => ({ seq: p.seq, mx: p.input.mx, mz: p.input.mz, b: p.input.b, v: p.v })));
     const { ev } = step;
     const pred = cn.pred!, st = cn.myStatus()!, latest = cn.latest!;
     const c = chars.get(myId);

@@ -356,13 +356,18 @@ export class Match {
     // Late inputs bank credit, so a burst after a network stall is caught up at once, but
     // a client can't run faster than real time for more than INPUT_BANK ticks.
     p.credit = Math.min(INPUT_BANK, p.credit + 1);
-    // Inputs for ticks we already ran without them (see below) are too late to use
-    while (p.owed > 0 && p.queue.length) { p.ack = p.queue.shift()!.seq; p.owed--; p.net.dropped++; }
+    if (p.queue.length && p.owed > 0) {
+      // Input again after a stall we stood in for. A backlog that piled up during it is late
+      // for the ticks we already ran: skip that many of the oldest, but never the newest (a
+      // client that simply wasn't sending, like a background tab, has no backlog to skip)
+      for (let k = Math.min(p.owed, p.queue.length - 1); k > 0; k--) { p.ack = p.queue.shift()!.seq; p.net.dropped++; }
+      p.owed = 0;
+    }
     while (p.queue.length > INPUT_BANK * 2) { p.ack = p.queue.shift()!.seq; p.net.dropped++; } // hopeless backlog
     if (!p.queue.length) {
       p.net.waited++;
       // A long stall (or a backgrounded tab): don't let them hang in the air or on a broken
-      // plank; stand still for them, and skip that many of their inputs when they turn up
+      // plank; stand still for them (and skip a backlog of that size when it turns up, above)
       if (++p.waitT > STALL_TICKS && p.credit >= 1) {
         p.credit--;
         p.owed = Math.min(INPUT_BANK, p.owed + 1);

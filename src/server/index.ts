@@ -4,6 +4,8 @@ import { readFileSync, existsSync, statSync } from 'fs';
 import { join, extname, normalize } from 'path';
 import { fileURLToPath } from 'url';
 import { createRoom, joinRoom, findRoom, leaveRoom } from './room';
+import { rtcStart, rtcSignal, rtcClose } from './rtc';
+import { decodeInputs } from '../shared/wire';
 import type { ClientMessage } from '../shared/protocol';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -61,7 +63,7 @@ wss.on('connection', (ws: WebSocket) => {
   });
   // Oversized/garbled frames emit 'error'; unhandled, that would kill the whole process
   ws.on('error', () => ws.terminate());
-  ws.on('close', () => leaveRoom(ws));
+  ws.on('close', () => { rtcClose(ws); leaveRoom(ws); });
 });
 
 function dispatch(ws: WebSocket, msg: ClientMessage): void {
@@ -81,6 +83,16 @@ function dispatch(ws: WebSocket, msg: ClientMessage): void {
       break;
     case 'leave':
       leaveRoom(ws);
+      break;
+    case 'rtc_start':
+      // Inputs over UDP arrive as packets of the last few; each goes the same way a WebSocket input does
+      rtcStart(ws, m => ws.send(JSON.stringify(m)), data => {
+        for (const i of decodeInputs(data)) findRoom(ws)?.handle(ws, { type: 'input', ...i });
+      });
+      break;
+    case 'rtc_answer':
+    case 'rtc_ice':
+      rtcSignal(ws, msg);
       break;
     default:
       findRoom(ws)?.handle(ws, msg);

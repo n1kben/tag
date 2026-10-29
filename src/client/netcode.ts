@@ -6,6 +6,7 @@ import { stepBody, type Body, type Dyn, type Input, type Status } from '../share
 import type { GameMap } from '../shared/map';
 import type { GameEvent, NetPlayer, Snapshot } from '../shared/protocol';
 import { TICK_DT, TICK_RATE, SNAPSHOT_EVERY } from '../shared/constants';
+import { quantizeInput } from '../shared/wire';
 
 export interface Buffered { tick: number; players: Map<number, NetPlayer>; snap: Snapshot; at: number }
 export type ViewPlayer = NetPlayer & { visible: boolean };
@@ -51,6 +52,9 @@ export class ClientNet {
   private clockOff = NaN;
   private late: number[] = [];
   private evq: { tick: number; at: number; events: GameEvent[] }[] = [];
+  private deadAt = 0; // when a snapshot first said we're dead (it can beat the kill event over UDP)
+  private deathShown = false;
+  private now = 0;
   /** Visual offset left by a correction; decays so the fix is a slide, not a pop. */
   err = { x: 0, y: 0, z: 0 };
   stats = new NetStats();
@@ -84,15 +88,21 @@ export class ClientNet {
     return mine;
   }
 
-  /** Our own death is known but waiting for its moment on the render clock. */
+  /**
+   * Our own death is known but hasn't played yet: the kill event is waiting for its moment on
+   * the render clock, or the server says we're dead and the event itself is still on its way.
+   */
   deathPending(): boolean {
-    return this.evq.some(q => q.events.some(e => e.k === 'kill' && e.id === this.myId));
+    if (this.evq.some(q => q.events.some(e => e.k === 'kill' && e.id === this.myId))) return true;
+    return !this.deathShown && this.deadAt > 0 && this.now - this.deadAt < EVENT_MAX_WAIT;
   }
 
   /** Queued events whose moment has come on the render clock. */
   dueEvents(now: number): GameEvent[] {
     const out: GameEvent[] = [];
+    this.now = now;
     while (this.evq.length && (this.evq[0].tick <= this.renderTick || now - this.evq[0].at > EVENT_MAX_WAIT)) out.push(...this.evq.shift()!.events);
+    if (out.some(e => e.k === 'kill' && e.id === this.myId)) this.deathShown = true;
     return out;
   }
 
@@ -127,6 +137,8 @@ export class ClientNet {
     st.lastAt = now;
 
     const wasAlive = !!this.latest?.me?.alive;
+    this.now = now;
+    if (s.me?.alive) { this.deadAt = 0; this.deathShown = false; } else if (s.me && !this.deadAt) this.deadAt = now;
     this.latest = s;
     this.buffer.push({ tick: s.tick, players: new Map(s.players.map(p => [p.id, p])), snap: s, at: now });
     while (this.buffer.length > 40) this.buffer.shift();
@@ -170,10 +182,11 @@ export class ClientNet {
    * One fixed 60Hz client tick: number the input, predict it locally.
    * Returns the message to send and the sim events (null before the first snapshot).
    */
-  predict(input: Input): { msg: { type: 'input'; seq: number; mx: number; mz: number; b: number; v: number }; ev: ReturnType<typeof stepBody> } | null {
+  predict(raw: Input): { msg: { type: 'input'; seq: number; mx: number; mz: number; b: number; v: number }; ev: ReturnType<typeof stepBody> } | null {
     const st = this.myStatus();
     const latest = this.latest, pred = this.pred;
     if (!latest || !pred || !st) return null;
+    const input = quantizeInput(raw); // exactly what the server will run
     this.seq++;
     const v = Math.round(this.renderTick * 10) / 10;
     this.pending.push({ seq: this.seq, input, v });

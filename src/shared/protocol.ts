@@ -17,7 +17,11 @@ export type ClientMessage =
   | { type: 'ping'; t: number }
   // One message per 60Hz client tick, each run exactly once, in order. v = the server tick
   // the client was showing everyone else at (for lag-compensated slashes)
-  | { type: 'input'; seq: number; mx: number; mz: number; b: number; v?: number };
+  | { type: 'input'; seq: number; mx: number; mz: number; b: number; v?: number }
+  // UDP (WebRTC data channel) setup, signalled over the WebSocket; see src/server/rtc.ts
+  | { type: 'rtc_start' }
+  | { type: 'rtc_answer'; sdp: string }
+  | { type: 'rtc_ice'; candidate: string; mid: string };
 
 // ── Server → Client ───────────────────────────────────────────────────────
 export interface LobbyPlayer {
@@ -97,4 +101,6 @@ export type ServerMessage =
   | Snapshot
   | { type: 'ev'; tick: number; events: GameEvent[] } // tick: when they happened (clients play them on their render clock)
   | { type: 'error'; msg: string }
-  | { type: 'pong'; t: number };
+  | { type: 'pong'; t: number }
+  | { type: 'rtc_offer'; sdp: string; sdpType: string }
+  | { type: 'rtc_ice'; candidate: string; mid: string };

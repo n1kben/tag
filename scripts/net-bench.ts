@@ -28,7 +28,7 @@ import { roofsForPlayers } from '../src/shared/map';
 import type { Input } from '../src/shared/sim';
 import { TICK_DT, PLAYER_RADIUS, STAB_RANGE, STAB_ARC_COS } from '../src/shared/constants';
 import type { GameEvent, LobbyPlayer, ServerMessage, Snapshot } from '../src/shared/protocol';
-import { encodeSnapshot, decodeSnapshot } from '../src/shared/snapcodec';
+import { encodeSnapshot, decodeSnapshot } from '../src/shared/wire';
 
 interface Profile { name: string; delay: number; jitter: number; loss: number }
 const PROFILES: Profile[] = [
