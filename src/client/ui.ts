@@ -46,8 +46,11 @@ const CSS = `
   border: 4px solid #fff; background: rgba(255,255,255,0.75); color: var(--ink); border-radius: 999px; padding: 10px 14px; outline: none; }
 .code-in:focus { border-color: var(--yellow); }
 .status { min-height: 1.4em; color: #fff; font-weight: 600; text-shadow: 0 2px 0 var(--ink); }
-.hint { position: absolute; bottom: 18px; left: 0; right: 0; text-align: center; color: #fff; font-weight: 600; text-shadow: 0 2px 0 rgba(59,42,92,0.6); font-size: 15px; }
-kbd { background: #fff; color: var(--ink); border-radius: 6px; padding: 1px 7px; box-shadow: 0 2px 0 #c3b8e6; font-family: 'Fredoka'; font-weight: 700; font-size: 13px; }
+.outlined { color: #fff; font-weight: 700; -webkit-text-stroke: 5px var(--ink); paint-order: stroke fill; text-shadow: 0 3px 0 var(--ink); }
+.outlined kbd { -webkit-text-stroke: 0; text-shadow: none; }
+.hint { position: absolute; bottom: 22px; left: 16px; right: 16px; text-align: center; font-size: 20px; line-height: 1.9; }
+.hint .rule { font-family: 'Lilita One'; font-weight: 400; font-size: 26px; letter-spacing: 0.02em; }
+kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px; box-shadow: 0 3px 0 #c3b8e6; font-family: 'Fredoka'; font-weight: 700; font-size: 0.85em; }
 
 .lobby { background: rgba(255,255,255,0.0); }
 .panel { background: rgba(255,255,255,0.92); border-radius: 28px; padding: 22px 26px 26px; box-shadow: 0 10px 0 #c3b8e6, 0 24px 60px rgba(59,42,92,0.25);
@@ -87,9 +90,9 @@ kbd { background: #fff; color: var(--ink); border-radius: 6px; padding: 1px 7px;
 .slot.empty { opacity: 0.25; }
 .slot .ic { width: 26px; height: 26px; border-radius: 50%; margin: 2px auto; border: 3px solid var(--ink); }
 .slot .lb { font-weight: 700; font-size: 13px; }
-.keys { position: absolute; bottom: 16px; left: 16px; color: #fff; font-weight: 600; font-size: 13px; text-shadow: 0 2px 0 rgba(59,42,92,0.55); line-height: 1.9; }
+.keys { position: absolute; bottom: 18px; left: 18px; font-size: 18px; line-height: 2; }
 .feed { position: absolute; top: 14px; right: 16px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
-.feed div { background: rgba(255,255,255,0.92); border-radius: 999px; padding: 4px 14px; font-weight: 700; font-size: 14px; box-shadow: 0 3px 0 #c3b8e6; animation: pop 0.25s; }
+.feed div { background: rgba(255,255,255,0.92); border-radius: 999px; padding: 5px 16px; font-weight: 700; font-size: 17px; box-shadow: 0 3px 0 #c3b8e6; animation: pop 0.25s; }
 .banner { position: absolute; left: 0; right: 0; top: 30%; text-align: center; animation: slam 0.45s cubic-bezier(.2,1.6,.4,1); }
 .banner .big { font-size: clamp(48px, 9vw, 104px); line-height: 1; }
 .banner .sub { font-family: 'Lilita One'; font-size: 26px; color: #fff; text-shadow: 0 3px 0 var(--ink); margin-top: 8px; }
@@ -101,7 +104,7 @@ kbd { background: #fff; color: var(--ink); border-radius: 6px; padding: 1px 7px;
 .countdown .t { font-family: 'Lilita One'; font-size: 30px; color: #fff; -webkit-text-stroke: 4px #3b2a5c; paint-order: stroke; }
 .whiteout { position: absolute; inset: 0; background: #fffef4; opacity: 0; }
 .frostout { position: absolute; inset: 0; box-shadow: inset 0 0 160px 40px rgba(143,227,255,0.85); opacity: 0; transition: opacity 0.2s; }
-.spect { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); background: rgba(59,42,92,0.75); color: #fff; padding: 6px 18px; border-radius: 999px; font-weight: 700; }
+.spect { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); background: rgba(59,42,92,0.75); color: #fff; padding: 8px 22px; border-radius: 999px; font-weight: 700; font-size: 20px; }
 .board { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
 .board table { border-collapse: collapse; min-width: 380px; }
 .board td, .board th { padding: 6px 12px; text-align: left; font-weight: 600; }
@@ -113,7 +116,7 @@ kbd { background: #fff; color: var(--ink); border-radius: 6px; padding: 1px 7px;
 .podium .p img { width: 120px; height: 120px; }
 .podium .block { border-radius: 16px 16px 0 0; width: 140px; font-family: 'Lilita One'; font-size: 40px; color: #fff; padding-top: 6px; }
 .label { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; pointer-events: none; text-align: center; }
-.label .tagp { display: inline-block; font-weight: 700; font-size: 12px; color: #fff; padding: 1px 8px 2px; border-radius: 999px;
+.label .tagp { display: inline-block; font-weight: 700; font-size: 14px; color: #fff; padding: 1px 8px 2px; border-radius: 999px;
   box-shadow: 0 2px 0 rgba(59,42,92,0.35); }
 .label .tagp::after { content: ''; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); border: 5px solid transparent;
   border-top-color: inherit; border-bottom: 0; }
@@ -283,7 +286,7 @@ export class UI {
     };
     box.querySelector('[data-a=join]')!.addEventListener('click', join);
     code.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
-    const hint = el('div', 'hint', titleHint(this.titleMode));
+    const hint = el('div', 'hint outlined', titleHint(this.titleMode));
     this.title.append(clouds, box, hint);
     this.title.classList.add('on');
   }
@@ -315,7 +318,7 @@ export class UI {
         </div>
         <div class="row" style="justify-content:flex-start;margin-top:10px">
           <div class="seg" data-a="modes">${modeButtons(mode)}</div>
-          <div style="font-weight:600;color:#8a7bb5">${mode === 'dm' ? 'Knife vs grenades, no rounds · tag a runner and you swap · most points in 3:00' : 'Knife vs grenades in rounds · taggers start frozen for 5s · teams swap when taggers win'}</div>
+          <div style="font-weight:600;color:#8a7bb5">${mode === 'dm' ? '3 minutes · tag a runner to swap sides · most points wins' : 'Rounds · teams swap when the taggers win'}</div>
         </div>
         ${results}
         <div class="cards">${players.map(p => `
@@ -401,12 +404,11 @@ export class UI {
         <div class="slot ${k === s.nadeSel && s.nades[k] > 0 ? 'sel' : ''} ${s.nades[k] ? '' : 'empty'}">
           <div class="ic" style="background:${NADE_CSS[k]}"></div><div class="lb">${NADE_LABEL[k]} ×${s.nades[k]}</div></div>`).join(''));
       this.hud.append(inv);
-      this.hud.append(el('div', 'dyn keys', '<kbd>Enter</kbd> hold &amp; release to throw · <kbd>Q</kbd> switch<br>Flash them before a jump, frost them mid-air · <kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));
+      this.hud.append(el('div', 'dyn keys outlined', '<kbd>Enter</kbd> hold to throw · <kbd>Q</kbd> switch<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));
     } else if (s.alive && s.role === 'tagger') {
-      const tip = s.mode === 'dm' ? 'one hit, then you swap' : 'one hit tags';
-      this.hud.append(el('div', 'dyn keys', `<kbd>Enter</kbd> slash (${tip})<br><kbd>Space</kbd> jump (hold = higher) · <kbd>Tab</kbd> scores`));
+      this.hud.append(el('div', 'dyn keys outlined', '<kbd>Enter</kbd> slash<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));
     }
-    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Spectating ${esc(s.spectating)} · <kbd>Enter</kbd> next`));
+    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)} · <kbd>Enter</kbd> next`));
   }
 
   banner(big: string, sub = '', color = '#ffd23f', ms = 1800): void {
@@ -487,8 +489,6 @@ function modeButtons(mode: GameMode): string {
 }
 
 function titleHint(mode: GameMode): string {
-  const how = mode === 'dm'
-    ? 'Deathmatch: taggers slash, runners flash &amp; frost · tag a runner and you swap · most points in 3:00'
-    : 'Runners: run, jump the gaps, flash &amp; frost · Taggers: chase them down and slash';
-  return `${how} · <kbd>WASD</kbd> move <kbd>Space</kbd> jump <kbd>Enter</kbd> slash / throw <kbd>Q</kbd> switch grenade · gamepad works too`;
+  const how = mode === 'dm' ? 'Tag a runner to swap sides' : 'Taggers slash · runners escape';
+  return `<div class="rule">${how}</div><kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>Enter</kbd> slash / throw · <kbd>Q</kbd> grenade`;
 }
