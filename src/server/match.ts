@@ -35,6 +35,7 @@ export interface MPlayer {
   queue: { seq: number; input: Input }[];
   ack: number;
   starved: number; // ticks without a fresh input
+  net: { dropped: number; starved: number }; // input problems so far (net bench / netgraph)
   role: Role;
   hp: number;
   alive: boolean;
@@ -102,7 +103,7 @@ export class Match {
   addPlayer(p: LobbyPlayer): MPlayer {
     const mp: MPlayer = {
       id: p.id, name: p.name, character: p.character, bot: p.bot, connected: true,
-      body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, starved: 0,
+      body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, starved: 0, net: { dropped: 0, starved: 0 },
       role: 'runner', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
       nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
       respawnT: 0, prot: 0, survT: 0, stun: 0, plankFallT: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
@@ -325,11 +326,14 @@ export class Match {
       input = p.alive ? p.brain!.think(this, p) : { mx: 0, mz: 0, b: 0 };
     } else {
       // Exactly one input per tick keeps prediction in lockstep; drain backlog if a client bursts
-      while (p.queue.length > 4) p.ack = p.queue.shift()!.seq;
+      while (p.queue.length > 4) { p.ack = p.queue.shift()!.seq; p.net.dropped++; }
       const next = p.queue.shift();
       if (next) { p.ack = next.seq; p.input = next.input; p.starved = 0; }
-      // A backgrounded tab stops sending; don't keep running them off a roof on their last input
-      else if (++p.starved > 6) p.input = { mx: 0, mz: 0, b: 0 };
+      else {
+        if (p.alive) p.net.starved++;
+        // A backgrounded tab stops sending; don't keep running them off a roof on their last input
+        if (++p.starved > 6) p.input = { mx: 0, mz: 0, b: 0 };
+      }
       input = p.input;
     }
 

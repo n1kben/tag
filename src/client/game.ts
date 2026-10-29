@@ -8,23 +8,20 @@ import { UI, esc, type HudState } from './ui';
 import { Network } from './net';
 import { readInput, isHeld, setInputEnabled } from './input';
 import { sfx, spatial, setMuted, isMuted } from './audio';
-import { stepBody, BTN_ACTION, type Body, type Dyn, type Input, type Role, type Status } from '../shared/sim';
+import { BTN_ACTION, type Role } from '../shared/sim';
+import { ClientNet, lerpAngle } from './netcode';
 import { FULL_MAP, mapFor, roofsForPlayers } from '../shared/map';
 import { TICK_DT, TICK_RATE, NADE_CHARGE_TIME, COLOR_TAGGER, HEAD_START, type NadeKind } from '../shared/constants';
-import type { GameEvent, GameMode, LobbyPlayer, NetPlayer, Phase, ServerMessage, Snapshot, Standing } from '../shared/protocol';
+import type { GameEvent, GameMode, LobbyPlayer, Phase, ServerMessage, Snapshot, Standing } from '../shared/protocol';
 
 type Mode = 'title' | 'lobby' | 'match' | 'end';
-
-interface Buffered { tick: number; players: Map<number, NetPlayer>; snap: Snapshot }
-
-const INTERP_TICKS = 6; // render remote players ~100ms in the past
-const BODY_KEYS: (keyof Body)[] = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'grounded', 'airTime', 'groundTime', 'jumpBuf', 'rising', 'attackCd', 'lunge', 'prevB', 'onHead'];
 
 export function startGame(): void {
   const world: World = createWorld(document.getElementById('app')!);
   const fx = new Fx(world.scene);
   const ui = new UI();
   const net = new Network(handle);
+  const cn = new ClientNet(world.map); // prediction, snapshot buffer, render clock
 
   let mode: Mode = 'title';
   let myId = -1;
@@ -43,16 +40,9 @@ export function startGame(): void {
   let roles: Record<number, Role> = {};
   let phase: Phase = 'start';
   let timeLeft = 0;
-  let buffer: Buffered[] = [];
-  let renderTick = 0;
-  let latest: Snapshot | null = null;
 
   // Local prediction
-  let pred: Body | null = null;
-  let pending: { seq: number; input: Input }[] = [];
-  let seq = 0;
   let acc = 0;
-  const errOffset = new THREE.Vector3();
   let aimHeld = 0;
   let prevAction = false;
   let spectate: number | null = null;
@@ -112,6 +102,7 @@ export function startGame(): void {
     switch (msg.type) {
       case 'welcome':
         myId = msg.playerId;
+        cn.myId = myId;
         roomId = msg.roomId;
         if (!msg.practice) history.replaceState(null, '', `${location.pathname}${location.search}#${msg.roomId}`);
         if (!msg.practice) showLobby();
@@ -131,7 +122,7 @@ export function startGame(): void {
         startMatch(msg.roster); // clears the old match (and resets to the full city)…
         // …then build just the roofs this match uses: map size follows the player count
         setMap(world, mapFor(msg.roofs));
-        fx.map = world.map;
+        fx.map = cn.map = world.map;
         break;
       case 'round_start':
         roundStart(msg.round, msg.roles);
@@ -190,16 +181,13 @@ export function startGame(): void {
   function cleanupMatch(): void {
     // Back to the whole city for the menu backdrop
     setMap(world, FULL_MAP);
-    fx.map = world.map;
+    fx.map = cn.map = world.map;
     for (const c of chars.values()) c.dispose();
     chars.clear();
     for (const s of slices) s.update(99);
     slices.length = 0;
     dead.clear();
-    buffer = [];
-    latest = null;
-    pred = null;
-    pending = [];
+    cn.reset();
     fx.syncProjectiles([], 0);
     fx.hideArc();
     ui.hideLabelsExcept(new Set());
@@ -209,9 +197,9 @@ export function startGame(): void {
     roles = r;
     dead.clear();
     phase = 'start';
-    pred = null;
-    pending = [];
-    buffer = [];
+    cn.pred = null;
+    cn.pending = [];
+    cn.buffer = [];
     spectate = null;
     for (const [id, c] of chars) c.setRole(roles[id] ?? 'runner');
     const mine = roles[myId];
@@ -229,29 +217,9 @@ export function startGame(): void {
   }
 
   // ── Snapshots / prediction ──────────────────────────────────────────────
-  function myStatus(): Status | null {
-    const me = latest?.me;
-    if (!me) return null;
-    return {
-      role: me.role,
-      frozen: me.frozen > 0 || me.stun > 0, // frozen solid or dizzy from a stomp
-      chilled: me.chilled > 0,
-      locked: !me.alive || latest!.phase === 'end' || (latest!.phase === 'start' && me.role === 'tagger'),
-    };
-  }
-
-  /** Other players (solid, with heads) and collapsed planks, as the server saw them in a snapshot. */
-  function dynFrom(s: Snapshot): Dyn {
-    return {
-      bodies: s.players.filter(p => p.id !== myId && p.alive).map(p => ({ id: p.id, x: p.x, y: p.y, z: p.z, role: p.role })),
-      broken: new Set(s.planks.flatMap((st, i) => (st === 2 ? [i] : []))),
-    };
-  }
-
   function onSnapshot(s: Snapshot): void {
     if (mode !== 'match') return;
     const prevPhase = phase;
-    latest = s;
     phase = s.phase;
     timeLeft = s.timeLeft;
     // Roles change mid-match in deathmatch (catch = swap): follow the server
@@ -284,42 +252,16 @@ export function startGame(): void {
     }
     if (phase === 'start' && timeLeft <= 3.05 && Math.ceil(timeLeft) !== Math.ceil(timeLeft + 2 * TICK_DT)) sfx.beep();
 
-    const players = new Map(s.players.map(p => [p.id, p]));
-    buffer.push({ tick: s.tick, players, snap: s });
-    while (buffer.length > 30) buffer.shift();
-    if (renderTick === 0 || Math.abs(renderTick - (s.tick - INTERP_TICKS)) > 30) renderTick = s.tick - INTERP_TICKS;
-
-    // Reconcile the local player: take the server body, replay unacknowledged inputs
-    const me = s.me;
-    if (!me) return;
-    const server: Body = {} as Body;
-    for (const k of BODY_KEYS) (server as unknown as Record<string, unknown>)[k] = me[k];
-    pending = pending.filter(p => p.seq > s.ack);
-    const st = myStatus()!;
-    // The server doesn't step bodies at round end or when dead; neither do we
-    const dyn = dynFrom(s);
-    if (me.alive && s.phase !== 'end') for (const p of pending) stepBody(world.map, server, p.input, st, TICK_DT, dyn);
-    if (pred && me.alive) {
-      const dx = pred.x - server.x, dy = pred.y - server.y, dz = pred.z - server.z;
-      if (Math.hypot(dx, dy, dz) < 3) errOffset.add(new THREE.Vector3(dx, dy, dz));
-      else errOffset.set(0, 0, 0);
-    }
-    pred = server;
+    cn.onSnapshot(s, performance.now());
   }
 
   function fixedStep(): void {
     const input = readInput();
-    const st = myStatus();
-    if (!latest || !pred || !st) return;
-    seq++;
-    net.send({ type: 'input', seq, mx: input.mx, mz: input.mz, b: input.b });
-    pending.push({ seq, input });
-    if (pending.length > 120) pending.shift();
-    const frozenScene = phase === 'end' || !latest.me?.alive;
-    const ev = frozenScene
-      ? { jumped: false, landed: 0, lunged: false, pressed: input.b & ~pred.prevB, released: 0 }
-      : stepBody(world.map, pred, input, st, TICK_DT, dynFrom(latest));
-    if (frozenScene) pred.prevB = input.b;
+    const step = cn.predict(input);
+    if (!step) return;
+    net.send(step.msg);
+    const { ev } = step;
+    const pred = cn.pred!, st = cn.myStatus()!, latest = cn.latest!;
     const c = chars.get(myId);
     if (ev.jumped) { fx.puff(pred.x, pred.y, pred.z, 5); sfx.jump(); }
     if (ev.landed > 3) { fx.puff(pred.x, pred.y, pred.z, 6); sfx.land(Math.min(1, ev.landed / 12)); c?.land(ev.landed); }
@@ -337,7 +279,7 @@ export function startGame(): void {
   }
 
   function nextSpectate(): number | null {
-    const alive = [...(buffer.at(-1)?.players.values() ?? [])].filter(p => p.alive && p.id !== myId).map(p => p.id).sort((a, b) => a - b);
+    const alive = [...(cn.buffer.at(-1)?.players.values() ?? [])].filter(p => p.alive && p.id !== myId).map(p => p.id).sort((a, b) => a - b);
     if (!alive.length) return null;
     const i = spectate === null ? -1 : alive.indexOf(spectate);
     return alive[(i + 1) % alive.length];
@@ -352,7 +294,7 @@ export function startGame(): void {
     if (mode !== 'match') return;
     const L = listener();
     const posOf = (id: number) => {
-      if (id === myId && pred) return pred;
+      if (id === myId && cn.pred) return cn.pred;
       const c = chars.get(id);
       return c ? { x: c.root.position.x, y: c.root.position.y, z: c.root.position.z, facing: c.root.rotation.y } : null;
     };
@@ -383,7 +325,7 @@ export function startGame(): void {
         const c = chars.get(e.id);
         dead.add(e.id);
         if (c) {
-          const facing = e.id === myId && pred ? pred.facing : c.root.rotation.y;
+          const facing = e.id === myId && cn.pred ? cn.pred.facing : c.root.rotation.y;
           slices.push(new SliceDeath(world.scene, world.map, c, e.x, e.y, e.z, facing, e.dx, e.dz));
           if (e.cause !== 'void') fx.juice(e.x, e.y, e.z, c.def.juice, e.dx, e.dz);
           c.root.visible = false;
@@ -440,28 +382,6 @@ export function startGame(): void {
   }
 
   // ── Render ──────────────────────────────────────────────────────────────
-  function interpolate(): Map<number, NetPlayer & { visible: boolean }> {
-    const out = new Map<number, NetPlayer & { visible: boolean }>();
-    if (!buffer.length) return out;
-    let a = buffer[0], b = buffer[buffer.length - 1];
-    for (let i = 0; i < buffer.length - 1; i++) {
-      if (buffer[i].tick <= renderTick && buffer[i + 1].tick >= renderTick) { a = buffer[i]; b = buffer[i + 1]; break; }
-    }
-    const t = b.tick > a.tick ? THREE.MathUtils.clamp((renderTick - a.tick) / (b.tick - a.tick), 0, 1) : 1;
-    for (const [id, pb] of b.players) {
-      const pa = a.players.get(id);
-      if (!pa) { out.set(id, { ...pb, visible: t > 0.5 }); continue; }
-      out.set(id, {
-        ...pb,
-        x: pa.x + (pb.x - pa.x) * t, y: pa.y + (pb.y - pa.y) * t, z: pa.z + (pb.z - pa.z) * t,
-        f: lerpAngle(pa.f, pb.f, t), visible: true,
-      });
-    }
-    // Present before, gone now (out of a tagger's sight): keep them until the newer frame wins
-    for (const [id, pa] of a.players) if (!out.has(id) && t < 0.5) out.set(id, { ...pa, visible: true });
-    return out;
-  }
-
   let last = performance.now();
   let fpsFrames = 0, fpsT = 0, fps = 0;
   let debugOn = false;
@@ -499,7 +419,7 @@ export function startGame(): void {
     fx.update(dt);
     for (let i = slices.length - 1; i >= 0; i--) { slices[i].update(dt); if (slices[i].done) slices.splice(i, 1); }
 
-    ui.debug(debugOn ? `fps ${fps} · ping ${net.rtt.toFixed(0)}ms · pending ${pending.length} · buffer ${buffer.length} · tick ${latest?.tick ?? "-"} · draws ${world.renderer.info.render.calls} · tris ${(world.renderer.info.render.triangles / 1000).toFixed(0)}k · dpr ${world.renderer.getPixelRatio().toFixed(2)} · js ${jsMs.toFixed(1)}ms · render ${renderMs.toFixed(1)}ms` : null);
+    ui.debug(debugOn ? `fps ${fps} · ping ${net.rtt.toFixed(0)}ms · pending ${cn.pending.length} · buffer ${cn.buffer.length} · tick ${cn.latest?.tick ?? "-"} · draws ${world.renderer.info.render.calls} · tris ${(world.renderer.info.render.triangles / 1000).toFixed(0)}k · dpr ${world.renderer.getPixelRatio().toFixed(2)} · js ${jsMs.toFixed(1)}ms · render ${renderMs.toFixed(1)}ms` : null);
     const tRender = performance.now();
     world.renderer.render(world.scene, world.camera);
     // Smoothed CPU cost per frame: game logic vs. submitting the render (shown in the P HUD)
@@ -524,18 +444,15 @@ export function startGame(): void {
   }
 
   function renderMatch(dt: number): void {
-    const latestTick = buffer.at(-1)?.tick ?? 0;
-    renderTick += dt * TICK_RATE;
-    const target = latestTick - INTERP_TICKS;
-    renderTick += (target - renderTick) * Math.min(1, dt * 2);
+    cn.advance(dt);
     timeLeft = Math.max(0, timeLeft - dt);
 
-    const remote = interpolate();
-    const me = latest?.me ?? null;
+    const remote = cn.interpolate();
+    const me = cn.latest?.me ?? null;
+    const pred = cn.pred, errOffset = cn.err;
     const shown = new Set<number>();
 
     // Local player from prediction (+ decaying correction offset)
-    errOffset.multiplyScalar(Math.exp(-dt * 12));
     const myChar = chars.get(myId);
     if (myChar && pred && me?.alive && !dead.has(myId)) {
       myChar.root.visible = !remote.get(myId)?.prot || Math.floor(performance.now() / 90) % 2 === 0;
@@ -575,7 +492,7 @@ export function startGame(): void {
     }
     for (const [id, c] of chars) if (!remote.has(id) && id !== myId) c.root.visible = false;
 
-    const snap = buffer.at(-1)?.snap;
+    const snap = cn.buffer.at(-1)?.snap;
     if (snap) {
       fx.syncProjectiles(snap.projectiles, dt);
       // Weak planks: shake, collapse, rebuild (with sound when it's near)
@@ -644,12 +561,6 @@ export function startGame(): void {
   else if (hashRoom) net.send({ type: 'join_room', roomId: hashRoom });
 }
 
-function lerpAngle(a: number, b: number, t: number): number {
-  let d = b - a;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return a + d * t;
-}
 
 function hex(c: number): string {
   return `#${c.toString(16).padStart(6, '0')}`;
