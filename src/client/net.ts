@@ -1,4 +1,5 @@
 import type { ClientMessage, ServerMessage } from '../shared/protocol';
+import { decodeSnapshot } from '../shared/snapcodec';
 
 export class Network {
   private ws: WebSocket | null = null;
@@ -23,6 +24,7 @@ export class Network {
   private connect(): void {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+    ws.binaryType = 'arraybuffer'; // snapshots arrive binary
     this.ws = ws;
     ws.onopen = () => {
       for (const m of this.outbox) ws.send(JSON.stringify(m));
@@ -32,7 +34,7 @@ export class Network {
     ws.onmessage = event => {
       let msg: ServerMessage;
       try {
-        msg = JSON.parse(event.data);
+        msg = event.data instanceof ArrayBuffer ? decodeSnapshot(event.data) : JSON.parse(event.data);
       } catch {
         return;
       }

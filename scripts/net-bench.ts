@@ -26,6 +26,7 @@ import { roofsForPlayers } from '../src/shared/map';
 import type { Input } from '../src/shared/sim';
 import { TICK_DT, PLAYER_RADIUS, STAB_RANGE, STAB_ARC_COS } from '../src/shared/constants';
 import type { GameEvent, LobbyPlayer, ServerMessage, Snapshot } from '../src/shared/protocol';
+import { encodeSnapshot, decodeSnapshot } from '../src/shared/snapcodec';
 
 interface Profile { name: string; delay: number; jitter: number; loss: number }
 const PROFILES: Profile[] = [
@@ -99,7 +100,8 @@ function run(profile: Profile, runSeed: number, tot: Totals): void {
   let now = 0;
 
   const host: MatchHost = {
-    send(id, msg) { clients.get(id)?.down.send(msg, now); },
+    // Snapshots go through the wire codec, so its rounding is part of what we measure
+    send(id, msg) { clients.get(id)?.down.send(msg.type === 'snap' ? decodeSnapshot(encodeSnapshot(msg)) : msg, now); },
     onMatchEnd() {},
   };
   // Deathmatch: continuous play with both sides swapping, so everyone gets to tag and be tagged

@@ -3,6 +3,7 @@ import type { ClientMessage, GameMode, LobbyPlayer, ServerMessage, Standing } fr
 import { CHARACTERS, MAX_PLAYERS } from '../shared/constants';
 import { Match } from './match';
 import { roofsForPlayers } from '../shared/map';
+import { encodeSnapshot } from '../shared/snapcodec';
 
 const ADJECTIVES = ['Sneaky', 'Zippy', 'Sly', 'Jolly', 'Turbo', 'Fuzzy', 'Dizzy', 'Lucky', 'Sassy', 'Brave', 'Bouncy', 'Shifty'];
 
@@ -193,7 +194,9 @@ export class Room {
 
   private sendTo(id: number, msg: ServerMessage): void {
     const ws = this.sockets.get(id);
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // Snapshots go binary (30Hz, the bulk of the traffic); everything else is JSON
+    ws.send(msg.type === 'snap' ? encodeSnapshot(msg) : JSON.stringify(msg));
   }
 }
 
