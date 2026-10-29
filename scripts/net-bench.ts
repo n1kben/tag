@@ -169,8 +169,8 @@ function frame(c: Client, dt: number, now: number, tot: Totals): void {
   const cn = c.cn;
   for (const msg of c.down.poll(now)) {
     if (msg.type === 'snap') cn.onSnapshot(msg as Snapshot, now);
-    else if (msg.type === 'round_start') { cn.pred = null; cn.pending = []; cn.buffer = []; c.brain.reset(); }
-    else if (msg.type === 'ev') for (const e of msg.events) onEvent(c, e, now, tot);
+    else if (msg.type === 'round_start') { cn.newRound(); c.brain.reset(); }
+    else if (msg.type === 'ev') for (const e of cn.pushEvents(msg.tick, msg.events, now)) onEvent(c, e, now, tot);
   }
   c.acc += dt;
   while (c.acc >= TICK_DT) {
@@ -200,6 +200,7 @@ function frame(c: Client, dt: number, now: number, tot: Totals): void {
     }
   }
   cn.advance(dt, now);
+  for (const e of cn.dueEvents(now)) onEvent(c, e, now, tot);
   if (cn.buffer.length) { tot.delaySum += cn.delay; tot.delayN++; }
 }
 

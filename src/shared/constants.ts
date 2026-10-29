@@ -62,7 +62,7 @@ export const LUNGE_SPEED = 5; // a small committed step-in, not a long reach
 export const LUNGE_TIME = 0.06;
 // Lag compensation: a slash is checked against where the target was on the attacker's screen,
 // at most UNLAG_MAX_TICKS back, and only if they're still within reach (plus this slack) now
-export const UNLAG_MAX_TICKS = 18; // 300ms
+export const UNLAG_MAX_TICKS = 12; // 200ms
 export const UNLAG_NOW_SLACK = 1.2;
 export const STAB_HEIGHT = 0.4; // the blade's line: anything taller in between (even a low wall) blocks it
 

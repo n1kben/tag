@@ -317,7 +317,7 @@ export class Match {
     }
 
     if (this.events.length) {
-      this.broadcast({ type: 'ev', events: this.events });
+      this.broadcast({ type: 'ev', tick: this.tick, events: this.events });
       this.events = [];
     }
     if (this.tick % SNAPSHOT_EVERY === 0) this.sendSnapshots();

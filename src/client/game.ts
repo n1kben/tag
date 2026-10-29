@@ -142,13 +142,7 @@ export function startGame(): void {
         onSnapshot(msg);
         break;
       case 'ev':
-        for (const e of msg.events) {
-          try {
-            onEvent(e);
-          } catch (err) {
-            console.error('event effect failed', e.k, err); // never let one effect drop the rest
-          }
-        }
+        if (mode === 'match') playEvents(cn.pushEvents(msg.tick, msg.events, performance.now()));
         break;
       case 'error':
         ui.setStatus(msg.msg);
@@ -197,9 +191,7 @@ export function startGame(): void {
     roles = r;
     dead.clear();
     phase = 'start';
-    cn.pred = null;
-    cn.pending = [];
-    cn.buffer = [];
+    cn.newRound();
     spectate = null;
     for (const [id, c] of chars) c.setRole(roles[id] ?? 'runner');
     const mine = roles[myId];
@@ -290,6 +282,16 @@ export function startGame(): void {
     return { x: camTarget.x, z: camTarget.z };
   }
 
+  function playEvents(events: GameEvent[]): void {
+    for (const e of events) {
+      try {
+        onEvent(e);
+      } catch (err) {
+        console.error('event effect failed', e.k, err); // never let one effect drop the rest
+      }
+    }
+  }
+
   function onEvent(e: GameEvent): void {
     if (mode !== 'match') return;
     const L = listener();
@@ -326,8 +328,12 @@ export function startGame(): void {
         dead.add(e.id);
         if (c) {
           const facing = e.id === myId && cn.pred ? cn.pred.facing : c.root.rotation.y;
-          slices.push(new SliceDeath(world.scene, world.map, c, e.x, e.y, e.z, facing, e.dx, e.dz));
-          if (e.cause !== 'void') fx.juice(e.x, e.y, e.z, c.def.juice, e.dx, e.dz);
+          // Slice them where this screen shows them: us where we're predicted, our own victims
+          // where we saw them (that's what the hit was judged by), anyone else where the server had them
+          const shown = (e.id === myId || e.by === myId) && c.root.visible ? c.root.position : null;
+          const x = shown?.x ?? e.x, y = shown?.y ?? e.y, z = shown?.z ?? e.z;
+          slices.push(new SliceDeath(world.scene, world.map, c, x, y, z, facing, e.dx, e.dz));
+          if (e.cause !== 'void') fx.juice(x, y, z, c.def.juice, e.dx, e.dz);
           c.root.visible = false;
         }
         const sp = spatial(e.x, e.z, L.x, L.z);
@@ -445,6 +451,7 @@ export function startGame(): void {
 
   function renderMatch(dt: number): void {
     cn.advance(dt, performance.now());
+    playEvents(cn.dueEvents(performance.now()));
     timeLeft = Math.max(0, timeLeft - dt);
 
     const remote = cn.interpolate();
@@ -454,7 +461,8 @@ export function startGame(): void {
 
     // Local player from prediction (+ decaying correction offset)
     const myChar = chars.get(myId);
-    if (myChar && pred && me?.alive && !dead.has(myId)) {
+    const meAlive = !!me && (me.alive || cn.deathPending()); // keep showing us until our death plays
+    if (myChar && pred && meAlive && !dead.has(myId)) {
       myChar.root.visible = !remote.get(myId)?.prot || Math.floor(performance.now() / 90) % 2 === 0;
       myChar.root.position.set(pred.x + errOffset.x, pred.y + errOffset.y, pred.z + errOffset.z);
       myChar.root.rotation.y = lerpAngle(myChar.root.rotation.y, pred.facing, Math.min(1, dt * 20));
@@ -506,7 +514,7 @@ export function startGame(): void {
 
     // Camera: follow me, or whoever I'm spectating
     let fx0 = camTarget.x, fy0 = camTarget.y, fz0 = camTarget.z, lookVx = 0, lookVz = 0;
-    if (pred && me?.alive) {
+    if (pred && meAlive) {
       fx0 = pred.x + errOffset.x; fy0 = pred.y; fz0 = pred.z + errOffset.z; lookVx = pred.vx; lookVz = pred.vz;
     } else if (gameMode === 'tag') {
       if (spectate === null || !remote.get(spectate)?.alive) spectate = nextSpectate();

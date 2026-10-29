@@ -95,6 +95,6 @@ export type ServerMessage =
   | { type: 'round_end'; round: number; winner: Role; swap: boolean; standings: Standing[] }
   | { type: 'match_end'; standings: Standing[] }
   | Snapshot
-  | { type: 'ev'; events: GameEvent[] }
+  | { type: 'ev'; tick: number; events: GameEvent[] } // tick: when they happened (clients play them on their render clock)
   | { type: 'error'; msg: string }
   | { type: 'pong'; t: number };

@@ -4,7 +4,7 @@
 // say how it's going (corrections, starved render time, snapshot gaps).
 import { stepBody, type Body, type Dyn, type Input, type Status } from '../shared/sim';
 import type { GameMap } from '../shared/map';
-import type { NetPlayer, Snapshot } from '../shared/protocol';
+import type { GameEvent, NetPlayer, Snapshot } from '../shared/protocol';
 import { TICK_DT, TICK_RATE, SNAPSHOT_EVERY } from '../shared/constants';
 
 export interface Buffered { tick: number; players: Map<number, NetPlayer>; snap: Snapshot; at: number }
@@ -17,6 +17,7 @@ export type ViewPlayer = NetPlayer & { visible: boolean };
 const MIN_DELAY = SNAPSHOT_EVERY + 1, MAX_DELAY = 20;
 const LATE_WINDOW = 90; // snapshots (~3s) of lateness samples
 const EXTRAPOLATE_TICKS = 6; // a late snapshot: keep others moving along their velocity this long
+const EVENT_MAX_WAIT = 400; // ms: play an event anyway if the render clock hasn't reached it by then
 const BODY_KEYS: (keyof Body)[] = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'grounded', 'airTime', 'groundTime', 'jumpBuf', 'rising', 'attackCd', 'lunge', 'prevB', 'onHead'];
 
 /** Running totals; read (and reset) by the netgraph and the bench. */
@@ -49,6 +50,7 @@ export class ClientNet {
   /** Server tick ≈ now * TICK_RATE / 1000 + clockOff (fitted to the least-delayed snapshots). */
   private clockOff = NaN;
   private late: number[] = [];
+  private evq: { tick: number; at: number; events: GameEvent[] }[] = [];
   /** Visual offset left by a correction; decays so the fix is a slide, not a pop. */
   err = { x: 0, y: 0, z: 0 };
   stats = new NetStats();
@@ -58,9 +60,40 @@ export class ClientNet {
   /** New round / match: drop everything tied to the old one. */
   reset(): void {
     this.latest = null;
+    this.newRound();
+  }
+
+  /** A round starts: bodies teleport to spawns and old events are moot. */
+  newRound(): void {
     this.pred = null;
     this.pending = [];
     this.buffer = [];
+    this.evq = [];
+  }
+
+  /**
+   * Server events are played when our render clock reaches the tick they happened on, so a
+   * kill lands when the tagger's lunge does on this screen, not ~100ms before. Events we
+   * caused (our kills and throws) are returned to play at once: that's where the feedback
+   * should be instant, and our view of the victim is what the server judged the hit by.
+   */
+  pushEvents(tick: number, events: GameEvent[], now: number): GameEvent[] {
+    const mine = events.filter(e => 'by' in e && e.by === this.myId);
+    const later = events.filter(e => !mine.includes(e));
+    if (later.length) this.evq.push({ tick, at: now, events: later });
+    return mine;
+  }
+
+  /** Our own death is known but waiting for its moment on the render clock. */
+  deathPending(): boolean {
+    return this.evq.some(q => q.events.some(e => e.k === 'kill' && e.id === this.myId));
+  }
+
+  /** Queued events whose moment has come on the render clock. */
+  dueEvents(now: number): GameEvent[] {
+    const out: GameEvent[] = [];
+    while (this.evq.length && (this.evq[0].tick <= this.renderTick || now - this.evq[0].at > EVENT_MAX_WAIT)) out.push(...this.evq.shift()!.events);
+    return out;
   }
 
   myStatus(): Status | null {
@@ -113,6 +146,8 @@ export class ClientNet {
     // Reconcile the local player: take the server body, replay unacknowledged inputs
     const me = s.me;
     if (!me) return;
+    // Dead on the server, but our death hasn't played yet: hold still where we are until it does
+    if (!me.alive && this.deathPending()) return;
     const server = {} as Body;
     for (const k of BODY_KEYS) (server as unknown as Record<string, unknown>)[k] = me[k];
     this.pending = this.pending.filter(p => p.seq > s.ack);
