@@ -9,15 +9,15 @@ import { PLAYER_RADIUS } from '../src/shared/constants';
 let failures = 0;
 const check = (ok: boolean, what: string) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${what}`); if (!ok) failures++; };
 
-/** Seeker at (ax, az) facing +x/+z towards a hider at (tx, tz); press Enter once; did it hit? */
+/** Tagger at (ax, az) facing +x/+z towards a runner at (tx, tz); press Enter once; did it hit? */
 function slash(ax: number, az: number, tx: number, tz: number): boolean {
   const roster = [1, 2].map(id => ({ id, name: `p${id}`, character: id, ready: true, bot: false }));
-  const m = new Match({ send() {}, onMatchEnd() {} }, roster, 'hns');
+  const m = new Match({ send() {}, onMatchEnd() {} }, roster, 'tag');
   const I = m as unknown as { startRound(first: boolean): void; step(): void; phase: string; timeLeft: number };
   I.startRound(true);
   const [s, h] = m.players as MPlayer[];
-  s.role = 'seeker'; h.role = 'hider';
-  I.phase = 'seek'; I.timeLeft = 100;
+  s.role = 'tagger'; h.role = 'runner';
+  I.phase = 'chase'; I.timeLeft = 100;
   for (const [p, x, z] of [[s, ax, az], [h, tx, tz]] as const) {
     p.body.x = x; p.body.z = z; p.body.y = FULL_MAP.heightAt(x, z); p.body.vx = p.body.vz = p.body.vy = 0; p.body.grounded = true;
   }
@@ -53,7 +53,7 @@ for (const kind of ['wall', 'hedge', 'duct', 'crate', 'hut'] as const) {
 //    blocked 0.2s after the first and allowed 0.35s after
 for (const [gap, want] of [[12, 1], [21, 2]] as const) {
   const b = newBody(FULL_MAP, -2, -3);
-  const st = { role: 'seeker' as const, frozen: false, chilled: false, locked: false };
+  const st = { role: 'tagger' as const, frozen: false, chilled: false, locked: false };
   let swings = 0;
   for (let i = 0; i < 40; i++) {
     const press = i === 0 || i === gap;

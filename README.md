@@ -1,6 +1,6 @@
 # Rooftop Fu
 
-Online rooftop tag. The rules come from Counter-Strike 1.6's Hide 'n Seek mod, as played on `awp_rooftops`; despite the name, that mode is really tag: everyone can see everyone, and hiders survive by running, jumping gaps and throwing grenades. The look and feel come from Boomerang Fu on Switch: food characters, pastel floating platforms, slice-in-half kills and a lot of juice.
+Online rooftop tag. The rules come from Counter-Strike 1.6's Hide 'n Seek mod, as played on `awp_rooftops`; despite the name, that mode is really tag, so that's what this is: everyone can see everyone, taggers chase with knives, and runners survive by running, jumping gaps and throwing grenades. The look and feel come from Boomerang Fu on Switch: food characters, pastel floating platforms, slice-in-half kills and a lot of juice.
 
 ```sh
 npm install
@@ -10,10 +10,10 @@ npm run check      # typecheck + map reachability + a headless bots-only match
 ```
 
 Two modes, picked on the title screen or in the lobby:
-- **Hide 'n Seek**: rooftop tag with CS 1.6 HNS rules (below).
-- **Deathmatch** (CS "HNS deathmatch"): the same teams and kit (seekers slash, hiders flash and frost) with no rounds, for 3:00. Catch a hider and you swap: you become a hider with fresh grenades and 1s of grace, and they respawn as a seeker 2s later on the roof farthest from everyone (1.5s of spawn protection, you blink). Points: +1 per catch, +1 for dropping a seeker (frost or a knock-off), +1 for every 15s a hider stays alive, −1 for falling off on your own.
+- **Tag**: rooftop tag in rounds, with CS 1.6 HNS rules (below).
+- **Deathmatch** (CS "HNS deathmatch"): the same teams and kit (taggers slash, runners flash and frost) with no rounds, for 3:00. Tag a runner and you swap: you become a runner with fresh grenades and 1s of grace, and they respawn as a tagger 2s later on the roof farthest from everyone (1.5s of spawn protection, you blink). Points: +1 per tag, +1 for dropping a tagger (frost or a knock-off), +1 for every 15s a runner stays alive, −1 for falling off on your own.
 
-The play area scales with the lobby: 1.25 roofs per player on top of the plaza (minimum 5 roofs; 13 or more players get the whole city), grown outward from the plaza through jumpable gaps, so it's always one connected patch. The other roofs sink into the mist as backdrop. Hide 'n Seek rounds scale with the map too, from 70s on the smallest to 2:00 on the full city. Tune with `ROOFS_PER_PLAYER` (map.ts) and `MIN_ROUND_TIME` (constants.ts). Preview a size with `/?cam=0,-3,80&players=4`.
+The play area scales with the lobby: 1.25 roofs per player on top of the plaza (minimum 5 roofs; 13 or more players get the whole city), grown outward from the plaza through jumpable gaps, so it's always one connected patch. The other roofs sink into the mist as backdrop. Tag rounds scale with the map too, from 70s on the smallest to 2:00 on the full city. Tune with `ROOFS_PER_PLAYER` (map.ts) and `MIN_ROUND_TIME` (constants.ts). Preview a size with `/?cam=0,-3,80&players=4`.
 
 Press **PLAY VS BOTS** for a practice match, or **CREATE ROOM** and share the link (the room code sits in the URL hash). Anyone can add bots in the lobby.
 
@@ -40,8 +40,8 @@ Funnel has to be allowed for the node once in the Tailscale admin console; the f
 |---|---|---|
 | Move (you face where you move) | WASD / arrows | left stick / d-pad |
 | Jump: tap for a hop, hold for full height (0.3s cooldown after landing; an early press is queued) | Space | A |
-| Seeker slashes · hider holds to aim a grenade (the throw arc shows) and releases to throw | Enter | X / RT |
-| Hider switches grenade | Q | Y / bumpers |
+| Tagger slashes · runner holds to aim a grenade (the throw arc shows) and releases to throw | Enter | X / RT |
+| Runner switches grenade | Q | Y / bumpers |
 | Scoreboard · mute · debug HUD | Tab · M · P | |
 
 There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where you move.
@@ -50,12 +50,12 @@ There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where 
 
 | CS 1.6 HNS | Rooftop Fu |
 |---|---|
-| Terrorists hide, CTs seek, teams about even | Hiders vs seekers; seekers are the smaller half |
-| `hns_hidetime 10`: seekers' screens black, frozen | 10s hide phase: seekers are locked with a blacked-out screen and a countdown |
-| Hiders win if anyone survives the round timer; seekers win by killing every hider | Same, with a 2:00 seek phase |
-| Teams swap only when seekers win | Same |
-| `hns_hiders_alivefrags`: +1 per surviving hider | +1 point per surviving hider, +1 per kill |
-| Hiders can't attack; kit: 2 flash, 1 frost (4s freeze / 60% chill), smoke, HE | **2 flash + 1 frost** (smoke and HE cut). Flash a seeker right before a jump; frost them mid-air and they drop into the mist (you get the kill). Tune in the grenade block of `src/shared/constants.ts` |
+| Terrorists hide, CTs seek, teams about even | Runners vs taggers; taggers are the smaller half |
+| `hns_hidetime 10`: seekers' screens black, frozen | No hiding: taggers just start frozen for 5s (they can watch, with a countdown) while runners scatter |
+| Hiders win if anyone survives the round timer; seekers win by killing every hider | Same (runners/taggers), with a 2:00 chase |
+| Teams swap only when seekers win | Same (taggers) |
+| `hns_hiders_alivefrags`: +1 per surviving hider | +1 point per surviving runner, +1 per tag |
+| Hiders can't attack; kit: 2 flash, 1 frost (4s freeze / 60% chill), smoke, HE | **2 flash + 1 frost** (smoke and HE cut). Flash a tagger right before a jump; frost them mid-air and they drop into the mist (you get the kill). Tune in the grenade block of `src/shared/constants.ts` |
 | Knife: 2 front stabs (100 HP + armour), backstab one-shots | Boomerang Fu rules: **one hit kills**, and there's no health. The slash is a short step-in: you have to be practically touching (a gap of 0.3u or less), walls, hedges, crates, ducts and huts block it, and you can swing again after 0.3s |
 | Fall damage; kill triggers off the map | Fall damage on big drops; falling into the mist kills |
 | Semiclip for teammates | Teammates pass through each other; opponents shove |
@@ -96,8 +96,8 @@ The look was matched against frames from Boomerang Fu's official release trailer
 - `scripts/check-map.ts`: for every map size (1–18 players), every roof is reachable and has a way back, spawns are clear, no obstacle has an in-between height, and every low obstacle can be cleared with the real jump.
 - `scripts/check-slash.ts`: slash reach through the real server tick (hits when touching, misses from half a body away) and that every obstacle type blocks it.
 - `scripts/fps.ts <url…>`: render fps in headless Chrome, to compare scene cost between builds. Add `?lite` to any URL for half resolution and no shadows.
-- `scripts/balance.ts [matches]`: Hide 'n Seek hider win rate by map size (bots-only; bots favour seekers even on the full city, so use it for comparisons, not absolute balance).
-- `scripts/check-dm.ts [n] [matches]`: Deathmatch invariants. Team sizes stay fixed, every catch swaps that pair, caught hiders return as seekers, hiders earn survival points.
-- `scripts/sim-match.ts [n] [hns|dm]`: runs a full bots-only match in about 200ms and prints kills, swaps and grenade use.
-- `scripts/mp-e2e.ts <url> <outDir>` and `scripts/dm-e2e.ts <url> <outDir>`: two real Chrome clients create, join, rename, ready up and play Hide 'n Seek or Deathmatch (including die and respawn). Need the dev servers running.
+- `scripts/balance.ts [matches]`: Tag runner win rate by map size (bots-only; bots favour taggers even on the full city, so use it for comparisons, not absolute balance).
+- `scripts/check-dm.ts [n] [matches]`: Deathmatch invariants. Team sizes stay fixed, every tag swaps that pair, tagged runners return as taggers, runners earn survival points.
+- `scripts/sim-match.ts [n] [tag|dm]`: runs a full bots-only match in about 200ms and prints kills, swaps and grenade use.
+- `scripts/mp-e2e.ts <url> <outDir>` and `scripts/dm-e2e.ts <url> <outDir>`: two real Chrome clients create, join, rename, ready up and play Tag or Deathmatch (including die and respawn). Need the dev servers running.
 - `scripts/play-shots.ts`, `scripts/juice-shots.ts`, `scripts/shot.ts`: screenshots taken with the locally installed Chrome (`playwright-core`, no browser download).

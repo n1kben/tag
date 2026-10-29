@@ -28,9 +28,9 @@ await title.close();
 const page = await newPage();
 await page.goto(`${base}/?practice=1`, { waitUntil: 'load' });
 const shots: [number, string, string[]][] = [
-  [2500, 'p1-hide', ['KeyD']],
+  [2500, 'p1-start', ['KeyD']],
   [4000, 'p2-run', ['KeyW', 'KeyD']],
-  [9000, 'p3-seek', ['KeyA']],
+  [9000, 'p3-chase', ['KeyA']],
   [10000, 'p4-later', []],
 ];
 for (const [wait, name, keys] of shots) {

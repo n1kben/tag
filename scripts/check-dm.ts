@@ -1,5 +1,5 @@
 // Invariant checks for team Deathmatch over full bot matches: team sizes stay fixed, a catch swaps
-// exactly that pair, the caught hider comes back as a seeker, hiders earn survival points.
+// exactly that pair, the caught runner comes back as a tagger, runners earn survival points.
 // Run: npx tsx scripts/check-dm.ts [bots=6] [matches=3]
 import { Match } from '../src/server/match';
 import { roofsForPlayers } from '../src/shared/map';
@@ -27,11 +27,11 @@ for (let run = 0; run < runs; run++) {
   const w = m.players.find(p => p.id === 99)!;
   w.connected = false;
   w.alive = false; // spawned by startRound; bench them so bots can't catch the bystander
-  const seekers0 = m.players.filter(p => p.connected && p.role === 'seeker').length;
+  const taggers0 = m.players.filter(p => p.connected && p.role === 'tagger').length;
 
   let drifted = false;
-  let catches = 0, swapsOk = 0, respawnedAsSeeker = 0, ticks = 0;
-  const awaitingSeekerRespawn = new Set<number>();
+  let catches = 0, swapsOk = 0, respawnedAsTagger = 0, ticks = 0;
+  const awaitingTaggerRespawn = new Set<number>();
   while (!ended && ticks < 60 * 60 * 5) {
     const rolesBefore = new Map(m.players.map(p => [p.id, p.role]));
     events.length = 0;
@@ -39,24 +39,24 @@ for (let run = 0; run < runs; run++) {
     I.step();
     w.connected = false;
     ticks++;
-    const seekers = m.players.filter(p => p.connected && p.role === 'seeker').length;
-    if (seekers !== seekers0 && !drifted) {
+    const taggers = m.players.filter(p => p.connected && p.role === 'tagger').length;
+    if (taggers !== taggers0 && !drifted) {
       drifted = true;
-      fail(`team size drifted: ${seekers0} → ${seekers} seekers at tick ${ticks}`);
+      fail(`team size drifted: ${taggers0} → ${taggers} taggers at tick ${ticks}`);
       for (const p of m.players) if (rolesBefore.get(p.id) !== p.role) console.log(`   ${p.name} ${rolesBefore.get(p.id)} → ${p.role}`);
       console.log('   events:', JSON.stringify(events.filter(e => e.k === 'kill' || e.k === 'spawn')));
     }
     for (const e of events) {
-      if (e.k === 'kill' && e.by !== null && rolesBefore.get(e.by) === 'seeker' && rolesBefore.get(e.id) === 'hider') {
+      if (e.k === 'kill' && e.by !== null && rolesBefore.get(e.by) === 'tagger' && rolesBefore.get(e.id) === 'runner') {
         catches++;
         const killer = m.players.find(p => p.id === e.by)!, victim = m.players.find(p => p.id === e.id)!;
-        if (killer.role === 'hider' && victim.role === 'seeker' && killer.nades.flash + killer.nades.frost > 0) swapsOk++;
+        if (killer.role === 'runner' && victim.role === 'tagger' && killer.nades.flash + killer.nades.frost > 0) swapsOk++;
         else fail(`catch ${e.by}→${e.id} did not swap cleanly`);
-        awaitingSeekerRespawn.add(e.id);
+        awaitingTaggerRespawn.add(e.id);
       }
-      if (e.k === 'spawn' && awaitingSeekerRespawn.delete(e.id)) {
+      if (e.k === 'spawn' && awaitingTaggerRespawn.delete(e.id)) {
         const p = m.players.find(q => q.id === e.id)!;
-        if (p.role === 'seeker' && p.nades.flash + p.nades.frost === 0) respawnedAsSeeker++;
+        if (p.role === 'tagger' && p.nades.flash + p.nades.frost === 0) respawnedAsTagger++;
         else fail(`caught player ${e.id} respawned as ${p.role}`);
       }
     }
@@ -65,7 +65,7 @@ for (let run = 0; run < runs; run++) {
   if (!ended) fail('match never ended');
   if (catches === 0) fail('no catches happened');
   if (survived === 0) fail('no survival points awarded');
-  console.log(`match ${run + 1}: ${(ticks / 60).toFixed(0)}s, seekers fixed at ${seekers0}/${n}, catches ${catches} (clean swaps ${swapsOk}), respawned as seeker ${respawnedAsSeeker}, survival points ${survived}`);
+  console.log(`match ${run + 1}: ${(ticks / 60).toFixed(0)}s, taggers fixed at ${taggers0}/${n}, catches ${catches} (clean swaps ${swapsOk}), respawned as tagger ${respawnedAsTagger}, survival points ${survived}`);
   console.log('  standings:', m.standings().filter(s => s.id !== 99).map(s => `${s.name}:${s.score}`).join(' '));
 }
 console.log(failures ? `${failures} FAILURE(S)` : 'ALL PASS');

@@ -156,7 +156,7 @@ export class Nav {
     b.y = from.solid.top;
     b.vx = (-dz / d) * drift;
     b.vz = (dx / d) * drift;
-    const st = { role: 'hider' as const, frozen: false, chilled: false, locked: false };
+    const st = { role: 'runner' as const, frozen: false, chilled: false, locked: false };
     for (let i = 0; i < 240; i++) {
       stepBody(this.map, b, steerTo(this.map, b, e.tx, e.tz), st, TICK_DT);
       if (b.y < KILL_Y) return false;

@@ -1,5 +1,5 @@
 import { ROUND_TIME, MIN_ROUND_TIME } from './constants';
-// "Rooftops" — a city of flat roofs over a misty drop, laid out like hns/awp_rooftops.
+// "Rooftops" — a city of flat roofs over a misty drop, laid out like tag/awp_rooftops.
 // Every roof is the same height: the skill is timing jumps across the alleys and through the
 // obstacles. Obstacles come in exactly two heights so they read at a glance:
 //   LOW  (crates, AC units, vents, ducts, low walls, hedges ≤ 0.85): always jumpable
@@ -333,7 +333,7 @@ export const FULL_MAP = mapFor(BUILDINGS.map(b => b.id));
 // One roof per player plus the plaza (min 5 roofs), grown outward from the plaza through
 // jumpable gaps/planks so the play area is always one connected patch.
 export const MIN_ROOFS = 5;
-export const ROOFS_PER_PLAYER = 1.25; // roofs added per player, on top of the plaza (1.0 got too crowded for hiders)
+export const ROOFS_PER_PLAYER = 1.25; // roofs added per player, on top of the plaza (1.0 got too crowded for runners)
 const JUMPABLE_GAP = 3.4;
 
 function gapBetween(a: Building, b: Building): number {
@@ -345,7 +345,7 @@ function linked(a: Building, b: Building): boolean {
   return BRIDGES.some(br => overlaps(br, a) && overlaps(br, b));
 }
 
-/** Hide 'n Seek round length for a map: less ground to cover = less time to survive. */
+/** Tag round length for a map: less ground to cover = less time to survive. */
 export function roundTimeFor(map: GameMap): number {
   const t = (map.buildings.length - MIN_ROOFS) / (BUILDINGS.length - MIN_ROOFS);
   return Math.round(MIN_ROUND_TIME + Math.max(0, Math.min(1, t)) * (ROUND_TIME - MIN_ROUND_TIME));
@@ -369,9 +369,9 @@ export function roofsForPlayers(players: number, perPlayer = ROOFS_PER_PLAYER): 
 }
 
 // ── Spawns ────────────────────────────────────────────────────────────────
-// Seekers start together on the plaza; hiders scatter from the plaza edges.
-export const SEEKER_SPAWNS: [number, number][] = [[-2, -3], [2, -3], [-2, -1], [2, -1], [0, -5]];
-// Hiders start in the rows outside the plaza planters, a hop away from the alleys
-export const HIDER_SPAWNS: [number, number][] = [
+// Taggers start together on the plaza; runners scatter from the plaza edges.
+export const TAGGER_SPAWNS: [number, number][] = [[-2, -3], [2, -3], [-2, -1], [2, -1], [0, -5]];
+// Runners start in the rows outside the plaza planters, a hop away from the alleys
+export const RUNNER_SPAWNS: [number, number][] = [
   [-6, 1.9], [6, 1.9], [-6, -7.9], [6, -7.9], [0, 1.9], [0, -7.9], [-3, 1.9], [3, 1.9], [-3, -7.9], [3, -7.9],
 ];

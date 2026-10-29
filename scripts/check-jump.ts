@@ -6,7 +6,7 @@ import { TICK_DT, JUMP_COOLDOWN } from '../src/shared/constants';
 
 let failures = 0;
 const check = (ok: boolean, what: string) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${what}`); if (!ok) failures++; };
-const st = { role: 'hider' as const, frozen: false, chilled: false, locked: false };
+const st = { role: 'runner' as const, frozen: false, chilled: false, locked: false };
 const step = (b: Body, jump: boolean) => stepBody(FULL_MAP, b, { mx: 0, mz: 0, b: jump ? BTN_JUMP : 0 }, st, TICK_DT);
 
 /** Jump once, then press again `pressAfter` seconds after landing; when does the 2nd jump happen? */

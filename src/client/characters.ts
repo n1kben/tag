@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mat, addMist } from './world';
 import type { GameMap } from '../shared/map';
-import { COLOR_HIDER, COLOR_SEEKER, type NadeKind } from '../shared/constants';
+import { COLOR_RUNNER, COLOR_TAGGER, type NadeKind } from '../shared/constants';
 
 interface CharDef {
   build(body: THREE.Group): void;
@@ -233,7 +233,7 @@ export class Character {
     this.root.add(this.body, this.footL, this.footR);
     this.body.add(this.handL, this.handR);
 
-    // Seeker gear: kitchen knife, red bandana
+    // Tagger gear: kitchen knife, red bandana
     const blade = mesh(rounded(0.05, 0.08, 0.34, 0.02), 0xe9edf7, 0, 0, 0.2);
     const handle = mesh(rounded(0.06, 0.07, 0.14, 0.02), 0x6e4a3a, 0, 0, 0.0);
     this.knife.add(blade, handle);
@@ -253,7 +253,7 @@ export class Character {
     // Team ring on the floor
     this.ring = new THREE.Mesh(
       new THREE.RingGeometry(0.4, 0.46, 32),
-      new THREE.MeshBasicMaterial({ color: COLOR_HIDER, transparent: true, opacity: 0.5, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: COLOR_RUNNER, transparent: true, opacity: 0.5, depthWrite: false }),
     );
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.position.y = 0.03;
@@ -282,14 +282,14 @@ export class Character {
     this.body.add(this.stars);
     this.root.add(this.ice);
 
-    this.setRole('hider');
+    this.setRole('runner');
   }
 
-  setRole(role: 'hider' | 'seeker'): void {
-    const seeker = role === 'seeker';
-    this.knife.visible = seeker;
-    this.bandana.visible = seeker;
-    (this.ring.material as THREE.MeshBasicMaterial).color.setHex(seeker ? COLOR_SEEKER : COLOR_HIDER);
+  setRole(role: 'runner' | 'tagger'): void {
+    const tagger = role === 'tagger';
+    this.knife.visible = tagger;
+    this.bandana.visible = tagger;
+    (this.ring.material as THREE.MeshBasicMaterial).color.setHex(tagger ? COLOR_TAGGER : COLOR_RUNNER);
   }
 
   setNade(kind: NadeKind | null): void {

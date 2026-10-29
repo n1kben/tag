@@ -1,18 +1,18 @@
 // One match: rounds, phases, combat, grenades. Two modes:
-// - Hide 'n Seek plays like CS 1.6 HNS, really a game of tag. Everyone is visible; hiders get a
+// - Tag plays like CS 1.6 Hide 'n Seek (HNS), which is really a game of tag. Everyone is visible; runners get a
 //   head start and survive by running, jumping gaps and throwing grenades. See README "Rules".
-// - Deathmatch: same teams and kit, no rounds. Catch a hider and you swap sides; they respawn as a
-//   seeker. Points for catches, drops and time survived; most points when the clock runs out.
+// - Deathmatch: same teams and kit, no rounds. Catch a runner and you swap sides; they respawn as a
+//   tagger. Points for catches, drops and time survived; most points when the clock runs out.
 import {
   TICK_DT, SNAPSHOT_EVERY, PLAYER_RADIUS, EYE_HEIGHT, SAFE_FALL_SPEED, FATAL_FALL_SPEED, KILL_Y, MAX_HP,
   STAB_RANGE, STAB_ARC_COS, STAB_DAMAGE, STAB_HEIGHT,
   NADE_KINDS, NADE_LOADOUT, NADE_FUSE, NADE_THROW_SPEED, NADE_THROW_UP, NADE_GRAVITY,
   NADE_MIN_CHARGE, NADE_CHARGE_TIME, FROST_RADIUS, FROST_TIME, CHILL_RADIUS, CHILL_TIME, FLASH_RADIUS,
   FLASH_TIME,
-  HIDE_TIME, ROUND_END_TIME, ROUNDS_PER_MATCH, DM_TIME, RESPAWN_TIME, SPAWN_PROTECTION, SWAP_PROTECTION, SURVIVE_POINT_EVERY,
+  HEAD_START, ROUND_END_TIME, ROUNDS_PER_MATCH, DM_TIME, RESPAWN_TIME, SPAWN_PROTECTION, SWAP_PROTECTION, SURVIVE_POINT_EVERY,
   STOMP_STUN, PLANK_CRACK_TIME, PLANK_FIX_TIME, type NadeKind,
 } from '../shared/constants';
-import { SEEKER_SPAWNS, HIDER_SPAWNS, FULL_MAP, mapFor, roundTimeFor, type GameMap } from '../shared/map';
+import { TAGGER_SPAWNS, RUNNER_SPAWNS, FULL_MAP, mapFor, roundTimeFor, type GameMap } from '../shared/map';
 import { newBody, stepBody, BTN_ACTION, BTN_ALT, type Body, type Dyn, type Input, type Role, type Status } from '../shared/sim';
 import type {
   GameEvent, GameMode, KillCause, LobbyPlayer, NetPlayer, NetProjectile, Phase, ServerMessage, Snapshot, Standing,
@@ -49,7 +49,7 @@ export interface MPlayer {
   shovedT: number;
   respawnT: number; // deathmatch: seconds until back in, 0 = not waiting
   prot: number; // deathmatch spawn protection left
-  survT: number; // deathmatch: time alive as a hider since the last survival point
+  survT: number; // deathmatch: time alive as a runner since the last survival point
   stun: number; // dizzy from a head stomp: can't move
   plankFallT: number; // just dropped through a collapsing plank (not their fault)
   score: number;
@@ -71,8 +71,8 @@ const NO_NADES = (): Record<NadeKind, number> => ({ flash: 0, frost: 0 });
 
 export class Match {
   players: MPlayer[] = [];
-  phase: Phase = 'hide';
-  timeLeft = HIDE_TIME;
+  phase: Phase = 'start';
+  timeLeft = HEAD_START;
   round = 0;
   tick = 0;
   private swapPending = false;
@@ -88,7 +88,7 @@ export class Match {
 
   readonly map: GameMap;
 
-  constructor(private host: MatchHost, roster: LobbyPlayer[], readonly mode: GameMode = 'hns', roofs?: number[]) {
+  constructor(private host: MatchHost, roster: LobbyPlayer[], readonly mode: GameMode = 'tag', roofs?: number[]) {
     this.map = roofs ? mapFor(roofs) : FULL_MAP;
     this.resetPlanks();
     for (const p of roster) this.addPlayer(p);
@@ -103,7 +103,7 @@ export class Match {
     const mp: MPlayer = {
       id: p.id, name: p.name, character: p.character, bot: p.bot, connected: true,
       body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, starved: 0,
-      role: 'hider', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
+      role: 'runner', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
       nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
       respawnT: 0, prot: 0, survT: 0, stun: 0, plankFallT: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
     };
@@ -111,7 +111,7 @@ export class Match {
     // Joining a running deathmatch: drop into the smaller team after a short beat
     if (this.mode === 'dm' && this.round > 0) {
       const live = this.active().filter(q => q !== mp);
-      mp.role = live.filter(q => q.role === 'seeker').length * 2 < live.length ? 'seeker' : 'hider';
+      mp.role = live.filter(q => q.role === 'tagger').length * 2 < live.length ? 'tagger' : 'runner';
       mp.respawnT = 1;
     }
     return mp;
@@ -162,32 +162,32 @@ export class Match {
     this.round++;
     const ps = this.active();
     if (first) {
-      // Roughly even teams, like a CS server autobalance; seekers are the smaller side
+      // Roughly even teams, like a CS server autobalance; taggers are the smaller side
       const shuffled = [...ps].sort(() => Math.random() - 0.5);
-      const seekers = Math.max(1, Math.floor(ps.length / 2));
-      shuffled.forEach((p, i) => { p.role = i < seekers ? 'seeker' : 'hider'; });
+      const taggers = Math.max(1, Math.floor(ps.length / 2));
+      shuffled.forEach((p, i) => { p.role = i < taggers ? 'tagger' : 'runner'; });
     } else {
-      if (this.swapPending) for (const p of this.players) p.role = p.role === 'seeker' ? 'hider' : 'seeker';
+      if (this.swapPending) for (const p of this.players) p.role = p.role === 'tagger' ? 'runner' : 'tagger';
       this.swapPending = false;
       // Balance late joiners into the smaller team
-      const nS = ps.filter(p => p.role === 'seeker').length;
+      const nS = ps.filter(p => p.role === 'tagger').length;
       const nH = ps.length - nS;
-      if (nS === 0 && ps.length > 0) ps[0].role = 'seeker';
-      if (nH === 0 && ps.length > 1) ps[ps.length - 1].role = 'hider';
+      if (nS === 0 && ps.length > 0) ps[0].role = 'tagger';
+      if (nH === 0 && ps.length > 1) ps[ps.length - 1].role = 'runner';
     }
 
     let si = 0, hi = 0;
-    const hiderSpots = [...HIDER_SPAWNS].sort(() => Math.random() - 0.5);
+    const runnerSpots = [...RUNNER_SPAWNS].sort(() => Math.random() - 0.5);
     for (const p of ps) {
-      const [x, z] = p.role === 'seeker'
-        ? SEEKER_SPAWNS[si++ % SEEKER_SPAWNS.length]
-        : hiderSpots[hi++ % hiderSpots.length];
+      const [x, z] = p.role === 'tagger'
+        ? TAGGER_SPAWNS[si++ % TAGGER_SPAWNS.length]
+        : runnerSpots[hi++ % runnerSpots.length];
       p.body = newBody(this.map, x, z);
-      p.body.facing = p.role === 'seeker' ? Math.PI : 0;
+      p.body.facing = p.role === 'tagger' ? Math.PI : 0;
       p.hp = MAX_HP;
       p.alive = true;
       p.frozen = p.chilled = p.blind = 0;
-      p.nades = p.role === 'hider' ? { ...NADE_LOADOUT } : NO_NADES();
+      p.nades = p.role === 'runner' ? { ...NADE_LOADOUT } : NO_NADES();
       p.nadeSel = 'flash';
       p.aimT = -1;
       p.stabPending = false;
@@ -196,8 +196,8 @@ export class Match {
     }
     this.projectiles = [];
     this.resetPlanks();
-    this.phase = 'hide';
-    this.timeLeft = HIDE_TIME;
+    this.phase = 'start';
+    this.timeLeft = HEAD_START;
 
     const roles: Record<number, Role> = {};
     for (const p of ps) roles[p.id] = p.role;
@@ -208,13 +208,13 @@ export class Match {
     this.phase = 'end';
     this.timeLeft = ROUND_END_TIME;
     this.projectiles = []; // nothing in flight may hurt anyone after the result
-    if (winner === 'hider') {
-      // hns_hiders_alivefrags: every surviving hider scores
+    if (winner === 'runner') {
+      // hns_hiders_alivefrags: every surviving runner scores
       for (const p of this.active()) {
-        if (p.role === 'hider' && p.alive) { p.score += 1; p.survived += 1; }
+        if (p.role === 'runner' && p.alive) { p.score += 1; p.survived += 1; }
       }
     }
-    const swap = winner === 'seeker';
+    const swap = winner === 'tagger';
     this.broadcast({ type: 'round_end', round: this.round, winner, swap, standings: this.standings() });
     this.swapPending = swap;
   }
@@ -235,7 +235,7 @@ export class Match {
     p.hp = MAX_HP;
     p.alive = true;
     p.frozen = p.chilled = p.blind = 0;
-    p.nades = p.role === 'hider' ? { ...NADE_LOADOUT } : NO_NADES();
+    p.nades = p.role === 'runner' ? { ...NADE_LOADOUT } : NO_NADES();
     p.nadeSel = 'flash';
     p.aimT = -1;
     p.stabPending = false;
@@ -258,8 +258,8 @@ export class Match {
     this.tick++;
     this.timeLeft -= TICK_DT;
 
-    if (this.phase === 'hide' && this.timeLeft <= 0) {
-      this.phase = 'seek';
+    if (this.phase === 'start' && this.timeLeft <= 0) {
+      this.phase = 'chase';
       this.timeLeft = this.mode === 'dm' ? DM_TIME : roundTimeFor(this.map);
     }
 
@@ -268,14 +268,14 @@ export class Match {
     this.stepProjectiles();
 
     if (this.mode === 'dm') {
-      // Hiders earn points just for staying alive
-      if (this.phase === 'seek') {
+      // Runners earn points just for staying alive
+      if (this.phase === 'chase') {
         for (const p of this.active()) {
-          if (p.role !== 'hider' || !p.alive) continue;
+          if (p.role !== 'runner' || !p.alive) continue;
           if ((p.survT += TICK_DT) >= SURVIVE_POINT_EVERY) { p.survT -= SURVIVE_POINT_EVERY; p.score += 1; p.survived += 1; }
         }
       }
-      if (this.phase === 'seek' && this.timeLeft <= 0) {
+      if (this.phase === 'chase' && this.timeLeft <= 0) {
         this.phase = 'end';
         this.timeLeft = ROUND_END_TIME;
         this.projectiles = [];
@@ -286,12 +286,12 @@ export class Match {
         this.host.onMatchEnd(standings);
         return;
       }
-    } else if (this.phase === 'seek') {
+    } else if (this.phase === 'chase') {
       const ps = this.active();
-      const hidersAlive = ps.filter(p => p.role === 'hider' && p.alive).length;
-      const seekersAlive = ps.filter(p => p.role === 'seeker' && p.alive).length;
-      if (hidersAlive === 0) this.endRound('seeker');
-      else if (seekersAlive === 0 || this.timeLeft <= 0) this.endRound('hider');
+      const runnersAlive = ps.filter(p => p.role === 'runner' && p.alive).length;
+      const taggersAlive = ps.filter(p => p.role === 'tagger' && p.alive).length;
+      if (runnersAlive === 0) this.endRound('tagger');
+      else if (taggersAlive === 0 || this.timeLeft <= 0) this.endRound('runner');
     } else if (this.phase === 'end' && this.timeLeft <= 0) {
       if (this.round >= ROUNDS_PER_MATCH || this.active().filter(p => !p.bot).length === 0) {
         this.stop();
@@ -315,7 +315,7 @@ export class Match {
       role: p.role,
       frozen: p.frozen > 0 || p.stun > 0, // frozen solid, or dizzy from a stomp
       chilled: p.chilled > 0,
-      locked: !p.alive || this.phase === 'end' || (this.phase === 'hide' && p.role === 'seeker'),
+      locked: !p.alive || this.phase === 'end' || (this.phase === 'start' && p.role === 'tagger'),
     };
   }
 
@@ -357,8 +357,8 @@ export class Match {
       else p.stabPending = false;
     }
 
-    // Hider grenades: ALT (Q) switches, hold ACTION (Enter) to charge, release to throw
-    if (p.role === 'hider') {
+    // Runner grenades: ALT (Q) switches, hold ACTION (Enter) to charge, release to throw
+    if (p.role === 'runner') {
       if (canAct && (ev.pressed & BTN_ALT)) this.cycleNade(p);
       if (canAct && (ev.pressed & BTN_ACTION) && p.nades[p.nadeSel] > 0) p.aimT = 0;
       if (p.aimT >= 0) {
@@ -443,16 +443,16 @@ export class Match {
     if (by && this.enemies(by, t)) { by.score += 1; by.kills += 1; }
     if (this.mode === 'dm') {
       if (!by && (cause === 'fall' || cause === 'void') && t.plankFallT <= 0) t.score -= 1; // CS-style suicide penalty (not for planks giving way)
-      if (by && by.role === 'seeker' && t.role === 'hider') {
+      if (by && by.role === 'tagger' && t.role === 'runner') {
         // HNS deathmatch swap: the catcher runs now, the caught one hunts after respawning
-        by.role = 'hider';
+        by.role = 'runner';
         by.nades = { ...NADE_LOADOUT };
         by.nadeSel = 'flash';
         by.prot = SWAP_PROTECTION;
         by.survT = 0;
         by.stabPending = false;
         by.brain?.reset();
-        t.role = 'seeker';
+        t.role = 'tagger';
       }
       t.respawnT = RESPAWN_TIME;
     }
@@ -548,7 +548,7 @@ export class Match {
     const kind = pr.kind;
     const hits: number[] = [];
     const eyeY = pr.y + 0.3;
-    const seekers = this.active().filter(p => p.alive && p.role === 'seeker');
+    const taggers = this.active().filter(p => p.alive && p.role === 'tagger');
     // Effects need a clear line from the blast (roof edges, tanks and booths block it)
     const reach = (p: MPlayer, r: number): number => {
       const d = Math.hypot(p.body.x - pr.x, p.body.y + EYE_HEIGHT - eyeY, p.body.z - pr.z);
@@ -557,14 +557,14 @@ export class Match {
       return d;
     };
     if (kind === 'flash') {
-      for (const s of seekers) {
+      for (const s of taggers) {
         const d = reach(s, FLASH_RADIUS);
         if (d < 0) continue;
         s.blind = Math.max(s.blind, FLASH_TIME * (1 - (d / FLASH_RADIUS) * 0.6));
         hits.push(s.id);
       }
     } else if (kind === 'frost') {
-      for (const s of seekers) {
+      for (const s of taggers) {
         const d = reach(s, CHILL_RADIUS);
         if (d < 0) continue;
         if (d <= FROST_RADIUS) {

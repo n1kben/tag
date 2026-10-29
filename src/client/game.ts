@@ -10,7 +10,7 @@ import { readInput, isHeld, setInputEnabled } from './input';
 import { sfx, spatial, setMuted, isMuted } from './audio';
 import { stepBody, BTN_ACTION, type Body, type Dyn, type Input, type Role, type Status } from '../shared/sim';
 import { FULL_MAP, mapFor, roofsForPlayers } from '../shared/map';
-import { TICK_DT, TICK_RATE, NADE_CHARGE_TIME, COLOR_SEEKER, type NadeKind } from '../shared/constants';
+import { TICK_DT, TICK_RATE, NADE_CHARGE_TIME, COLOR_TAGGER, HEAD_START, type NadeKind } from '../shared/constants';
 import type { GameEvent, GameMode, LobbyPlayer, NetPlayer, Phase, ServerMessage, Snapshot, Standing } from '../shared/protocol';
 
 type Mode = 'title' | 'lobby' | 'match' | 'end';
@@ -32,8 +32,8 @@ export function startGame(): void {
   let lobbyPlayers: LobbyPlayer[] = [];
   let lastStandings: Standing[] | undefined;
   let lobbyInMatch = false;
-  let lobbyMode: GameMode = 'hns';
-  let gameMode: GameMode = 'hns'; // mode of the match being played
+  let lobbyMode: GameMode = 'tag';
+  let gameMode: GameMode = 'tag'; // mode of the match being played
   let standings: Standing[] = [];
 
   // Match state
@@ -41,7 +41,7 @@ export function startGame(): void {
   const slices: SliceDeath[] = [];
   const dead = new Set<number>();
   let roles: Record<number, Role> = {};
-  let phase: Phase = 'hide';
+  let phase: Phase = 'start';
   let timeLeft = 0;
   let buffer: Buffered[] = [];
   let renderTick = 0;
@@ -208,23 +208,23 @@ export function startGame(): void {
   function roundStart(round: number, r: Record<number, Role>): void {
     roles = r;
     dead.clear();
-    phase = 'hide';
+    phase = 'start';
     pred = null;
     pending = [];
     buffer = [];
     spectate = null;
-    for (const [id, c] of chars) c.setRole(roles[id] ?? 'hider');
+    for (const [id, c] of chars) c.setRole(roles[id] ?? 'runner');
     const mine = roles[myId];
     if (gameMode === 'dm') {
-      ui.banner(mine === 'hider' ? 'RUN!' : 'YOU\'RE IT', 'Deathmatch · catch a hider and you swap · 3:00', mine === 'hider' ? '#23f0c7' : '#ef767a', 2800);
-    } else if (mine === 'hider') ui.banner('RUN!', `Round ${round} · get away before the seekers wake up`, '#23f0c7', 2600);
-    else if (mine === 'seeker') ui.banner('YOU\'RE IT', `Round ${round} · count to ten…`, '#ef767a', 2600);
+      ui.banner(mine === 'runner' ? 'RUN!' : 'YOU\'RE IT', 'Deathmatch · tag a runner and you swap · 3:00', mine === 'runner' ? '#23f0c7' : '#ef767a', 2800);
+    } else if (mine === 'runner') ui.banner('RUN!', `Round ${round} · get away before the taggers wake up`, '#23f0c7', 2600);
+    else if (mine === 'tagger') ui.banner('YOU\'RE IT', `Round ${round} · frozen for ${HEAD_START}s…`, '#ef767a', 2600);
     sfx.beep(true);
   }
 
   function roundEnd(winner: Role, swap: boolean): void {
     const mine = roles[myId];
-    ui.banner(winner === 'hider' ? 'HIDERS WIN!' : 'SEEKERS WIN!', swap ? 'Teams swap!' : 'Hiders run again', winner === 'hider' ? '#23f0c7' : '#ef767a', 3500);
+    ui.banner(winner === 'runner' ? 'RUNNERS WIN!' : 'TAGGERS WIN!', swap ? 'Teams swap!' : 'Runners run again', winner === 'runner' ? '#23f0c7' : '#ef767a', 3500);
     (mine === winner ? sfx.win : sfx.lose)();
   }
 
@@ -236,7 +236,7 @@ export function startGame(): void {
       role: me.role,
       frozen: me.frozen > 0 || me.stun > 0, // frozen solid or dizzy from a stomp
       chilled: me.chilled > 0,
-      locked: !me.alive || latest!.phase === 'end' || (latest!.phase === 'hide' && me.role === 'seeker'),
+      locked: !me.alive || latest!.phase === 'end' || (latest!.phase === 'start' && me.role === 'tagger'),
     };
   }
 
@@ -258,8 +258,8 @@ export function startGame(): void {
     const myPrevRole = roles[myId];
     for (const p of s.players) roles[p.id] = p.role;
     if (gameMode === 'dm' && s.me && myPrevRole && myPrevRole !== s.me.role) {
-      if (s.me.role === 'hider') { ui.banner('CAUGHT ONE!', 'You\'re a hider now · RUN!', '#23f0c7', 2000); sfx.win(); }
-      else ui.banner('YOU\'RE IT', 'Back in as a seeker…', '#ef767a', 1800);
+      if (s.me.role === 'runner') { ui.banner('TAGGED ONE!', 'You\'re a runner now · RUN!', '#23f0c7', 2000); sfx.win(); }
+      else ui.banner('YOU\'RE IT', 'Back in as a tagger…', '#ef767a', 1800);
     }
     // Live scores (the Tab board and the deathmatch leaderboard); late joiners get a row too
     for (const sc of s.scores) {
@@ -271,18 +271,18 @@ export function startGame(): void {
       row.score = sc.score;
       row.kills = sc.kills;
     }
-    if (gameMode === 'dm' && prevPhase === 'seek' && phase === 'end') {
+    if (gameMode === 'dm' && prevPhase === 'chase' && phase === 'end') {
       const ranked = [...standings].sort((a, b) => b.score - a.score);
       const top = ranked[0];
       const tie = ranked[1] && ranked[1].score === top?.score;
       ui.banner('TIME!', top ? (tie ? `Tied at ${top.score}!` : `${top.name} wins with ${top.score}`) : '', '#ffd23f', 3500);
       (top?.id === myId && !tie ? sfx.win : sfx.lose)();
     }
-    if (prevPhase === 'hide' && phase === 'seek') {
-      ui.banner('READY OR NOT!', roles[myId] === 'seeker' ? 'Go find them' : 'Here they come…', '#ffd23f', 1800);
+    if (prevPhase === 'start' && phase === 'chase') {
+      ui.banner('READY OR NOT!', roles[myId] === 'tagger' ? 'Go get them' : 'Here they come…', '#ffd23f', 1800);
       sfx.gong();
     }
-    if (phase === 'hide' && timeLeft <= 3.05 && Math.ceil(timeLeft) !== Math.ceil(timeLeft + 2 * TICK_DT)) sfx.beep();
+    if (phase === 'start' && timeLeft <= 3.05 && Math.ceil(timeLeft) !== Math.ceil(timeLeft + 2 * TICK_DT)) sfx.beep();
 
     const players = new Map(s.players.map(p => [p.id, p]));
     buffer.push({ tick: s.tick, players, snap: s });
@@ -325,9 +325,9 @@ export function startGame(): void {
     if (ev.landed > 3) { fx.puff(pred.x, pred.y, pred.z, 6); sfx.land(Math.min(1, ev.landed / 12)); c?.land(ev.landed); }
     if (ev.lunged) { fx.slash(pred.x, pred.y, pred.z, pred.facing); sfx.swish(); }
 
-    // Hider throw arc: mirror the server's charge timer locally
+    // Runner throw arc: mirror the server's charge timer locally
     const me = latest.me!;
-    const canAim = me.alive && me.role === 'hider' && !st.locked && !st.frozen && me.nades[me.nadeSel] > 0;
+    const canAim = me.alive && me.role === 'runner' && !st.locked && !st.frozen && me.nades[me.nadeSel] > 0;
     if (canAim && (input.b & BTN_ACTION)) aimHeld = prevAction || aimHeld > 0 ? aimHeld + TICK_DT : (ev.pressed & BTN_ACTION ? TICK_DT : 0);
     else aimHeld = 0;
 
@@ -395,7 +395,7 @@ export function startGame(): void {
         const victim = esc(ui.nameOf(e.id));
         const icon = { stab: '🔪', fall: '💥 splat', void: e.by !== null ? '👋 knocked off' : '☁️ fell' }[e.cause];
         ui.killfeed(e.by !== null ? `${esc(ui.nameOf(e.by))} ${icon} ${victim}` : `${victim} ${icon}`);
-        if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', gameMode === 'dm' ? (e.by === null ? '−1 for falling off' : roles[myId] === 'hider' ? 'Caught! You\'ll come back as a seeker' : '') : 'Spectating · press Enter to switch', '#f0408f', 2200);
+        if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', gameMode === 'dm' ? (e.by === null ? '−1 for falling off' : roles[myId] === 'runner' ? 'Tagged! You\'ll come back as a tagger' : '') : 'Spectating · press Enter to switch', '#f0408f', 2200);
         if (e.by === myId) ui.banner('GOTCHA!', '', '#ffd23f', 1100);
         break;
       }
@@ -457,7 +457,7 @@ export function startGame(): void {
         f: lerpAngle(pa.f, pb.f, t), visible: true,
       });
     }
-    // Present before, gone now (out of a seeker's sight): keep them until the newer frame wins
+    // Present before, gone now (out of a tagger's sight): keep them until the newer frame wins
     for (const [id, pa] of a.players) if (!out.has(id) && t < 0.5) out.set(id, { ...pa, visible: true });
     return out;
   }
@@ -591,7 +591,7 @@ export function startGame(): void {
     let fx0 = camTarget.x, fy0 = camTarget.y, fz0 = camTarget.z, lookVx = 0, lookVz = 0;
     if (pred && me?.alive) {
       fx0 = pred.x + errOffset.x; fy0 = pred.y; fz0 = pred.z + errOffset.z; lookVx = pred.vx; lookVz = pred.vz;
-    } else if (gameMode === 'hns') {
+    } else if (gameMode === 'tag') {
       if (spectate === null || !remote.get(spectate)?.alive) spectate = nextSpectate();
       const sp = spectate !== null ? remote.get(spectate) : undefined;
       if (sp) { fx0 = sp.x; fy0 = sp.y; fz0 = sp.z; lookVx = sp.vx; lookVz = sp.vz; }
@@ -613,7 +613,7 @@ export function startGame(): void {
       const sx = (v.x * 0.5 + 0.5) * window.innerWidth, sy = (-v.y * 0.5 + 0.5) * window.innerHeight;
       const role = id === myId ? me?.role : remote.get(id)?.role;
       // Everyone (you too) wears their team colour
-      const color = role === 'seeker' ? hex(COLOR_SEEKER) : '#14bfa0';
+      const color = role === 'tagger' ? hex(COLOR_TAGGER) : '#14bfa0';
       ui.label(id, sx, sy, id === myId ? 'YOU' : ui.nameOf(id), color);
     }
     ui.hideLabelsExcept(shown);
@@ -624,9 +624,8 @@ export function startGame(): void {
       const hud: HudState = {
         phase, timeLeft, role: me.role, alive: me.alive, frozen: me.frozen, blind: me.blind,
         nades: me.nades, nadeSel: me.nadeSel, teams,
-        spectating: gameMode === 'hns' && !me.alive && spectate !== null ? ui.nameOf(spectate) : null,
+        spectating: gameMode === 'tag' && !me.alive && spectate !== null ? ui.nameOf(spectate) : null,
         mode: gameMode,
-        board: [...standings].sort((a, b) => b.score - a.score).slice(0, 5).map(r => ({ name: r.name, score: r.score, me: r.id === myId })),
         respawn: me.respawn,
       };
       ui.updateHud(hud);
@@ -641,7 +640,7 @@ export function startGame(): void {
   requestAnimationFrame(frame);
   const params = new URLSearchParams(location.search);
   const hashRoom = location.hash.slice(1);
-  if (params.has('practice')) net.send({ type: 'create_room', practice: true, mode: params.get('practice') === 'dm' ? 'dm' : 'hns' });
+  if (params.has('practice')) net.send({ type: 'create_room', practice: true, mode: params.get('practice') === 'dm' ? 'dm' : 'tag' });
   else if (hashRoom) net.send({ type: 'join_room', roomId: hashRoom });
 }
 

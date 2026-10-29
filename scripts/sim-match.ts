@@ -1,11 +1,11 @@
 // Runs a full bots-only match as fast as possible and prints what happened.
-// Run: npx tsx scripts/sim-match.ts [bots=6] [hns|dm]
+// Run: npx tsx scripts/sim-match.ts [bots=6] [tag|dm]
 import { Match } from '../src/server/match';
 import { roofsForPlayers } from '../src/shared/map';
 import type { LobbyPlayer, ServerMessage } from '../src/shared/protocol';
 
 const n = Number(process.argv[2] ?? 6);
-const mode = process.argv[3] === "dm" ? "dm" : "hns"; // npx tsx scripts/sim-match.ts 6 dm
+const mode = process.argv[3] === "dm" ? "dm" : "tag"; // npx tsx scripts/sim-match.ts 6 dm
 const roster: LobbyPlayer[] = Array.from({ length: n }, (_, i) => ({ id: i + 1, name: `bot${i + 1}`, character: i, ready: true, bot: true }));
 // One fake human (id 99) so snapshots/visibility code runs too
 roster.push({ id: 99, name: 'watcher', character: 9, ready: true, bot: false });
@@ -30,7 +30,7 @@ const m = new Match({
       return;
     }
     if (msg.type === 'round_start') benchWatcher();
-    if (msg.type === 'round_start') log.push(`round ${msg.round}: seekers ${Object.entries(msg.roles).filter(([, r]) => r === 'seeker').map(([id]) => id)} rang=${msg.rangUnlocked}`);
+    if (msg.type === 'round_start') log.push(`round ${msg.round}: taggers ${Object.entries(msg.roles).filter(([, r]) => r === 'tagger').map(([id]) => id)} rang=${msg.rangUnlocked}`);
     if (msg.type === 'round_end') log.push(`  → ${msg.winner}s win${msg.swap ? ' (swap)' : ''}`);
     if (msg.type === 'match_end') {
       ended = true;

@@ -68,7 +68,7 @@ await waitVisible(a, '.timer');
 await waitVisible(b, '.timer');
 check(true, 'match started on both clients');
 
-// Move around during hide + into seek
+// Move around during the head start + into the chase
 await a.keyboard.down('KeyS');
 await b.keyboard.down('KeyD');
 await a.waitForTimeout(1500);
@@ -77,17 +77,17 @@ await b.keyboard.up('KeyD');
 const roleA = (await a.textContent('.role-chip'))?.trim();
 const roleB = (await b.textContent('.role-chip'))?.trim();
 check(!!roleA && !!roleB, `roles assigned (A=${roleA}, B=${roleB})`);
-await a.screenshot({ path: `${outDir}/mp-a-hide.png` });
-await b.screenshot({ path: `${outDir}/mp-b-hide.png` });
+await a.screenshot({ path: `${outDir}/mp-a-start.png` });
+await b.screenshot({ path: `${outDir}/mp-b-start.png` });
 await a.waitForTimeout(10000);
 const timerA = (await a.textContent('.timer'))?.trim() ?? '';
-check(/^\d:\d\d$/.test(timerA) || timerA === '—', `seek phase reached (timer "${timerA}")`);
+check(/^\d:\d\d$/.test(timerA) || timerA === '—', `chase phase reached (timer "${timerA}")`);
 await a.keyboard.down('Enter');
 await a.waitForTimeout(80);
 await a.keyboard.up('Enter');
 await a.waitForTimeout(400);
-await a.screenshot({ path: `${outDir}/mp-a-seek.png` });
-await b.screenshot({ path: `${outDir}/mp-b-seek.png` });
+await a.screenshot({ path: `${outDir}/mp-a-chase.png` });
+await b.screenshot({ path: `${outDir}/mp-b-chase.png` });
 
 // Leaving returns to title and the other client keeps playing
 await b.keyboard.press('Escape');

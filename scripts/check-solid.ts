@@ -12,33 +12,33 @@ const map = FULL_MAP;
 const status = (role: Role) => ({ role, frozen: false, chilled: false, locked: false });
 const still = (id: number, b: Body, role: Role): Dyn['bodies'][number] => ({ id, x: b.x, y: b.y, z: b.z, role });
 
-// 1) Edge block: seeker leaps plaza → east terrace across the alley (z = -6, away from the planks)
+// 1) Edge block: tagger leaps plaza → east terrace across the alley (z = -6, away from the planks)
 function leap(blocker: boolean, tap: boolean): 'landed' | 'fell' | 'other' {
-  const seeker = newBody(map, 5, -6);
-  const guard = newBody(map, 10.95, -6); // hider standing right at the far roof's edge
-  const dyn: Dyn = { bodies: blocker ? [still(2, guard, 'hider')] : [] };
+  const tagger = newBody(map, 5, -6);
+  const guard = newBody(map, 10.95, -6); // runner standing right at the far roof's edge
+  const dyn: Dyn = { bodies: blocker ? [still(2, guard, 'runner')] : [] };
   let jumped = false;
   for (let i = 0; i < 240; i++) {
-    let input = steerTo(map, seeker, 14, -6); // run at the far roof, jump at the lip
-    if (tap && jumped && !seeker.grounded) input = { ...input, b: 0 }; // short hop
+    let input = steerTo(map, tagger, 14, -6); // run at the far roof, jump at the lip
+    if (tap && jumped && !tagger.grounded) input = { ...input, b: 0 }; // short hop
     if (input.b & BTN_JUMP) jumped = true;
-    stepBody(map, seeker, input, status('seeker'), TICK_DT, dyn);
-    if (seeker.y < KILL_Y) return 'fell';
-    if (seeker.grounded && seeker.x > 10.6 && Math.abs(seeker.y) < 0.01) return 'landed';
+    stepBody(map, tagger, input, status('tagger'), TICK_DT, dyn);
+    if (tagger.y < KILL_Y) return 'fell';
+    if (tagger.grounded && tagger.x > 10.6 && Math.abs(tagger.y) < 0.01) return 'landed';
   }
   return 'other';
 }
 check(map.heightAt(11.5, -6) === 0 && map.heightAt(9.75, -6) === -Infinity, 'test setup: open alley at z=-6');
 check(leap(false, false) === 'landed', 'no guard: the leap to the next roof lands');
-check(leap(true, false) === 'fell', 'hider guarding the edge: a full leap is bonked into the alley');
-check(leap(true, true) === 'fell', 'hider guarding the edge: a short hop is body-blocked into the alley');
+check(leap(true, false) === 'fell', 'runner guarding the edge: a full leap is bonked into the alley');
+check(leap(true, true) === 'fell', 'runner guarding the edge: a short hop is body-blocked into the alley');
 
 // 2) Standing on a teammate's head
 {
   const a = newBody(map, 0, -3);
   const b = newBody(map, 0.1, -3);
   b.y = 2.5; b.grounded = false;
-  for (let i = 0; i < 60; i++) stepBody(map, b, { mx: 0, mz: 0, b: 0 }, status('hider'), TICK_DT, { bodies: [still(1, a, 'hider')] });
+  for (let i = 0; i < 60; i++) stepBody(map, b, { mx: 0, mz: 0, b: 0 }, status('runner'), TICK_DT, { bodies: [still(1, a, 'runner')] });
   check(b.grounded && Math.abs(b.y - PLAYER_HEIGHT) < 0.01 && b.onHead, `drop onto a teammate → standing on their head (y=${b.y.toFixed(2)})`);
 }
 
@@ -50,10 +50,10 @@ check(leap(true, true) === 'fell', 'hider guarding the edge: a short hop is body
     const a = newBody(map, sx, sz);
     const b = newBody(map, sx, sz);
     if (fromHead) { b.y = PLAYER_HEIGHT; b.onHead = true; } else { b.x = sx - 0.9; }
-    const dyn: Dyn = { bodies: fromHead ? [still(1, a, 'hider')] : [] };
+    const dyn: Dyn = { bodies: fromHead ? [still(1, a, 'runner')] : [] };
     let best = b.y;
     for (let i = 0; i < 120; i++) {
-      stepBody(map, b, { mx: 1, mz: 0, b: i < 40 ? BTN_JUMP : 0 }, status('hider'), TICK_DT, dyn);
+      stepBody(map, b, { mx: 1, mz: 0, b: i < 40 ? BTN_JUMP : 0 }, status('runner'), TICK_DT, dyn);
       if (b.grounded) best = Math.max(best, b.y);
     }
     return best;
@@ -63,8 +63,8 @@ check(leap(true, true) === 'fell', 'hider guarding the edge: a short hop is body
   check(Math.abs(head - hut.h) < 0.01, `boosted off a teammate's head you land on the hut roof (${head.toFixed(2)})`);
 }
 
-// 4) Stomp (hider on seeker) vs bonk (seeker on hider)
-for (const [lander, under] of [['hider', 'seeker'], ['seeker', 'hider']] as const) {
+// 4) Stomp (runner on tagger) vs bonk (tagger on runner)
+for (const [lander, under] of [['runner', 'tagger'], ['tagger', 'runner']] as const) {
   const a = newBody(map, 0, -3);
   const b = newBody(map, 0.1, -3);
   b.y = 3; b.grounded = false; b.vx = 0.4; // drifting slightly, still over their head on the way down
@@ -75,8 +75,8 @@ for (const [lander, under] of [['hider', 'seeker'], ['seeker', 'hider']] as cons
     if (ev.stomped !== null) stomped = ev.stomped;
     if (vy0 < 0 && b.vy > 0) bounced = true;
   }
-  if (lander === 'hider') check(stomped === 7, 'hider lands on a seeker → stomp (seeker gets stunned)');
-  else check(stomped === null && bounced && b.vx < 0, 'seeker lands on a hider → bonked back, no stomp');
+  if (lander === 'runner') check(stomped === 7, 'runner lands on a tagger → stomp (tagger gets stunned)');
+  else check(stomped === null && bounced && b.vx < 0, 'tagger lands on a runner → bonked back, no stomp');
 }
 
 // 5) Weak plank through the real server: crack → collapse (player drops) → rebuilt once clear
@@ -85,7 +85,7 @@ for (const [lander, under] of [['hider', 'seeker'], ['seeker', 'hider']] as cons
   const m = new Match({ send() {}, onMatchEnd() {} }, roster, 'dm'); // deaths don't end a round (and reset planks) here
   const I = m as unknown as { startRound(first: boolean): void; step(): void; phase: string; timeLeft: number };
   I.startRound(true);
-  I.phase = 'seek'; I.timeLeft = 999;
+  I.phase = 'chase'; I.timeLeft = 999;
   const i = map.bridges.findIndex(b => b.x0 === -0.6 && b.z0 === -12.2); // plaza ↔ north garden
   const br = map.bridges[i];
   const [p, q] = m.players as MPlayer[];

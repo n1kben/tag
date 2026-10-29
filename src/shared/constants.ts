@@ -27,13 +27,13 @@ export const JUMP_CUT = 0.45; // releasing Space while rising keeps this much up
 export const COYOTE_TIME = 0.1;
 export const JUMP_BUFFER = 0.12;
 
-// Heads: a teammate's head is a boost; a hider landing on a seeker = stomp (seeker stunned);
-// a seeker landing on a hider = bonk (knocked back, so a hider guarding an edge sends chasers into the alley)
+// Heads: a teammate's head is a boost; a runner landing on a tagger = stomp (tagger stunned);
+// a tagger landing on a runner = bonk (knocked back, so a runner guarding an edge sends chasers into the alley)
 export const HEAD_JUMP_BOOST = 1.25; // jump velocity multiplier off a head (≈1.56× the height)
 export const STOMP_STUN = 0.8; // seconds the stomped player can't move
 export const STOMP_BOUNCE = 7; // upward bounce for the stomper
 export const STOMP_MIN_SPEED = 2; // falling at least this fast counts as a stomp
-export const BONK_BOUNCE = 3.5; // seeker hitting a hider's head: small hop…
+export const BONK_BOUNCE = 3.5; // tagger hitting a runner's head: small hop…
 export const BONK_KNOCKBACK = 0.6; // …and sent back the way they came at this fraction of their speed
 
 // Weak planks: crack when stood on over the gap, collapse, then get rebuilt
@@ -53,7 +53,7 @@ export const KILL_Y = -6;
 // Health (CS 100hp; armor folded in so a front stab takes two hits)
 export const MAX_HP = 100;
 
-// Seeker slash
+// Tagger slash
 export const STAB_RANGE = 0.1; // gap between bodies: you have to be practically touching
 export const STAB_ARC_COS = 0.45; // ~63° half angle
 export const STAB_DAMAGE = 100; // one hit kills (Boomerang Fu): no health to whittle down
@@ -62,8 +62,8 @@ export const LUNGE_SPEED = 5; // a small committed step-in, not a long reach
 export const LUNGE_TIME = 0.06;
 export const STAB_HEIGHT = 0.4; // the blade's line: anything taller in between (even a low wall) blocks it
 
-// ── Grenades: hider kit, tune here ────────────────────────────────────────
-// Flash a seeker right before they jump; frost them mid-air so they drop into the mist.
+// ── Grenades: runner kit, tune here ────────────────────────────────────────
+// Flash a tagger right before they jump; frost them mid-air so they drop into the mist.
 export type NadeKind = 'flash' | 'frost';
 export const NADE_KINDS: NadeKind[] = ['flash', 'frost'];
 export const NADE_LOADOUT: Record<NadeKind, number> = { flash: 2, frost: 1 }; // per round
@@ -75,24 +75,24 @@ export const NADE_MIN_CHARGE = 0.45; // fraction of a full throw on a tap
 export const NADE_CHARGE_TIME = 0.6; // hold this long for a full throw
 export const AIM_SPEED = 0.4; // move speed multiplier while charging a throw
 export const NADE_RADIUS = 0.18;
-export const FLASH_RADIUS = 13; // seekers in line of sight within this get blinded
+export const FLASH_RADIUS = 13; // taggers in line of sight within this get blinded
 export const FLASH_TIME = 3.2; // max blind seconds (less at range)
-export const FROST_RADIUS = 3.6; // seekers inside are frozen solid (mid-air: they drop straight down)
+export const FROST_RADIUS = 3.6; // taggers inside are frozen solid (mid-air: they drop straight down)
 export const FROST_TIME = 4;
-export const CHILL_RADIUS = 6; // seekers inside are slowed
+export const CHILL_RADIUS = 6; // taggers inside are slowed
 export const CHILL_TIME = 7;
 export const CHILL_SPEED = 0.6;
 
-// Deathmatch (CS "HNS deathmatch"): same teams and kit as Hide 'n Seek, no rounds.
-// Catch a hider and you swap: you become a hider, they respawn as a seeker.
+// Deathmatch (CS "HNS deathmatch"): same teams and kit as Tag, no rounds.
+// Catch a runner and you swap: you become a runner, they respawn as a tagger.
 export const DM_TIME = 180;
 export const RESPAWN_TIME = 2;
 export const SPAWN_PROTECTION = 1.5; // can't be hurt right after (re)spawning
-export const SWAP_PROTECTION = 1; // grace for a seeker who just became a hider
-export const SURVIVE_POINT_EVERY = 15; // hiders score a point for every this-many seconds alive
+export const SWAP_PROTECTION = 1; // grace for a tagger who just became a runner
+export const SURVIVE_POINT_EVERY = 15; // runners score a point for every this-many seconds alive
 
 // Round flow (hnsmod defaults)
-export const HIDE_TIME = 10;
+export const HEAD_START = 5; // taggers start frozen this long (no hiding phase; hnsmod used 10s)
 export const ROUND_TIME = 120; // on the full city; smaller maps get shorter rounds
 export const MIN_ROUND_TIME = 70; // on the smallest (5-roof) map
 export const ROUND_END_TIME = 5;
@@ -100,8 +100,8 @@ export const ROUNDS_PER_MATCH = 8;
 export const MAX_PLAYERS = 10;
 
 // Palette (sampled from Boomerang Fu trailer frames + COLORS.csv team accents)
-export const COLOR_HIDER = 0x23f0c7;
-export const COLOR_SEEKER = 0xef767a;
+export const COLOR_RUNNER = 0x23f0c7;
+export const COLOR_TAGGER = 0xef767a;
 export const COLOR_ACCENT = 0xffe347;
 
 // Food roster (visuals live in client/characters.ts, keyed by index)

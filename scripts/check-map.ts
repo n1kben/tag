@@ -3,7 +3,7 @@
 // by the real movement sim). Plus: spawns clear, no in-between obstacle heights, every low obstacle
 // clearable with the real jump. Run: npx tsx scripts/check-map.ts
 import { navFor, steerTo, type Nav } from '../src/shared/nav';
-import { FULL_MAP, PLAZA_ID, SEEKER_SPAWNS, HIDER_SPAWNS, LOW_MAX, TALL_MIN, ROOF_H, mapFor, roofsForPlayers } from '../src/shared/map';
+import { FULL_MAP, PLAZA_ID, TAGGER_SPAWNS, RUNNER_SPAWNS, LOW_MAX, TALL_MIN, ROOF_H, mapFor, roofsForPlayers } from '../src/shared/map';
 import { newBody, stepBody } from '../src/shared/sim';
 import { TICK_DT, PLAYER_RADIUS } from '../src/shared/constants';
 
@@ -42,7 +42,7 @@ for (const [key, players] of sizes) {
 }
 
 // 2) Spawns must stand on clear roof with a body's room around them (the plaza is in every map)
-const badSpawns = [...SEEKER_SPAWNS, ...HIDER_SPAWNS].filter(([x, z]) =>
+const badSpawns = [...TAGGER_SPAWNS, ...RUNNER_SPAWNS].filter(([x, z]) =>
   [[0, 0], [PLAYER_RADIUS, 0], [-PLAYER_RADIUS, 0], [0, PLAYER_RADIUS], [0, -PLAYER_RADIUS]].some(([dx, dz]) => FULL_MAP.heightAt(x + dx, z + dz) !== ROOF_H));
 console.log(`spawns blocked: [${badSpawns.map(s => s.join(',')).join(' ')}]`);
 
@@ -60,7 +60,7 @@ for (const p of FULL_MAP.props.filter(q => q.h <= LOW_MAX && q.kind !== 'skyligh
   const tx = across === 'x' ? p.x + p.w / 2 + 1.5 : p.x, tz = across === 'x' ? p.z : p.z + p.d / 2 + 1.5;
   let cleared = false;
   for (let i = 0; i < 180; i++) {
-    stepBody(FULL_MAP, b, steerTo(FULL_MAP, b, tx, tz, 1, false), { role: 'hider', frozen: false, chilled: false, locked: false }, TICK_DT);
+    stepBody(FULL_MAP, b, steerTo(FULL_MAP, b, tx, tz, 1, false), { role: 'runner', frozen: false, chilled: false, locked: false }, TICK_DT);
     if ((across === 'x' ? b.x > p.x + p.w / 2 + 0.5 : b.z > p.z + p.d / 2 + 0.5)) { cleared = true; break; }
   }
   if (!cleared) { unjumpable++; console.log(`  can't jump ${p.kind} at ${p.x.toFixed(1)},${p.z.toFixed(1)}`); }

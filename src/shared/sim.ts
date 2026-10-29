@@ -6,8 +6,8 @@ import {
 import type { GameMap } from './map';
 
 export const BTN_JUMP = 1;
-export const BTN_ACTION = 2; // seeker: slash · hider: hold to aim grenade, release to throw
-export const BTN_ALT = 4; // hider: switch grenade
+export const BTN_ACTION = 2; // tagger: slash · runner: hold to aim grenade, release to throw
+export const BTN_ALT = 4; // runner: switch grenade
 
 export interface Input {
   mx: number; // stick, -1..1, already length ≤ 1
@@ -15,7 +15,7 @@ export interface Input {
   b: number; // button bitmask
 }
 
-export type Role = 'hider' | 'seeker';
+export type Role = 'runner' | 'tagger';
 
 export interface Body {
   x: number; y: number; z: number;
@@ -43,7 +43,7 @@ export interface Status {
   role: Role;
   frozen: boolean;
   chilled: boolean;
-  locked: boolean; // hide phase for seekers / dead / round over
+  locked: boolean; // head start for taggers / dead / round over
 }
 
 export interface StepEvents {
@@ -80,7 +80,7 @@ export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: nu
   if (len > 0.2) s.facing = Math.atan2(mx, mz);
 
   // Stab = short committed lunge (Boomerang Fu slash), server resolves the hit
-  if (canAct && st.role === 'seeker' && (ev.pressed & BTN_ACTION) && s.attackCd <= 0) {
+  if (canAct && st.role === 'tagger' && (ev.pressed & BTN_ACTION) && s.attackCd <= 0) {
     s.attackCd = STAB_COOLDOWN;
     s.lunge = LUNGE_TIME;
     ev.lunged = true;
@@ -93,8 +93,8 @@ export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: nu
 
   // Horizontal: snap up to speed, short slide when letting go, near-full steering in the air
   if (s.lunge <= 0) {
-    // Hiders charging a throw shuffle slowly so the stick can aim (Boomerang Fu charge-throw)
-    const aiming = st.role === 'hider' && (input.b & BTN_ACTION) !== 0;
+    // Runners charging a throw shuffle slowly so the stick can aim (Boomerang Fu charge-throw)
+    const aiming = st.role === 'runner' && (input.b & BTN_ACTION) !== 0;
     const speedMul = (st.chilled ? CHILL_SPEED : 1) * (aiming ? AIM_SPEED : 1);
     const cap = RUN_SPEED * speedMul;
     const tx = mx * cap, tz = mz * cap;
@@ -165,14 +165,14 @@ export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: nu
     s.vy -= (s.vy > 0 ? GRAVITY : FALL_GRAVITY) * dt;
     const ny = s.y + s.vy * dt;
     if (s.vy <= 0 && ny <= ground && s.y >= ground - STEP_HEIGHT) {
-      if (onHeadNow && head!.role !== st.role && st.role === 'hider' && -s.vy >= STOMP_MIN_SPEED) {
-        // Hider stomps a seeker: bounce off (the server stuns them)
+      if (onHeadNow && head!.role !== st.role && st.role === 'runner' && -s.vy >= STOMP_MIN_SPEED) {
+        // Runner stomps a tagger: bounce off (the server stuns them)
         ev.stomped = head!.id;
         s.y = ground;
         s.vy = STOMP_BOUNCE;
         s.airTime = COYOTE_TIME;
       } else if (onHeadNow && head!.role !== st.role) {
-        // Seeker on a hider's head: bonk, knocked back the way they came (no standing on hiders)
+        // Tagger on a runner's head: bonk, knocked back the way they came (no standing on runners)
         s.y = ground;
         s.vy = BONK_BOUNCE;
         s.vx *= -BONK_KNOCKBACK;

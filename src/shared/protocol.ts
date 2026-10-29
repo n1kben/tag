@@ -1,8 +1,8 @@
 import type { Body, Role } from './sim';
 import type { NadeKind } from './constants';
 
-export type Phase = 'hide' | 'seek' | 'end';
-export type GameMode = 'hns' | 'dm'; // Hide 'n Seek (tag) or free-for-all Deathmatch
+export type Phase = 'start' | 'chase' | 'end';
+export type GameMode = 'tag' | 'dm'; // Tag (tag) or free-for-all Deathmatch
 
 // ── Client → Server ───────────────────────────────────────────────────────
 export type ClientMessage =
@@ -48,7 +48,7 @@ export interface NetPlayer {
   frozen: number; // seconds left
   chilled: number;
   lunge: number; // >0 while slashing (drives the slash anim)
-  aiming: number; // hider grenade charge 0..1 (0 = not aiming)
+  aiming: number; // runner grenade charge 0..1 (0 = not aiming)
   nade: NadeKind | null; // grenade in hand while aiming
   prot: boolean; // spawn protection (deathmatch): blinks, can't be hurt
   stun: number; // seconds left dizzy from a head stomp

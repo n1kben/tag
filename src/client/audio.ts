@@ -110,7 +110,7 @@ export const sfx = {
   hurt() { tone(500, 220, 0.2, 'sawtooth', 0.12); },
   beep(high = false) { tone(high ? 1320 : 880, high ? 1320 : 880, high ? 0.35 : 0.12, 'square', 0.08); },
   gong() {
-    // "Seekers released": kung-fu movie gong
+    // "Taggers released": kung-fu movie gong
     tone(196, 180, 1.6, 'sine', 0.4);
     tone(392, 370, 1.2, 'triangle', 0.15);
     noise(0.5, 0.25, 600, 200, 0.6, 0, 'bandpass');

@@ -1,5 +1,5 @@
 // Team Deathmatch end-to-end with two real browsers: pick the mode in the lobby, play,
-// get caught as a hider, come back as a seeker. Usage: npx tsx scripts/dm-e2e.ts <baseUrl> <outDir>
+// get caught as a runner, come back as a tagger. Usage: npx tsx scripts/dm-e2e.ts <baseUrl> <outDir>
 import { chromium, type Page } from 'playwright-core';
 
 const [site, outDir] = process.argv.slice(2);
@@ -37,7 +37,7 @@ await t.close();
 const a = await client('A');
 const ids = new Map<Page, number>();
 const caughtIds = new Set<number>();
-const hiderId = (p: Page) => ids.get(p) ?? -1;
+const runnerId = (p: Page) => ids.get(p) ?? -1;
 function watch(page: Page): void {
   page.on('websocket', ws => ws.on('framereceived', f => {
     const s = String(f.payload);
@@ -69,26 +69,29 @@ await b.locator('[data-a=ready]').click();
 
 check(await waitFor(visible(a, '.role-chip')) && await waitFor(visible(b, '.role-chip')), 'match started on both');
 const roleA = await chip(a), roleB = await chip(b);
-check(/^(HIDER|SEEKER) · DM$/.test(roleA) && /^(HIDER|SEEKER) · DM$/.test(roleB), `teams in deathmatch (A=${roleA}, B=${roleB})`);
-check(((await a.textContent('.timer')) ?? '').startsWith('HIDE'), 'hiders get the head start');
-check(await waitFor(visible(a, '.teams'), 3000) && await waitFor(visible(a, '.mini'), 3000), 'team pips + live leaderboard shown');
-await a.screenshot({ path: `${outDir}/dm-hide.png` });
+check(/^(RUNNER|TAGGER) · DM$/.test(roleA) && /^(RUNNER|TAGGER) · DM$/.test(roleB), `teams in deathmatch (A=${roleA}, B=${roleB})`);
+check(((await a.textContent('.timer')) ?? '').startsWith('RUN'), 'runners get the head start');
+check(await waitFor(visible(a, '.teams'), 3000) && await a.locator('.mini').count() === 0, 'team pips shown, no always-on leaderboard');
+await a.screenshot({ path: `${outDir}/dm-start.png` });
 check(await waitFor(async () => /^\d:\d\d$/.test(((await a.textContent('.timer')) ?? '').trim()), 15000), 'deathmatch clock starts after the head start');
 await a.screenshot({ path: `${outDir}/dm-play.png` });
 
-// A human hider stands still; the seeker bots catch them → they come back as a seeker.
-const hider = roleA.startsWith('HIDER') ? a : roleB.startsWith('HIDER') ? b : null;
-if (!hider) {
-  console.log('SKIP catch/swap check: both humans started as seekers this time');
+// A human runner stands still; the tagger bots catch them → they come back as a tagger.
+const runner = roleA.startsWith('RUNNER') ? a : roleB.startsWith('RUNNER') ? b : null;
+if (!runner) {
+  console.log('SKIP catch/swap check: both humans started as taggers this time');
 } else {
-  // The catch can land within a second of the seek phase, so watch for the outcome, not the 2s overlay
-  const swapped = await waitFor(async () => (await chip(hider)) === 'SEEKER · DM', 90000);
-  check(swapped && caughtIds.has(hiderId(hider)), 'human hider got caught (kill event) and is back in as a SEEKER');
-  await hider.screenshot({ path: `${outDir}/dm-swapped.png` });
+  // The catch can land within a second of the chase, so watch for the outcome, not the 2s overlay
+  const swapped = await waitFor(async () => (await chip(runner)) === 'TAGGER · DM', 90000);
+  check(swapped && caughtIds.has(runnerId(runner)), 'human runner got caught (kill event) and is back in as a TAGGER');
+  await runner.screenshot({ path: `${outDir}/dm-swapped.png` });
 }
-const board = await a.locator('.mini div').allTextContents();
+await a.keyboard.down('Tab');
+await waitFor(visible(a, '.board'), 2000);
+const board = (await a.locator('.board tr').allTextContents()).slice(1);
+await a.keyboard.up('Tab');
 console.log('leaderboard:', board.join(' | '));
-check(board.length >= 2, 'leaderboard lists players');
+check(board.length >= 2, 'holding Tab shows the scoreboard');
 
 await browser.close();
 console.log(failures ? `${failures} FAILURE(S)` : 'ALL PASS');

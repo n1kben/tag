@@ -4,7 +4,7 @@ import { newBody, stepBody, BTN_JUMP, type Body } from '../src/shared/sim';
 import { FULL_MAP } from '../src/shared/map';
 import { TICK_DT, RUN_SPEED, PLAYER_RADIUS } from '../src/shared/constants';
 
-const st = { role: 'hider' as const, frozen: false, chilled: false, locked: false };
+const st = { role: 'runner' as const, frozen: false, chilled: false, locked: false };
 const W = PLAYER_RADIUS * 2; // body width
 
 function onPlaza(): Body {

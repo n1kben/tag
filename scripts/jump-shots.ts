@@ -10,8 +10,8 @@ await page.goto(`${base}/?practice=1`);
 await page.waitForTimeout(3500);
 const role = (await page.textContent('.role-chip').catch(() => ''))?.trim();
 console.log('role', role);
-// Seekers are locked during the hide phase, so wait it out in that case
-if (role === 'SEEKER') await page.waitForTimeout(8000);
+// Taggers are locked during the head start, so wait it out in that case
+if (role === 'TAGGER') await page.waitForTimeout(8000);
 await page.keyboard.down('KeyS');
 await page.waitForTimeout(350);
 await page.keyboard.down('Space');

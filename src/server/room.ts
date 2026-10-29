@@ -52,7 +52,7 @@ export class Room {
   private lastStandings?: Standing[];
   private nextId = 1;
   private cleanup: ReturnType<typeof setTimeout> | null = null;
-  mode: GameMode = 'hns';
+  mode: GameMode = 'tag';
 
   constructor(readonly id: string, readonly practice: boolean) {}
 
@@ -72,9 +72,9 @@ export class Room {
     if (this.match) {
       // Late join: spectate until the next round assigns a team
       const mp = this.match.addPlayer(p);
-      if (this.match.mode === 'hns') {
+      if (this.match.mode === 'tag') {
         const live = this.match.players.filter(q => q.connected);
-        mp.role = live.filter(q => q.role === 'seeker').length * 2 < live.length - 1 ? 'seeker' : 'hider';
+        mp.role = live.filter(q => q.role === 'tagger').length * 2 < live.length - 1 ? 'tagger' : 'runner';
       }
       this.sendTo(p.id, { type: 'match_start', roster: this.roster, rounds: 0, mode: this.match.mode, roofs: this.match.map.roofIds });
     }
@@ -118,7 +118,7 @@ export class Room {
         this.broadcastLobby();
         break;
       case 'mode':
-        if (this.match || (msg.mode !== 'hns' && msg.mode !== 'dm')) return;
+        if (this.match || (msg.mode !== 'tag' && msg.mode !== 'dm')) return;
         if (msg.mode !== this.mode) for (const p of this.roster) if (!p.bot) p.ready = false; // ready for these rules only
         this.mode = msg.mode;
         this.broadcastLobby();

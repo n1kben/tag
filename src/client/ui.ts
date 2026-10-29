@@ -72,7 +72,7 @@ kbd { background: #fff; color: var(--ink); border-radius: 6px; padding: 1px 7px;
 .hud * { pointer-events: none; }
 .timer { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: #fff; border-radius: 999px; padding: 4px 26px 6px;
   font-family: 'Lilita One'; font-size: 34px; box-shadow: 0 5px 0 #c3b8e6; min-width: 120px; text-align: center; }
-.timer.hide { background: var(--yellow); box-shadow: 0 5px 0 #c99d12; }
+.timer.start { background: var(--yellow); box-shadow: 0 5px 0 #c99d12; }
 .timer.low { color: var(--pink); }
 .teams { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); width: 520px; display: flex; justify-content: space-between; }
 .team { display: flex; gap: 5px; align-items: center; }
@@ -95,10 +95,10 @@ kbd { background: #fff; color: var(--ink); border-radius: 6px; padding: 1px 7px;
 .banner .sub { font-family: 'Lilita One'; font-size: 26px; color: #fff; text-shadow: 0 3px 0 var(--ink); margin-top: 8px; }
 @keyframes slam { from { transform: scale(2.4) rotate(-6deg); opacity: 0; } to { transform: scale(1) rotate(0); opacity: 1; } }
 @keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-.blackout { position: absolute; inset: 0; background: #1d1830; display: flex; align-items: center; justify-content: center; flex-direction: column; opacity: 0; transition: opacity 0.3s; }
-.blackout.on { opacity: 1; }
-.blackout .n { font-family: 'Lilita One'; font-size: 160px; color: var(--yellow); }
-.blackout .t { font-family: 'Lilita One'; font-size: 30px; color: #fff; }
+.countdown { position: absolute; inset: 0; pointer-events: none; display: flex; align-items: center; justify-content: flex-end; padding-bottom: 12vh; flex-direction: column; opacity: 0; transition: opacity 0.3s; }
+.countdown.on { opacity: 1; }
+.countdown .n { font-family: 'Lilita One'; font-size: 110px; line-height: 1; color: var(--yellow); -webkit-text-stroke: 6px #3b2a5c; paint-order: stroke; }
+.countdown .t { font-family: 'Lilita One'; font-size: 30px; color: #fff; -webkit-text-stroke: 4px #3b2a5c; paint-order: stroke; }
 .whiteout { position: absolute; inset: 0; background: #fffef4; opacity: 0; }
 .frostout { position: absolute; inset: 0; box-shadow: inset 0 0 160px 40px rgba(143,227,255,0.85); opacity: 0; transition: opacity 0.2s; }
 .spect { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); background: rgba(59,42,92,0.75); color: #fff; padding: 6px 18px; border-radius: 999px; font-weight: 700; }
@@ -124,10 +124,6 @@ kbd { background: #fff; color: var(--ink); border-radius: 6px; padding: 1px 7px;
   background: transparent; padding: 8px 16px; border-radius: 999px; }
 .seg button.on { background: #fff; box-shadow: 0 3px 0 #c3b8e6; }
 .seg button.on.dm { background: var(--yellow); box-shadow: 0 3px 0 #c99d12; }
-.mini { position: absolute; top: 96px; left: 16px; background: rgba(255,255,255,0.9); border-radius: 16px; padding: 6px 12px; box-shadow: 0 4px 0 #c3b8e6;
-  font-weight: 700; font-size: 14px; min-width: 170px; }
-.mini div { display: flex; justify-content: space-between; gap: 12px; }
-.mini .me { color: var(--pink); }
 .respawn { position: absolute; left: 0; right: 0; top: 58%; text-align: center; font-family: 'Lilita One'; font-size: 28px; color: #fff; text-shadow: 0 3px 0 var(--ink); }
 .debug { position: fixed; top: 8px; right: 8px; background: rgba(0,0,0,0.6); color: #9f9; font: 12px monospace; padding: 6px 10px; border-radius: 6px; display: none; z-index: 30; pointer-events: none; }
 .mute { position: fixed; bottom: 14px; right: 14px; z-index: 20; }
@@ -204,7 +200,6 @@ export interface HudState {
   teams: { id: number; role: Role; alive: boolean }[];
   spectating: string | null;
   mode: GameMode;
-  board: { name: string; score: number; me: boolean }[]; // deathmatch: live top scores
   respawn: number; // deathmatch: seconds until you're back in
 }
 
@@ -219,7 +214,7 @@ export class UI {
   private titleStatus!: HTMLDivElement;
   private feed = el('div', 'feed');
   private bannerEl = el('div', 'pe-none');
-  private blackout = el('div', 'blackout', '<div class="n"></div><div class="t"></div>');
+  private countdown = el('div', 'countdown', '<div class="n"></div><div class="t"></div>');
   private whiteout = el('div', 'whiteout');
   private frostout = el('div', 'frostout');
   private board = el('div', 'board panel');
@@ -227,7 +222,7 @@ export class UI {
   private labelEls = new Map<number, HTMLDivElement>();
   private names = new Map<number, { name: string; character: number }>();
   private lastHud = '';
-  private titleMode: GameMode = 'hns';
+  private titleMode: GameMode = 'tag';
 
   constructor() {
     const style = document.createElement('style');
@@ -236,7 +231,7 @@ export class UI {
     this.root.append(this.labels, this.hud, this.title, this.lobby, this.end, this.debugEl);
     document.body.appendChild(this.root);
 
-    this.hud.append(this.blackout, this.whiteout, this.frostout, this.feed, this.bannerEl, this.board);
+    this.hud.append(this.countdown, this.whiteout, this.frostout, this.feed, this.bannerEl, this.board);
     this.board.style.display = 'none';
   }
 
@@ -320,7 +315,7 @@ export class UI {
         </div>
         <div class="row" style="justify-content:flex-start;margin-top:10px">
           <div class="seg" data-a="modes">${modeButtons(mode)}</div>
-          <div style="font-weight:600;color:#8a7bb5">${mode === 'dm' ? 'Knife vs grenades, no rounds · catch a hider and you swap · most points in 3:00' : 'Knife vs grenades in rounds · hiders get a 10s head start · teams swap when seekers win'}</div>
+          <div style="font-weight:600;color:#8a7bb5">${mode === 'dm' ? 'Knife vs grenades, no rounds · tag a runner and you swap · most points in 3:00' : 'Knife vs grenades in rounds · taggers start frozen for 5s · teams swap when taggers win'}</div>
         </div>
         ${results}
         <div class="cards">${players.map(p => `
@@ -377,11 +372,11 @@ export class UI {
   updateHud(s: HudState): void {
     const key = JSON.stringify({ ...s, timeLeft: Math.ceil(s.timeLeft), frozen: s.frozen > 0, blind: 0, respawn: Math.ceil(s.respawn * 10) });
     // Overlays update every frame; the rest only when something visible changed
-    const seekerHiding = s.phase === 'hide' && s.role === 'seeker' && s.alive;
-    this.blackout.classList.toggle('on', seekerHiding);
-    if (seekerHiding) {
-      (this.blackout.firstChild as HTMLElement).textContent = String(Math.max(1, Math.ceil(s.timeLeft)));
-      (this.blackout.lastChild as HTMLElement).textContent = 'HIDERS ARE HIDING… NO PEEKING';
+    const taggerWaiting = s.phase === 'start' && s.role === 'tagger' && s.alive;
+    this.countdown.classList.toggle('on', taggerWaiting);
+    if (taggerWaiting) {
+      (this.countdown.firstChild as HTMLElement).textContent = String(Math.max(1, Math.ceil(s.timeLeft)));
+      (this.countdown.lastChild as HTMLElement).textContent = 'FROZEN… GET READY';
     }
     this.whiteout.style.opacity = String(Math.min(1, s.blind / 1.6));
     this.frostout.style.opacity = s.frozen > 0 ? '1' : '0';
@@ -390,27 +385,26 @@ export class UI {
 
     for (const old of this.hud.querySelectorAll('.dyn')) old.remove();
     const t = Math.ceil(s.timeLeft);
-    const timeStr = s.phase === 'hide' ? `HIDE ${t}` : s.phase === 'end' ? '—' : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
-    const timer = el('div', `dyn timer ${s.phase === 'hide' ? 'hide' : ''} ${s.phase === 'seek' && t <= 15 ? 'low' : ''}`, timeStr);
+    const timeStr = s.phase === 'start' ? `RUN ${t}` : s.phase === 'end' ? '—' : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    const timer = el('div', `dyn timer ${s.phase === 'start' ? 'start' : ''} ${s.phase === 'chase' && t <= 15 ? 'low' : ''}`, timeStr);
     const pips = (role: Role) => s.teams.filter(p => p.role === role)
-      .map(p => `<div class="pip ${p.alive ? '' : 'dead'}" style="background:${role === 'hider' ? 'var(--teal)' : 'var(--red)'}"></div>`).join('');
-    const chip = el('div', 'dyn role-chip', `${s.role === 'hider' ? 'HIDER' : 'SEEKER'}${s.mode === 'dm' ? ' · DM' : ''}`);
-    chip.style.background = s.role === 'hider' ? '#14bfa0' : '#e0505a';
+      .map(p => `<div class="pip ${p.alive ? '' : 'dead'}" style="background:${role === 'runner' ? 'var(--teal)' : 'var(--red)'}"></div>`).join('');
+    const chip = el('div', 'dyn role-chip', `${s.role === 'runner' ? 'RUNNER' : 'TAGGER'}${s.mode === 'dm' ? ' · DM' : ''}`);
+    chip.style.background = s.role === 'runner' ? '#14bfa0' : '#e0505a';
     this.hud.append(timer, chip);
-    this.hud.append(el('div', 'dyn teams', `<div class="team">${pips('hider')}</div><div class="team">${pips('seeker')}</div>`));
+    this.hud.append(el('div', 'dyn teams', `<div class="team">${pips('runner')}</div><div class="team">${pips('tagger')}</div>`));
     if (s.mode === 'dm') {
-      this.hud.append(el('div', 'dyn mini', s.board.map((r, i) => `<div class="${r.me ? 'me' : ''}"><span>${i + 1}. ${esc(r.name)}</span><span>${r.score}</span></div>`).join('')));
       if (!s.alive && s.respawn > 0) this.hud.append(el('div', 'dyn respawn', `Back in ${s.respawn.toFixed(1)}…`));
     }
-    if (s.alive && s.role === 'hider') {
+    if (s.alive && s.role === 'runner') {
       const inv = el('div', 'dyn inv', NADE_KINDS.map(k => `
         <div class="slot ${k === s.nadeSel && s.nades[k] > 0 ? 'sel' : ''} ${s.nades[k] ? '' : 'empty'}">
           <div class="ic" style="background:${NADE_CSS[k]}"></div><div class="lb">${NADE_LABEL[k]} ×${s.nades[k]}</div></div>`).join(''));
       this.hud.append(inv);
-      this.hud.append(el('div', 'dyn keys', '<kbd>Enter</kbd> hold &amp; release to throw · <kbd>Q</kbd> switch<br>Flash them before a jump, frost them mid-air · <kbd>Space</kbd> jump'));
-    } else if (s.alive && s.role === 'seeker') {
-      const tip = s.mode === 'dm' ? 'one hit, then you swap' : 'one hit catches';
-      this.hud.append(el('div', 'dyn keys', `<kbd>Enter</kbd> slash (${tip})<br><kbd>Space</kbd> jump (hold = higher)`));
+      this.hud.append(el('div', 'dyn keys', '<kbd>Enter</kbd> hold &amp; release to throw · <kbd>Q</kbd> switch<br>Flash them before a jump, frost them mid-air · <kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));
+    } else if (s.alive && s.role === 'tagger') {
+      const tip = s.mode === 'dm' ? 'one hit, then you swap' : 'one hit tags';
+      this.hud.append(el('div', 'dyn keys', `<kbd>Enter</kbd> slash (${tip})<br><kbd>Space</kbd> jump (hold = higher) · <kbd>Tab</kbd> scores`));
     }
     if (s.spectating) this.hud.append(el('div', 'dyn spect', `Spectating ${esc(s.spectating)} · <kbd>Enter</kbd> next`));
   }
@@ -432,7 +426,7 @@ export class UI {
   showBoard(show: boolean, standings: Standing[], myId: number): void {
     this.board.style.display = show ? 'block' : 'none';
     if (!show) return;
-    this.board.innerHTML = `<table><tr><th></th><th>PLAYER</th><th>PTS</th><th>KILLS</th><th>SURVIVED</th></tr>${standings.map(s => `
+    this.board.innerHTML = `<table><tr><th></th><th>PLAYER</th><th>PTS</th><th>KILLS</th><th>SURVIVED</th></tr>${[...standings].sort((a, b) => b.score - a.score).map(s => `
       <tr class="${s.id === myId ? 'me' : ''}"><td><img src="${portrait(s.character)}" /></td><td>${esc(s.name)}</td><td>${s.score}</td><td>${s.kills}</td><td>${s.survived}</td></tr>`).join('')}</table>`;
   }
 
@@ -448,7 +442,7 @@ export class UI {
         <div class="podium">${order.map(i => `
           <div class="p"><img src="${portrait(top[i].character)}" /><div style="font-weight:700">${esc(top[i].name)}</div>
             <div class="block" style="height:${heights[i]}px;background:${colors[i]}">${i + 1}</div><div style="font-weight:700">${top[i].score} pts</div></div>`).join('')}</div>
-        <div style="font-weight:600;color:#8a7bb5">${standings.map(s => `${s.id === myId ? '<b style="color:var(--pink)">' : ''}${esc(s.name)} ${s.score}${s.id === myId ? '</b>' : ''}`).join(' · ')}</div>
+        <div style="font-weight:600;color:#8a7bb5">${[...standings].sort((a, b) => b.score - a.score).map(s => `${s.id === myId ? '<b style="color:var(--pink)">' : ''}${esc(s.name)} ${s.score}${s.id === myId ? '</b>' : ''}`).join(' · ')}</div>
         <button class="btn pink" data-a="back">BACK TO LOBBY</button>
       </div>`;
     this.end.querySelector('[data-a=back]')!.addEventListener('click', back);
@@ -488,13 +482,13 @@ export class UI {
 }
 
 function modeButtons(mode: GameMode): string {
-  return `<button data-m="hns" class="${mode === 'hns' ? 'on' : ''}">HIDE 'N SEEK</button>`
+  return `<button data-m="tag" class="${mode === 'tag' ? 'on' : ''}">TAG</button>`
     + `<button data-m="dm" class="dm ${mode === 'dm' ? 'on' : ''}">DEATHMATCH</button>`;
 }
 
 function titleHint(mode: GameMode): string {
   const how = mode === 'dm'
-    ? 'Deathmatch: seekers slash, hiders flash &amp; frost · catch a hider and you swap · most points in 3:00'
-    : 'Hiders: run, jump the gaps, flash &amp; frost · Seekers: catch them and slash';
+    ? 'Deathmatch: taggers slash, runners flash &amp; frost · tag a runner and you swap · most points in 3:00'
+    : 'Runners: run, jump the gaps, flash &amp; frost · Taggers: chase them down and slash';
   return `${how} · <kbd>WASD</kbd> move <kbd>Space</kbd> jump <kbd>Enter</kbd> slash / throw <kbd>Q</kbd> switch grenade · gamepad works too`;
 }

@@ -70,7 +70,7 @@ export class Fx {
     }
   }
 
-  /** White crescent swoosh in front of a stabbing seeker. */
+  /** White crescent swoosh in front of a stabbing tagger. */
   slash(x: number, y: number, z: number, facing: number): void {
     const m = new THREE.Mesh(arcGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
     m.rotation.x = -Math.PI / 2;
@@ -139,7 +139,7 @@ export class Fx {
     }
   }
 
-  /** Dotted throw arc for a hider charging a grenade (local player only). */
+  /** Dotted throw arc for a runner charging a grenade (local player only). */
   showArc(x: number, y: number, z: number, facing: number, vx: number, vz: number, charge: number): void {
     const fx = Math.sin(facing), fz = Math.cos(facing);
     const c = NADE_MIN_CHARGE + charge * (1 - NADE_MIN_CHARGE);

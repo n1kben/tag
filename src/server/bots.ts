@@ -41,17 +41,17 @@ export class Brain {
     this.match = m;
     this.think_t += TICK_DT;
     this.nadeCd -= TICK_DT;
-    return me.role === 'hider' ? this.hider(m, me) : this.seeker(m, me);
+    return me.role === 'runner' ? this.runner(m, me) : this.tagger(m, me);
   }
 
-  // ── Hider: keep distance, run when a seeker closes in, nade the chaser ───
-  private hider(m: Match, me: MPlayer): Input {
+  // ── Runner: keep distance, run when a tagger closes in, nade the chaser ───
+  private runner(m: Match, me: MPlayer): Input {
     const b = me.body;
-    const threats = m.players.filter(p => p.alive && p.connected && p.role === 'seeker' && m.phase === 'seek');
+    const threats = m.players.filter(p => p.alive && p.connected && p.role === 'tagger' && m.phase === 'chase');
     const near = threats
       .map(t => ({ t, d: Math.hypot(t.body.x - b.x, t.body.z - b.z) }))
       .sort((a, c) => a.d - c.d)[0];
-    const spotted = !!near && near.d < 10; // a seeker is closing in
+    const spotted = !!near && near.d < 10; // a tagger is closing in
 
     // Finish a grenade wind-up (hold ACTION for a few ticks, then release)
     if (this.aimTicks > 0) {
@@ -80,22 +80,22 @@ export class Brain {
     }
 
     if (spotted && near && near.d < 10 && (!this.goal || this.distToGoal(b.x, b.z) < 3 || this.idleT > 0)) {
-      // Flee: pick a roof that puts distance between us and the seeker
+      // Flee: pick a roof that puts distance between us and the tagger
       this.goal = this.fleeGoal(b.x, b.z, near.t.body.x, near.t.body.z);
       this.idleT = 0;
     }
 
-    if (!this.goal) this.goal = this.hideGoal(b.x, b.z);
+    if (!this.goal) this.goal = this.wanderGoal(b.x, b.z);
     const input = this.navigate(me, this.goal);
     if (input.mx === 0 && input.mz === 0) {
       this.idleT += TICK_DT;
-      // Stay put in the bush; occasionally relocate
-      if (this.idleT > 25 + Math.random() * 20) { this.goal = this.hideGoal(b.x, b.z); this.idleT = 0; }
+      // Stay put; occasionally relocate
+      if (this.idleT > 25 + Math.random() * 20) { this.goal = this.wanderGoal(b.x, b.z); this.idleT = 0; }
     }
     return input;
   }
 
-  private hideGoal(x: number, z: number): Goal {
+  private wanderGoal(x: number, z: number): Goal {
     // Somewhere far from the plaza spawn, not too far from here
     const n = [...this.nav.roofs]
       .map(r => ({ r, score: Math.hypot(r.cx, r.cz + 3) + Math.random() * 14 - Math.hypot(r.cx - x, r.cz - z) * 0.2 }))
@@ -111,18 +111,18 @@ export class Brain {
       const score = Math.hypot(n.cx - sx, n.cz - sz) - Math.hypot(n.cx - x, n.cz - z) * 0.6 + Math.random() * 4;
       if (score > bestScore) { bestScore = score; best = spotOn(this.nav, n); }
     }
-    return best ?? this.hideGoal(x, z);
+    return best ?? this.wanderGoal(x, z);
   }
 
-  // ── Seeker: chase the nearest hider (it's tag: everyone is visible) ──────
-  private seeker(m: Match, me: MPlayer): Input {
+  // ── Tagger: chase the nearest runner (it's tag: everyone is visible) ──────
+  private tagger(m: Match, me: MPlayer): Input {
     const b = me.body;
-    if (m.phase !== 'seek') return { mx: 0, mz: 0, b: 0 };
+    if (m.phase !== 'chase') return { mx: 0, mz: 0, b: 0 };
     // Flashed: a human sees a white screen, so a bot loses track and stumbles to a halt
     if (me.blind > 0.6) { this.goal = null; this.leaping = false; return { mx: 0, mz: 0, b: 0 }; }
 
     const visible = m.players
-      .filter(p => p.alive && p.connected && p.role === 'hider' && !p.prot)
+      .filter(p => p.alive && p.connected && p.role === 'runner' && !p.prot)
       .map(t => ({ t, d: Math.hypot(t.body.x - b.x, t.body.z - b.z) }))
       .sort((a, c) => a.d - c.d);
     const target = visible[0];
@@ -148,7 +148,7 @@ export class Brain {
 
     if (!this.goal || this.distToGoal(b.x, b.z) < 0.8 || this.stuckT > 2.5) {
       this.stuckT = 0;
-      // Sweep: random bush (where hiders like to be) or random roof
+      // Sweep: random bush (where runners like to be) or random roof
       if (!this.goal || this.distToGoal(b.x, b.z) < 0.8) {
         const n = this.nav.roofs[Math.floor(Math.random() * this.nav.roofs.length)];
         this.goal = spotOn(this.nav, n);
