@@ -9,6 +9,7 @@
 // a lost packet holds up everything behind it until it's resent), like WebSocket.
 //
 // What it prints (per minute where it says /min):
+//   delay    how far behind the server others are drawn (average)
 //   corr     reconciles that moved your own player >0.3m      (rubber-banding)
 //   tele     …more than 1m                                     (teleports)
 //   frozen   share of time others were drawn past the newest snapshot (they freeze, then jump)
@@ -81,6 +82,7 @@ interface Totals {
   corr: number; tele: number; starvedMs: number; gaps: number; snaps: number;
   killGaps: number[]; contactSwings: number; contactHits: number; phantom: number; kills: number;
   dropped: number; starved: number;
+  delaySum: number; delayN: number;
 }
 
 function median(xs: number[], q: number): number {
@@ -197,7 +199,8 @@ function frame(c: Client, dt: number, now: number, tot: Totals): void {
       if (best && best.gap <= STAB_RANGE) { tot.contactSwings++; c.contact = { target: best.id, at: now }; }
     }
   }
-  cn.advance(dt);
+  cn.advance(dt, now);
+  if (cn.buffer.length) { tot.delaySum += cn.delay; tot.delayN++; }
 }
 
 function onEvent(c: Client, e: GameEvent, now: number, tot: Totals): void {
@@ -219,15 +222,16 @@ const list = profArg === 'all' ? PROFILES : PROFILES.filter(p => p.name === prof
 if (!list.length) { console.log(`unknown profile ${profArg}; one of ${PROFILES.map(p => p.name).join(', ')}, all`); process.exit(1); }
 const mins = (SECONDS * RUNS) / 60;
 console.log(`${CLIENTS} clients + ${BOTS} bots, ${RUNS} × ${SECONDS}s deathmatches per profile`);
-console.log('profile   rtt      corr/min tele/min frozen  gaps/min gap50  gap95  hit%   phantom kills  drop/min wait/min');
+console.log('profile   rtt      delay  corr/min tele/min frozen  gaps/min gap50  gap95  hit%   phantom kills  drop/min wait/min');
 for (const p of list) {
   const t0 = performance.now();
-  const r: Totals = { corr: 0, tele: 0, starvedMs: 0, gaps: 0, snaps: 0, killGaps: [], contactSwings: 0, contactHits: 0, phantom: 0, kills: 0, dropped: 0, starved: 0 };
+  const r: Totals = { corr: 0, tele: 0, starvedMs: 0, gaps: 0, snaps: 0, killGaps: [], contactSwings: 0, contactHits: 0, phantom: 0, kills: 0, dropped: 0, starved: 0, delaySum: 0, delayN: 0 };
   for (let i = 1; i <= RUNS; i++) run(p, i, r);
   const per = (n: number) => (n / CLIENTS / mins).toFixed(1).padStart(8);
   console.log([
     p.name.padEnd(9),
     `${p.delay * 2}±${p.jitter}`.padEnd(8),
+    `${Math.round((r.delaySum / Math.max(1, r.delayN)) * TICK_DT * 1000)}ms`.padStart(6),
     per(r.corr), per(r.tele),
     `${((r.starvedMs / CLIENTS / (SECONDS * RUNS * 1000)) * 100).toFixed(1)}%`.padStart(6),
     per(r.gaps),

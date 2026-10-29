@@ -5,12 +5,18 @@
 import { stepBody, type Body, type Dyn, type Input, type Status } from '../shared/sim';
 import type { GameMap } from '../shared/map';
 import type { NetPlayer, Snapshot } from '../shared/protocol';
-import { TICK_DT, TICK_RATE } from '../shared/constants';
+import { TICK_DT, TICK_RATE, SNAPSHOT_EVERY } from '../shared/constants';
 
 export interface Buffered { tick: number; players: Map<number, NetPlayer>; snap: Snapshot; at: number }
 export type ViewPlayer = NetPlayer & { visible: boolean };
 
-const INTERP_TICKS = 6; // render remote players ~100ms in the past
+// Remote players are drawn `delay` ticks behind our estimate of the server's clock: one
+// snapshot interval plus however late snapshots tend to arrive (90th percentile over the last
+// few seconds), so there's nearly always a newer snapshot to blend towards. Smooth network:
+// ~50ms. Bumpy: more, but only as much as it needs.
+const MIN_DELAY = SNAPSHOT_EVERY + 1, MAX_DELAY = 20;
+const LATE_WINDOW = 90; // snapshots (~3s) of lateness samples
+const EXTRAPOLATE_TICKS = 6; // a late snapshot: keep others moving along their velocity this long
 const BODY_KEYS: (keyof Body)[] = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'grounded', 'airTime', 'groundTime', 'jumpBuf', 'rising', 'attackCd', 'lunge', 'prevB', 'onHead'];
 
 /** Running totals; read (and reset) by the netgraph and the bench. */
@@ -21,11 +27,12 @@ export class NetStats {
   maxCorrection = 0;
   gaps = 0; // snapshots that arrived >100ms after the previous one
   maxGap = 0; // ms
-  starvedMs = 0; // render time spent past the newest snapshot (remote players stuck)
+  starvedMs = 0; // render time past the newest snapshot and the extrapolation (remote players stuck)
+  extrapolatedMs = 0; // render time spent guessing ahead of the newest snapshot
   lastAt = 0;
 
   reset(): void {
-    this.snaps = this.corrections = this.teleports = this.maxCorrection = this.gaps = this.maxGap = this.starvedMs = 0;
+    this.snaps = this.corrections = this.teleports = this.maxCorrection = this.gaps = this.maxGap = this.starvedMs = this.extrapolatedMs = 0;
   }
 }
 
@@ -37,6 +44,11 @@ export class ClientNet {
   seq = 0;
   buffer: Buffered[] = [];
   renderTick = 0;
+  /** Render delay in ticks (see MIN_DELAY); tracks network jitter. */
+  delay = 6;
+  /** Server tick ≈ now * TICK_RATE / 1000 + clockOff (fitted to the least-delayed snapshots). */
+  private clockOff = NaN;
+  private late: number[] = [];
   /** Visual offset left by a correction; decays so the fix is a slide, not a pop. */
   err = { x: 0, y: 0, z: 0 };
   stats = new NetStats();
@@ -71,6 +83,7 @@ export class ClientNet {
   }
 
   onSnapshot(s: Snapshot, now: number): void {
+    if (s.tick <= (this.buffer.at(-1)?.tick ?? -1)) return; // out of order / duplicate
     const st = this.stats;
     st.snaps++;
     if (st.lastAt) {
@@ -83,8 +96,19 @@ export class ClientNet {
     const wasAlive = !!this.latest?.me?.alive;
     this.latest = s;
     this.buffer.push({ tick: s.tick, players: new Map(s.players.map(p => [p.id, p])), snap: s, at: now });
-    while (this.buffer.length > 30) this.buffer.shift();
-    if (this.renderTick === 0 || Math.abs(this.renderTick - (s.tick - INTERP_TICKS)) > 30) this.renderTick = s.tick - INTERP_TICKS;
+    while (this.buffer.length > 40) this.buffer.shift();
+
+    // Clock fit + jitter: how much later than the fastest recent snapshot did this one arrive?
+    const sample = s.tick - (now * TICK_RATE) / 1000;
+    if (Number.isNaN(this.clockOff) || sample > this.clockOff) this.clockOff = sample;
+    this.late.push(this.clockOff - sample);
+    if (this.late.length > LATE_WINDOW) this.late.shift();
+    const sorted = [...this.late].sort((a, b) => a - b);
+    const jitter = sorted[Math.floor(sorted.length * 0.9)] ?? 0; // rarer stalls: extrapolation covers them
+    const want = Math.min(MAX_DELAY, Math.max(MIN_DELAY, SNAPSHOT_EVERY + jitter + 1));
+    // Grow quickly when it gets bumpy, shrink slowly once it calms down
+    this.delay += (want - this.delay) * (want > this.delay ? 0.3 : 0.02);
+    if (this.renderTick === 0 || Math.abs(this.renderTick - (s.tick - this.delay)) > 30) this.renderTick = s.tick - this.delay;
 
     // Reconcile the local player: take the server body, replay unacknowledged inputs
     const me = s.me;
@@ -126,13 +150,22 @@ export class ClientNet {
     return { msg: { type: 'input', seq: this.seq, mx: input.mx, mz: input.mz, b: input.b }, ev };
   }
 
+  /** Our best guess at the server's current tick. */
+  serverTick(now: number): number {
+    return (now * TICK_RATE) / 1000 + this.clockOff;
+  }
+
   /** Advance the render clock (remote players are drawn at renderTick) and decay the correction. */
-  advance(dt: number): void {
-    const latestTick = this.buffer.at(-1)?.tick ?? 0;
+  advance(dt: number, now: number): void {
+    const newest = this.buffer.at(-1)?.tick;
+    if (newest === undefined) return;
+    // The path can get slower: let the clock fit drift back so it re-fits to the new delay
+    this.clockOff -= dt * 0.25;
     this.renderTick += dt * TICK_RATE;
-    const target = latestTick - INTERP_TICKS;
+    const target = this.serverTick(now) - this.delay;
     this.renderTick += (target - this.renderTick) * Math.min(1, dt * 2);
-    if (this.buffer.length && this.renderTick > latestTick) this.stats.starvedMs += dt * 1000;
+    if (this.renderTick > newest + EXTRAPOLATE_TICKS) this.stats.starvedMs += dt * 1000;
+    else if (this.renderTick > newest) this.stats.extrapolatedMs += dt * 1000;
     const k = Math.exp(-dt * 12);
     this.err.x *= k; this.err.y *= k; this.err.z *= k;
   }
@@ -145,6 +178,15 @@ export class ClientNet {
     let a = buffer[0], b = buffer[buffer.length - 1];
     for (let i = 0; i < buffer.length - 1; i++) {
       if (buffer[i].tick <= this.renderTick && buffer[i + 1].tick >= this.renderTick) { a = buffer[i]; b = buffer[i + 1]; break; }
+    }
+    if (this.renderTick > b.tick) {
+      // Late snapshot: carry everyone on along their velocity for a little while, then hold
+      const ahead = Math.min(EXTRAPOLATE_TICKS, this.renderTick - b.tick) * TICK_DT;
+      for (const [id, pb] of b.players) {
+        const moving = pb.alive && !pb.frozen && !pb.stun;
+        out.set(id, { ...pb, x: moving ? pb.x + pb.vx * ahead : pb.x, z: moving ? pb.z + pb.vz * ahead : pb.z, visible: true });
+      }
+      return out;
     }
     const t = b.tick > a.tick ? Math.min(1, Math.max(0, (this.renderTick - a.tick) / (b.tick - a.tick))) : 1;
     for (const [id, pb] of b.players) {

@@ -444,7 +444,7 @@ export function startGame(): void {
   }
 
   function renderMatch(dt: number): void {
-    cn.advance(dt);
+    cn.advance(dt, performance.now());
     timeLeft = Math.max(0, timeLeft - dt);
 
     const remote = cn.interpolate();
