@@ -4,6 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.local/bin:$PATH"
+# npm lives next to the real node binary (node may be a symlink into a toolchain folder)
+NODE_BIN="$(dirname "$(readlink -f "$(command -v node)")")"
+export PATH="$NODE_BIN:$PATH"
 
 git pull --ff-only
 npm ci --no-audit --no-fund
