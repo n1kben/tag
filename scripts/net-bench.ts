@@ -17,7 +17,7 @@
 //            shown dying (median / 95th percentile; 0 = touching)  ("killed from far away")
 //   hit%     attacker's view: swings that touched the target on your screen and killed
 //   phantom  kills where the attacker's screen showed a clear gap at the swing
-//   drop/inv server: inputs thrown away / ticks it had to guess, per player per minute
+//   drop/wait server: inputs thrown away / ticks with no input to run, per player per minute
 import { Match, type MatchHost } from '../src/server/match';
 import { Brain } from '../src/server/bots';
 import { ClientNet } from '../src/client/netcode';
@@ -137,7 +137,7 @@ function run(profile: Profile, runSeed: number, tot: Totals): void {
     const s = c.cn.stats;
     tot.corr += s.corrections; tot.tele += s.teleports; tot.starvedMs += s.starvedMs; tot.gaps += s.gaps; tot.snaps += s.snaps;
   }
-  for (const p of m.players) if (!p.bot) { tot.dropped += p.net.dropped; tot.starved += p.net.starved; }
+  for (const p of m.players) if (!p.bot) { tot.dropped += p.net.dropped; tot.starved += p.net.waited; }
 }
 
 /** What one client's screen shows: its own predicted body and everyone else interpolated. */
@@ -219,7 +219,7 @@ const list = profArg === 'all' ? PROFILES : PROFILES.filter(p => p.name === prof
 if (!list.length) { console.log(`unknown profile ${profArg}; one of ${PROFILES.map(p => p.name).join(', ')}, all`); process.exit(1); }
 const mins = (SECONDS * RUNS) / 60;
 console.log(`${CLIENTS} clients + ${BOTS} bots, ${RUNS} × ${SECONDS}s deathmatches per profile`);
-console.log('profile   rtt      corr/min tele/min frozen  gaps/min gap50  gap95  hit%   phantom kills  drop/min inv/min');
+console.log('profile   rtt      corr/min tele/min frozen  gaps/min gap50  gap95  hit%   phantom kills  drop/min wait/min');
 for (const p of list) {
   const t0 = performance.now();
   const r: Totals = { corr: 0, tele: 0, starvedMs: 0, gaps: 0, snaps: 0, killGaps: [], contactSwings: 0, contactHits: 0, phantom: 0, kills: 0, dropped: 0, starved: 0 };

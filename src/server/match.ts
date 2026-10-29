@@ -19,6 +19,9 @@ import type {
 } from '../shared/protocol';
 import { Brain } from './bots';
 
+const INPUT_BANK = 60; // ticks of input a player can catch up on after a stall (1s)
+const STALL_TICKS = 15; // no input this long (250ms): carry on without them (gravity, planks)
+
 export interface MatchHost {
   send(playerId: number, msg: ServerMessage): void;
   onMatchEnd(standings: Standing[]): void;
@@ -34,8 +37,10 @@ export interface MPlayer {
   input: Input;
   queue: { seq: number; input: Input }[];
   ack: number;
-  starved: number; // ticks without a fresh input
-  net: { dropped: number; starved: number }; // input problems so far (net bench / netgraph)
+  credit: number; // inputs this player may still run: +1 per tick, banked up to INPUT_BANK
+  waitT: number; // ticks since an input last arrived
+  owed: number; // ticks we ran without them (a long stall); that many late inputs get skipped
+  net: { dropped: number; waited: number }; // input trouble so far (net bench / netgraph)
   role: Role;
   hp: number;
   alive: boolean;
@@ -103,7 +108,7 @@ export class Match {
   addPlayer(p: LobbyPlayer): MPlayer {
     const mp: MPlayer = {
       id: p.id, name: p.name, character: p.character, bot: p.bot, connected: true,
-      body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, starved: 0, net: { dropped: 0, starved: 0 },
+      body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], ack: 0, credit: 0, waitT: 0, owed: 0, net: { dropped: 0, waited: 0 },
       role: 'runner', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
       nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
       respawnT: 0, prot: 0, survT: 0, stun: 0, plankFallT: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
@@ -321,22 +326,6 @@ export class Match {
   }
 
   private stepPlayer(p: MPlayer): void {
-    let input: Input;
-    if (p.bot) {
-      input = p.alive ? p.brain!.think(this, p) : { mx: 0, mz: 0, b: 0 };
-    } else {
-      // Exactly one input per tick keeps prediction in lockstep; drain backlog if a client bursts
-      while (p.queue.length > 4) { p.ack = p.queue.shift()!.seq; p.net.dropped++; }
-      const next = p.queue.shift();
-      if (next) { p.ack = next.seq; p.input = next.input; p.starved = 0; }
-      else {
-        if (p.alive) p.net.starved++;
-        // A backgrounded tab stops sending; don't keep running them off a roof on their last input
-        if (++p.starved > 6) p.input = { mx: 0, mz: 0, b: 0 };
-      }
-      input = p.input;
-    }
-
     p.frozen = Math.max(0, p.frozen - TICK_DT);
     p.chilled = Math.max(0, p.chilled - TICK_DT);
     p.blind = Math.max(0, p.blind - TICK_DT);
@@ -345,8 +334,45 @@ export class Match {
     p.stun = Math.max(0, p.stun - TICK_DT);
     p.plankFallT = Math.max(0, p.plankFallT - TICK_DT);
     if (!p.alive && p.respawnT > 0 && this.phase !== 'end' && (p.respawnT -= TICK_DT) <= 0) this.spawn(p, true);
-    if (!p.alive || this.phase === 'end') return; // freeze the scene on the round result
+    if (!p.alive || this.phase === 'end') {
+      // Freeze the scene on the round result; the client doesn't step either, so just ack
+      for (const q of p.queue) p.ack = q.seq;
+      p.queue = [];
+      return;
+    }
 
+    if (p.bot) { this.runInput(p, p.brain!.think(this, p)); return; }
+    // Humans: run every input that arrived, in order, each exactly once, so the client's
+    // prediction (which ran the same inputs) agrees. Nothing arrived: wait, don't guess.
+    // Late inputs bank credit, so a burst after a network stall is caught up at once, but
+    // a client can't run faster than real time for more than INPUT_BANK ticks.
+    p.credit = Math.min(INPUT_BANK, p.credit + 1);
+    // Inputs for ticks we already ran without them (see below) are too late to use
+    while (p.owed > 0 && p.queue.length) { p.ack = p.queue.shift()!.seq; p.owed--; p.net.dropped++; }
+    while (p.queue.length > INPUT_BANK * 2) { p.ack = p.queue.shift()!.seq; p.net.dropped++; } // hopeless backlog
+    if (!p.queue.length) {
+      p.net.waited++;
+      // A long stall (or a backgrounded tab): don't let them hang in the air or on a broken
+      // plank; stand still for them, and skip that many of their inputs when they turn up
+      if (++p.waitT > STALL_TICKS && p.credit >= 1) {
+        p.credit--;
+        p.owed = Math.min(INPUT_BANK, p.owed + 1);
+        this.runInput(p, { mx: 0, mz: 0, b: 0 });
+      }
+      return;
+    }
+    p.waitT = 0;
+    while (p.queue.length && p.credit >= 1 && p.alive) {
+      const next = p.queue.shift()!;
+      p.credit--;
+      p.ack = next.seq;
+      p.input = next.input;
+      this.runInput(p, next.input);
+    }
+  }
+
+  /** One input's worth of movement and actions (one 60Hz client tick). */
+  private runInput(p: MPlayer, input: Input): void {
     const st = this.status(p);
     const ev = stepBody(this.map, p.body, input, st, TICK_DT, this.dynFor(p));
     if (ev.stomped !== null) this.stomp(p, ev.stomped);
