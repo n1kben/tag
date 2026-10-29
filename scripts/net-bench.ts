@@ -3,10 +3,12 @@
 // but it decides from what that client sees (its prediction + its interpolated view of the
 // others), so chases, swings and deaths happen the way they would for a human on that line.
 //
-// Run: npx tsx scripts/net-bench.ts [profile|all] [seconds=170] [runs=6] [clients=6] [bots=2]
+// Run: npx tsx scripts/net-bench.ts [profile|all] [seconds=170] [runs=6] [clients=6] [bots=2] [tcp|udp|both]
 // Each profile plays `runs` deathmatches (seeds 1..runs) and adds them up.
-// Profiles are one-way delay ± jitter with packet loss; the transport is TCP-like (ordered:
-// a lost packet holds up everything behind it until it's resent), like WebSocket.
+// Profiles are one-way delay ± jitter with packet loss. tcp = WebSocket: ordered, and a lost
+// packet holds up everything behind it until it's resent. udp = the WebRTC data channel:
+// snapshots and inputs unreliable (lost is lost, may reorder; each input packet repeats the
+// last 3 inputs), events and round messages still on the reliable WebSocket.
 //
 // What it prints (per minute where it says /min):
 //   delay    how far behind the server others are drawn (average)
@@ -36,7 +38,10 @@ const PROFILES: Profile[] = [
   { name: 'bad', delay: 75, jitter: 30, loss: 0.02 },
 ];
 
-const [profArg = 'all', secArg = '170', runArg = '6', clientArg = '6', botArg = '2'] = process.argv.slice(2);
+const [profArg = 'all', secArg = '170', runArg = '6', clientArg = '6', botArg = '2', transArg = 'tcp'] = process.argv.slice(2);
+const TRANSPORTS = transArg === 'both' ? ['tcp', 'udp'] : [transArg];
+const INPUT_REDUNDANCY = 3;
+let UDP = false;
 const SECONDS = Number(secArg), RUNS = Number(runArg), CLIENTS = Number(clientArg), BOTS = Number(botArg);
 
 // Deterministic randomness: the bench must give the same numbers for the same code
@@ -47,15 +52,25 @@ function rand(): number {
 }
 Math.random = rand; // bots, spawns and the map use Math.random
 
-/** One direction of a connection. TCP-like: in order; a lost packet is resent and blocks the rest. */
+/**
+ * One direction of a connection. Reliable (TCP): in order; a lost packet is resent and blocks
+ * the rest. Unreliable (UDP): a lost packet is gone, and packets can overtake each other.
+ */
 class Link<T> {
   private q: { at: number; msg: T }[] = [];
   private lastAt = 0;
-  constructor(private p: Profile) {}
+  constructor(private p: Profile, private reliable = true) {}
   send(msg: T, now: number): void {
     let at = now + this.p.delay + rand() * this.p.jitter;
+    const lost = rand() < this.p.loss;
+    if (!this.reliable) {
+      if (lost) return;
+      this.q.push({ at, msg });
+      this.q.sort((a, b) => a.at - b.at);
+      return;
+    }
     // Lost: fast retransmit after a round trip plus a few more packets' worth of duplicate acks
-    if (rand() < this.p.loss) at += this.p.delay * 2 + 100;
+    if (lost) at += this.p.delay * 2 + 100;
     at = Math.max(at, this.lastAt);
     this.lastAt = at;
     this.q.push({ at, msg });
@@ -67,12 +82,15 @@ class Link<T> {
   }
 }
 
+type InputPacket = { seq: number; input: Input; v: number }[];
+
 interface Client {
   id: number;
   cn: ClientNet;
   brain: Brain;
-  down: Link<ServerMessage>;
-  up: Link<{ seq: number; input: Input; v: number }>;
+  down: Link<ServerMessage>; // reliable (WebSocket)
+  snaps: Link<ServerMessage>; // snapshots: the WebSocket too (tcp) or the data channel (udp)
+  up: Link<InputPacket>;
   nextFrame: number;
   acc: number;
   contact: { target: number; at: number } | null; // last swing that touched someone on our screen
@@ -92,7 +110,7 @@ function median(xs: number[], q: number): number {
   return s[Math.min(s.length - 1, Math.floor(q * s.length))];
 }
 
-function run(profile: Profile, runSeed: number, tot: Totals): void {
+function run(profile: Profile, transport: string, runSeed: number, tot: Totals): void {
   seed = runSeed * 7919;
   const roster: LobbyPlayer[] = [];
   for (let i = 1; i <= CLIENTS + BOTS; i++) roster.push({ id: i, name: `p${i}`, character: i, ready: true, bot: i > CLIENTS });
@@ -101,7 +119,11 @@ function run(profile: Profile, runSeed: number, tot: Totals): void {
 
   const host: MatchHost = {
     // Snapshots go through the wire codec, so its rounding is part of what we measure
-    send(id, msg) { clients.get(id)?.down.send(msg.type === 'snap' ? decodeSnapshot(encodeSnapshot(msg)) : msg, now); },
+    send(id, msg) {
+      const c = clients.get(id);
+      if (msg.type === 'snap') c?.snaps.send(decodeSnapshot(encodeSnapshot(msg)), now);
+      else c?.down.send(msg, now);
+    },
     onMatchEnd() {},
   };
   // Deathmatch: continuous play with both sides swapping, so everyone gets to tag and be tagged
@@ -109,7 +131,7 @@ function run(profile: Profile, runSeed: number, tot: Totals): void {
   for (let i = 1; i <= CLIENTS; i++) {
     clients.set(i, {
       id: i, cn: new ClientNet(m.map), brain: new Brain(),
-      down: new Link(profile), up: new Link(profile),
+      down: new Link(profile), up: new Link(profile, transport === 'tcp'), snaps: new Link(profile, transport === 'tcp'),
       nextFrame: rand() * 16, acc: 0, contact: null, lastSwingGap: Infinity,
     });
     clients.get(i)!.cn.myId = i;
@@ -124,7 +146,7 @@ function run(profile: Profile, runSeed: number, tot: Totals): void {
     const nextClient = Math.min(...[...clients.values()].map(c => c.nextFrame));
     now = Math.min(nextTick, nextClient);
     if (now === nextTick) {
-      for (const c of clients.values()) for (const u of c.up.poll(now)) m.pushInput(c.id, u.seq, u.input, u.v);
+      for (const c of clients.values()) for (const pk of c.up.poll(now)) for (const u of pk) m.pushInput(c.id, u.seq, u.input, u.v);
       M.step();
       nextTick += TICK_DT * 1000;
       continue;
@@ -169,7 +191,8 @@ function gapTo(a: { x: number; z: number }, b: { x: number; z: number }): number
 
 function frame(c: Client, dt: number, now: number, tot: Totals): void {
   const cn = c.cn;
-  for (const msg of c.down.poll(now)) {
+  // Both links feed the same handler; over tcp they'd be one socket, but order within each holds
+  for (const msg of [...c.down.poll(now), ...c.snaps.poll(now)]) {
     if (msg.type === 'snap') cn.onSnapshot(msg as Snapshot, now);
     else if (msg.type === 'round_start') { cn.newRound(); c.brain.reset(); }
     else if (msg.type === 'ev') for (const e of cn.pushEvents(msg.tick, msg.events, now)) onEvent(c, e, now, tot);
@@ -184,7 +207,9 @@ function frame(c: Client, dt: number, now: number, tot: Totals): void {
       : { mx: 0, mz: 0, b: 0 };
     const step = cn.predict(input);
     if (!step) continue;
-    c.up.send({ seq: step.msg.seq, input, v: step.msg.v }, now);
+    // tcp: one input per message; udp: each packet repeats the last few, so a lost one costs nothing
+    const n = UDP ? INPUT_REDUNDANCY : 1;
+    c.up.send(cn.pending.slice(-n).map(p => ({ seq: p.seq, input: p.input, v: p.v })), now);
     if (step.ev.lunged) {
       // Did this swing touch an enemy on our screen?
       const pred = cn.pred!;
@@ -225,14 +250,16 @@ const list = profArg === 'all' ? PROFILES : PROFILES.filter(p => p.name === prof
 if (!list.length) { console.log(`unknown profile ${profArg}; one of ${PROFILES.map(p => p.name).join(', ')}, all`); process.exit(1); }
 const mins = (SECONDS * RUNS) / 60;
 console.log(`${CLIENTS} clients + ${BOTS} bots, ${RUNS} × ${SECONDS}s deathmatches per profile`);
-console.log('profile   rtt      delay  corr/min tele/min frozen  gaps/min gap50  gap95  hit%   phantom kills  drop/min wait/min');
-for (const p of list) {
+console.log('profile   net rtt      delay  corr/min tele/min frozen  gaps/min gap50  gap95  hit%   phantom kills  drop/min wait/min');
+for (const transport of TRANSPORTS) for (const p of list) {
+  UDP = transport === 'udp';
   const t0 = performance.now();
   const r: Totals = { corr: 0, tele: 0, starvedMs: 0, gaps: 0, snaps: 0, killGaps: [], contactSwings: 0, contactHits: 0, phantom: 0, kills: 0, dropped: 0, starved: 0, delaySum: 0, delayN: 0 };
-  for (let i = 1; i <= RUNS; i++) run(p, i, r);
+  for (let i = 1; i <= RUNS; i++) run(p, transport, i, r);
   const per = (n: number) => (n / CLIENTS / mins).toFixed(1).padStart(8);
   console.log([
     p.name.padEnd(9),
+    transport,
     `${p.delay * 2}±${p.jitter}`.padEnd(8),
     `${Math.round((r.delaySum / Math.max(1, r.delayN)) * TICK_DT * 1000)}ms`.padStart(6),
     per(r.corr), per(r.tele),

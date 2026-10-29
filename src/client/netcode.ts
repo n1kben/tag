@@ -41,7 +41,7 @@ export class ClientNet {
   myId = -1;
   latest: Snapshot | null = null;
   pred: Body | null = null;
-  pending: { seq: number; input: Input }[] = [];
+  pending: { seq: number; input: Input; v: number }[] = [];
   seq = 0;
   buffer: Buffered[] = [];
   renderTick = 0;
@@ -175,7 +175,8 @@ export class ClientNet {
     const latest = this.latest, pred = this.pred;
     if (!latest || !pred || !st) return null;
     this.seq++;
-    this.pending.push({ seq: this.seq, input });
+    const v = Math.round(this.renderTick * 10) / 10;
+    this.pending.push({ seq: this.seq, input, v });
     if (this.pending.length > 120) this.pending.shift();
     const frozenScene = latest.phase === 'end' || !latest.me?.alive;
     const ev = frozenScene
@@ -183,7 +184,7 @@ export class ClientNet {
       : stepBody(this.map, pred, input, st, TICK_DT, this.dynFrom(latest));
     if (frozenScene) pred.prevB = input.b;
     // v: the tick we're showing everyone else at, so the server can judge our slashes by it
-    return { msg: { type: 'input', seq: this.seq, mx: input.mx, mz: input.mz, b: input.b, v: Math.round(this.renderTick * 10) / 10 }, ev };
+    return { msg: { type: 'input', seq: this.seq, mx: input.mx, mz: input.mz, b: input.b, v }, ev };
   }
 
   /** Our best guess at the server's current tick. */

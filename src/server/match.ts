@@ -37,6 +37,7 @@ export interface MPlayer {
   input: Input;
   queue: { seq: number; input: Input; v?: number }[];
   viewTick: number; // tick the client was showing others at for the input being run
+  lastSeq: number; // newest input seq queued (inputs can arrive more than once over UDP)
   hist: { t: number; x: number; y: number; z: number; alive: boolean }[]; // recent positions, for rewinds
   ack: number;
   credit: number; // inputs this player may still run: +1 per tick, banked up to INPUT_BANK
@@ -110,7 +111,7 @@ export class Match {
   addPlayer(p: LobbyPlayer): MPlayer {
     const mp: MPlayer = {
       id: p.id, name: p.name, character: p.character, bot: p.bot, connected: true,
-      body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], viewTick: 0, hist: [], ack: 0, credit: 0, waitT: 0, owed: 0, net: { dropped: 0, waited: 0 },
+      body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], viewTick: 0, lastSeq: 0, hist: [], ack: 0, credit: 0, waitT: 0, owed: 0, net: { dropped: 0, waited: 0 },
       role: 'runner', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
       nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
       respawnT: 0, prot: 0, survT: 0, stun: 0, plankFallT: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
@@ -146,7 +147,8 @@ export class Match {
 
   pushInput(id: number, seq: number, input: Input, v?: number): void {
     const p = this.players.find(q => q.id === id);
-    if (!p || seq <= p.ack) return;
+    if (!p || seq <= p.ack || seq <= p.lastSeq) return; // old, or a redundant copy
+    p.lastSeq = seq;
     p.queue.push({ seq, input, v });
   }
 
@@ -199,7 +201,7 @@ export class Match {
       p.nadeSel = 'flash';
       p.aimT = -1;
       p.stabPending = false;
-      p.queue = [];
+      p.queue = []; // (lastSeq stays: inputs still in flight from the old round are dropped)
       p.brain?.reset();
     }
     this.projectiles = [];
