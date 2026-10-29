@@ -74,13 +74,23 @@ export const CAMERA_PITCH = THREE.MathUtils.degToRad(58);
 export const CAMERA_DIST = 31;
 
 export function createWorld(canvasParent: HTMLElement): World {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
+  // MSAA costs ~40% of frame time; dense (Retina) screens don't need it. ?noaa forces it off.
+  const antialias = !new URLSearchParams(location.search).has('noaa') && window.devicePixelRatio < 1.5;
+  const renderer = new THREE.WebGLRenderer({ antialias, powerPreference: 'high-performance' });
   // ?lite: half resolution, no shadows (weak machines, headless tests)
   const lite = new URLSearchParams(location.search).has('lite');
-  renderer.setPixelRatio(lite ? 0.5 : Math.min(window.devicePixelRatio, 2));
+  // ?dpr=1 pins the resolution (benchmarks, or players who prefer a fixed one)
+  const fixed = Number(new URLSearchParams(location.search).get('dpr'));
+  adaptive = !lite && !(fixed > 0);
+  maxPixelRatio = lite ? 0.5 : fixed > 0 ? fixed : Math.min(window.devicePixelRatio, 2);
+  pixelRatio = ceiling = maxPixelRatio;
+  renderer.setPixelRatio(pixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = !lite;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = !lite && !new URLSearchParams(location.search).has('noshadow');
+  renderer.shadowMap.type = THREE.PCFShadowMap; // PCF + radius: soft enough, much cheaper than PCFSoft
+  // The city never moves and characters use blob shadows, so the shadow map is drawn once
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
   renderer.localClippingEnabled = true;
   canvasParent.appendChild(renderer.domElement);
 
@@ -91,15 +101,17 @@ export function createWorld(canvasParent: HTMLElement): World {
 
   // Bright sky fill with a lavender ground bounce: shadows come out periwinkle, never grey
   scene.add(new THREE.HemisphereLight(0xf7f8ff, 0xb3b9ee, 1.75));
+  // Fixed sun with one shadow map over the whole map (front-left light like the trailer)
   const sun = new THREE.DirectionalLight(0xfff1dc, 1.3);
-  sun.position.set(-12, 30, 12);
+  sun.position.set(-24, 60, 24);
+  sun.target.position.set(0, 0, 0);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(3072, 3072);
   const sc = sun.shadow.camera;
-  sc.left = -30; sc.right = 30; sc.top = 30; sc.bottom = -30; sc.near = 1; sc.far = 90;
-  sun.shadow.bias = -0.0006;
-  sun.shadow.normalBias = 0.03;
-  sun.shadow.radius = 4;
+  sc.left = -48; sc.right = 48; sc.top = 48; sc.bottom = -48; sc.near = 20; sc.far = 130;
+  sun.shadow.bias = -0.0008;
+  sun.shadow.normalBias = 0.04;
+  sun.shadow.radius = 3;
   scene.add(sun, sun.target);
 
   const world: World = { scene, camera, renderer, sun };
@@ -113,14 +125,53 @@ export function createWorld(canvasParent: HTMLElement): World {
   return world;
 }
 
+// ── Adaptive resolution ───────────────────────────────────────────────────
+// Pixels are the main cost (Retina = 4× the pixels). Start at full resolution, step down a little
+// whenever frames run slower than ~50fps, and probe back up once there's headroom again.
+let adaptive = true;
+let maxPixelRatio = 1;
+let pixelRatio = 1;
+let ceiling = 1; // don't climb above this for a while after a step down
+let ceilingT = 0;
+let windowT = 0;
+let windowFrames = 0;
+let windowWork = 0;
+let goodWindows = 0;
+const MIN_PIXEL_RATIO = 0.6;
+
+export function adaptResolution(world: World, dt: number): void {
+  if (!adaptive || dt > 0.1) return; // pinned, or a tab switch / hitch that isn't representative
+  windowT += dt;
+  windowFrames++;
+  windowWork += dt;
+  if (windowT < 1) return;
+  const avgMs = (windowWork / windowFrames) * 1000;
+  windowT = windowFrames = windowWork = 0;
+  ceilingT = Math.max(0, ceilingT - 1);
+  if (ceilingT === 0) ceiling = maxPixelRatio;
+  let next = pixelRatio;
+  if (avgMs > 20 && pixelRatio > MIN_PIXEL_RATIO) {
+    next = Math.max(MIN_PIXEL_RATIO, pixelRatio - 0.15);
+    ceiling = next + 0.05;
+    ceilingT = 20;
+    goodWindows = 0;
+  } else if (avgMs < 17.5 && pixelRatio < ceiling) {
+    if (++goodWindows >= 3) { next = Math.min(ceiling, pixelRatio + 0.1); goodWindows = 0; }
+  } else {
+    goodWindows = 0;
+  }
+  if (Math.abs(next - pixelRatio) > 0.01) {
+    pixelRatio = next;
+    world.renderer.setPixelRatio(pixelRatio);
+    world.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+}
+
 /** Point the camera at a ground target from the fixed Boomerang Fu-style angle. */
 export function aimCamera(world: World, tx: number, ty: number, tz: number, dist = CAMERA_DIST): void {
-  const { camera, sun } = world;
+  const { camera } = world;
   camera.position.set(tx, ty + Math.sin(CAMERA_PITCH) * dist, tz + Math.cos(CAMERA_PITCH) * dist);
   camera.lookAt(tx, ty, tz);
-  // Keep the shadow frustum centred on what we're looking at
-  sun.position.set(tx - 12, ty + 30, tz + 12);
-  sun.target.position.set(tx, ty, tz);
 }
 
 // ── City ──────────────────────────────────────────────────────────────────
@@ -132,12 +183,14 @@ function shadowed<T extends THREE.Object3D>(o: T, cast = true, receive = true): 
   return o;
 }
 
-function rbox(w: number, h: number, d: number, r: number, color: number, segs = 3): THREE.Mesh {
+// Props default to one bevel segment: at this camera distance more detail is invisible but costs
+// ~600 triangles per box (a crate stack is 8 boxes). Buildings pass more segments explicitly.
+function rbox(w: number, h: number, d: number, r: number, color: number, segs = 1): THREE.Mesh {
   const geo = new RoundedBoxGeometry(w, h, d, segs, Math.min(r, w / 2 - 0.001, h / 2 - 0.001, d / 2 - 0.001));
   return new THREE.Mesh(geo, mat(color));
 }
 
-const DEPTH = 34; // how far buildings extend down into the mist
+const DEPTH = 17; // how far buildings extend down: just past the mist floor, nothing below is visible
 
 /**
  * The city never moves, so merge every mesh that shares a material (and shadow flags) into one.
@@ -211,16 +264,16 @@ function buildBuilding(scene: THREE.Object3D, b: Building, rng: () => number): v
   const side = SIDE_COLORS[b.id % SIDE_COLORS.length];
 
   // Body: rounded column with the same periwinkle sides as the Boomerang Fu cliffs
-  const body = rbox(w, DEPTH, d, 0.45, side, 4);
+  const body = rbox(w, DEPTH, d, 0.45, side, 3);
   body.material = mat(side, { emissive: 0x262a52 }); // lift the walls to the trailer's light lavender
   body.position.set(cx, b.h - DEPTH / 2, cz);
-  scene.add(shadowed(body));
+  scene.add(shadowed(body, true, false)); // walls cast onto roofs, but shadow lookups on them are wasted pixels
 
   // Rim band then roof surface inset: the pale lip around every Boomerang Fu platform
-  const rim = rbox(w - 0.06, 0.12, d - 0.06, 0.06, style.rim, 2);
+  const rim = rbox(w - 0.06, 0.12, d - 0.06, 0.06, style.rim, 1);
   rim.position.set(cx, b.h - 0.065, cz);
   scene.add(shadowed(rim, false, true));
-  const top = rbox(w - 0.7, 0.1, d - 0.7, 0.05, style.top, 2);
+  const top = rbox(w - 0.7, 0.1, d - 0.7, 0.05, style.top, 1);
   top.position.set(cx, b.h - 0.04, cz);
   scene.add(shadowed(top, false, true));
 
@@ -252,7 +305,7 @@ function buildBuilding(scene: THREE.Object3D, b: Building, rng: () => number): v
   }
 
   // Windows: rows of darker inset panes that sink into the mist
-  const winGeo = new RoundedBoxGeometry(0.9, 1.1, 0.12, 2, 0.08);
+  const winGeo = new THREE.BoxGeometry(0.9, 1.1, 0.12); // plain box: ~900 windows, keep them cheap
   const count = Math.ceil(w / 2.2) * 2 * 4 + Math.ceil(d / 2.2) * 2 * 4;
   const wins = new THREE.InstancedMesh(winGeo, mat(WINDOW, { emissive: 0x1c2048 }), count);
   const m4 = new THREE.Matrix4();
@@ -510,7 +563,7 @@ function buildSkyline(scene: THREE.Object3D, rng: () => number): void {
     if (edge === 2) { z = z0 - 6 - rng() * 12; x = x0 + rng() * (x1 - x0); }
     if (edge === 3) { z = z1 + 6 + rng() * 12; x = x0 + rng() * (x1 - x0); }
     const top = -2.5 - rng() * 6;
-    const b = rbox(w, DEPTH, d, 0.45, SIDE_COLORS[i % SIDE_COLORS.length], 2);
+    const b = rbox(w, DEPTH, d, 0.45, SIDE_COLORS[i % SIDE_COLORS.length], 1);
     b.position.set(x, top - DEPTH / 2, z);
     scene.add(b);
     const roof = rbox(w - 0.5, 0.1, d - 0.5, 0.05, [0xf3e7c4, 0xeeaa82, 0xc4e6ae, 0xb7e06c][i % 4], 1);

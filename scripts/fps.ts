@@ -13,7 +13,10 @@ for (const url of process.argv.slice(2)) {
     const f = () => { n++; if (performance.now() - t0 < 5000) requestAnimationFrame(f); else res(n / ((performance.now() - t0) / 1000)); };
     requestAnimationFrame(f);
   })`);
-  console.log(`${url}  ${fps.toFixed(1)} fps`);
+  await p.keyboard.press('KeyP');
+  await p.waitForTimeout(1200);
+  const info = (await p.textContent('.debug').catch(() => '')) ?? '';
+  console.log(`${url}  ${fps.toFixed(1)} fps  ${info.replace(/.*?(draws.*)/, '$1')}`);
   await p.close();
 }
 await browser.close();

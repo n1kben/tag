@@ -1,7 +1,7 @@
 // Client glue: lobby flow, fixed-step prediction + reconciliation for the local player,
 // snapshot interpolation for everyone else, and turning server events into juice.
 import * as THREE from 'three';
-import { createWorld, aimCamera, CAMERA_DIST, type World } from './world';
+import { createWorld, aimCamera, adaptResolution, CAMERA_DIST, type World } from './world';
 import { Character, SliceDeath, CHAR_DEFS } from './characters';
 import { Fx } from './fx';
 import { UI, esc, type HudState } from './ui';
@@ -442,6 +442,7 @@ export function startGame(): void {
   let last = performance.now();
   let fpsFrames = 0, fpsT = 0, fps = 0;
   let debugOn = false;
+  let jsMs = 0, renderMs = 0;
   let boardHeld = false;
 
   window.addEventListener('keydown', e => {
@@ -455,6 +456,7 @@ export function startGame(): void {
     let dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     fpsFrames++; fpsT += dt;
+    adaptResolution(world, dt);
     if (fpsT >= 1) { fps = fpsFrames; fpsFrames = 0; fpsT = 0; }
 
     // Fixed 60Hz simulation for the local player (inputs are sent at the same rate)
@@ -474,8 +476,12 @@ export function startGame(): void {
     fx.update(dt);
     for (let i = slices.length - 1; i >= 0; i--) { slices[i].update(dt); if (slices[i].done) slices.splice(i, 1); }
 
-    ui.debug(debugOn ? `fps ${fps} · ping ${net.rtt.toFixed(0)}ms · pending ${pending.length} · buffer ${buffer.length} · tick ${latest?.tick ?? "-"} · draws ${world.renderer.info.render.calls}` : null);
+    ui.debug(debugOn ? `fps ${fps} · ping ${net.rtt.toFixed(0)}ms · pending ${pending.length} · buffer ${buffer.length} · tick ${latest?.tick ?? "-"} · draws ${world.renderer.info.render.calls} · tris ${(world.renderer.info.render.triangles / 1000).toFixed(0)}k · dpr ${world.renderer.getPixelRatio().toFixed(2)} · js ${jsMs.toFixed(1)}ms · render ${renderMs.toFixed(1)}ms` : null);
+    const tRender = performance.now();
     world.renderer.render(world.scene, world.camera);
+    // Smoothed CPU cost per frame: game logic vs. submitting the render (shown in the P HUD)
+    jsMs = jsMs * 0.95 + (tRender - now) * 0.05;
+    renderMs = renderMs * 0.95 + (performance.now() - tRender) * 0.05;
     requestAnimationFrame(frame);
   }
 

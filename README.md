@@ -64,6 +64,14 @@ The look was matched against frames from Boomerang Fu's official release trailer
 - pale rims on platform edges and soft lavender shadows
 - purple-brown crates, red stall roofs, bunting
 
+## Performance
+
+- The static city is baked into merged meshes (about 120 draw calls in play) and the shadow map is drawn once at load; characters use blob shadows.
+- Resolution adapts: it starts at the screen's pixel density (max 2×), steps down when frames take longer than 20ms, and climbs back when there's headroom.
+- MSAA is off on high-density (Retina) screens, where it costs about 40% for no visible gain.
+- URL options: `?dpr=1` pins the resolution, `?noaa` turns anti-aliasing off, `?noshadow` turns shadows off, `?lite` gives half resolution with no shadows.
+- Press **P** for fps, draw calls, triangles, resolution, and JS vs render milliseconds.
+
 ## Dev scripts
 
 - `scripts/check-map.ts`: every roof is reachable and has a way back, spawns are clear, no obstacle has an in-between height, and every low obstacle can be cleared with the real jump.

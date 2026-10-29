@@ -202,6 +202,5 @@ function makeNade(kind: NadeKind): THREE.Object3D {
   const cap = new THREE.Mesh(capGeo, mat(0x5d4a58));
   cap.position.y = 0.17;
   g.add(body, cap);
-  g.traverse(o => { o.castShadow = true; });
   return g;
 }

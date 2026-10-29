@@ -271,7 +271,6 @@ export class Character {
     this.ice.position.y = 0.6;
     this.root.add(this.ice);
 
-    this.root.traverse(o => { if ((o as THREE.Mesh).isMesh && !this.shadow.children.includes(o)) o.castShadow = true; });
     this.setRole('hider');
   }
 
@@ -432,7 +431,6 @@ export class SliceDeath {
         front.clipShadows = true;
         addMist(front);
         me.material = front;
-        me.castShadow = true;
         // Back faces in the food's inside colour fill the cut like a solid cross-section
         const inner = new THREE.MeshBasicMaterial({ color: ch.def.inside, side: THREE.BackSide, clippingPlanes: [plane] });
         const cap = new THREE.Mesh(me.geometry, inner);
