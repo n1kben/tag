@@ -1,0 +1,20 @@
+# systemd *user* service: no root needed. Install with deploy/update.sh, or by hand:
+#   mkdir -p ~/.config/systemd/user && cp deploy/rooftop-fu.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now rooftop-fu
+# Needs `loginctl enable-linger $USER` so it keeps running after logout / starts at boot.
+[Unit]
+Description=Rooftop Fu game server
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/projects/rooftop-fu
+Environment=NODE_ENV=production
+Environment=PORT=8080
+# Only reachable through the local tunnel (Tailscale Funnel), never directly
+Environment=HOST=127.0.0.1
+ExecStart=%h/.local/bin/node dist/server/index.mjs
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

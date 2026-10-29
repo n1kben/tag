@@ -87,6 +87,9 @@ function dispatch(ws: WebSocket, msg: ClientMessage): void {
   }
 }
 
-server.listen(PORT, () => {
-  console.log(`Rooftop Fu server listening on port ${PORT}`);
+// HOST=127.0.0.1 keeps it off the network when a tunnel (Tailscale Funnel) fronts it;
+// unset = all interfaces (dev: Vite's proxy may connect over IPv6 localhost)
+const HOST = process.env.HOST || undefined;
+server.listen(PORT, HOST, () => {
+  console.log(`Rooftop Fu server listening on ${HOST ?? '*'}:${PORT}`);
 });

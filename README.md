@@ -15,6 +15,23 @@ Two modes, picked on the title screen or in the lobby:
 
 Press **PLAY VS BOTS** for a practice match, or **CREATE ROOM** and share the link (the room code sits in the URL hash). Anyone can add bots in the lobby.
 
+## Playing online (VPS + Tailscale Funnel)
+
+The production server serves the page and the websocket on one port, so a single HTTPS tunnel is all friends need: no Tailscale on their side and no open ports on the VPS.
+
+```sh
+# on the VPS (once)
+git clone -b worktree-rooftop-hns https://github.com/n1kben/tag.git ~/projects/rooftop-fu
+~/projects/rooftop-fu/deploy/update.sh          # build + systemd user service on 127.0.0.1:8080
+tailscale funnel --bg --https=10000 http://127.0.0.1:8080
+# → https://<machine>.<tailnet>.ts.net:10000   (Funnel only allows ports 443, 8443 and 10000)
+
+# later, to ship new commits
+~/projects/rooftop-fu/deploy/update.sh
+```
+
+Funnel has to be allowed for the node once in the Tailscale admin console; the first `funnel` command prints the link. Turn it off with `tailscale funnel --https=10000 off`. Restarting the server ends matches in progress.
+
 ## Controls
 
 | | Keyboard | Gamepad |
