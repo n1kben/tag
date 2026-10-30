@@ -8,7 +8,7 @@ import { UI, esc, type HudState } from './ui';
 import { Network } from './net';
 import { readInput, isHeld, setInputEnabled } from './input';
 import { sfx, spatial, setMuted, isMuted } from './audio';
-import { BTN_ACTION, type Role } from '../shared/sim';
+import { BTN_ACTION, BTN_FLASH, BTN_FROST, type Role } from '../shared/sim';
 import { ClientNet, lerpAngle } from './netcode';
 import { FULL_MAP, mapFor, roofsForPlayers } from '../shared/map';
 import { TICK_DT, TICK_RATE, NADE_CHARGE_TIME, COLOR_TAGGER, HEAD_START, type NadeKind } from '../shared/constants';
@@ -48,6 +48,7 @@ export function startGame(): void {
   // Local prediction
   let acc = 0;
   let aimHeld = 0;
+  let aimKind: NadeKind = 'flash'; // grenade being aimed
   let prevAction = false;
   let spectate: number | null = null;
 
@@ -266,7 +267,9 @@ export function startGame(): void {
 
     // Runner throw arc: mirror the server's charge timer locally
     const me = latest.me!;
-    const canAim = me.alive && me.role === 'runner' && !st.locked && !st.frozen && me.nades[me.nadeSel] > 0;
+    // J / K pick the grenade (as the server does); Enter uses the selected one
+    if (ev.pressed & BTN_ACTION) aimKind = input.b & BTN_FROST ? 'frost' : input.b & BTN_FLASH ? 'flash' : me.nadeSel;
+    const canAim = me.alive && me.role === 'runner' && !st.locked && !st.frozen && me.nades[aimKind] > 0;
     if (canAim && (input.b & BTN_ACTION)) aimHeld = prevAction || aimHeld > 0 ? aimHeld + TICK_DT : (ev.pressed & BTN_ACTION ? TICK_DT : 0);
     else aimHeld = 0;
 
@@ -482,7 +485,7 @@ export function startGame(): void {
       myChar.root.position.set(at.x, at.y, at.z);
       myChar.root.rotation.y = lerpAngle(myChar.root.rotation.y, pred.facing, Math.min(1, dt * 20));
       const charging = aimHeld > 0 ? Math.min(1, aimHeld / NADE_CHARGE_TIME) : 0;
-      myChar.setNade(charging > 0 ? me.nadeSel : null);
+      myChar.setNade(charging > 0 ? aimKind : null);
       myChar.setRole(me.role);
       myChar.update(dt, {
         speed: Math.hypot(pred.vx, pred.vz), vy: pred.vy, grounded: pred.grounded, lunge: pred.lunge,

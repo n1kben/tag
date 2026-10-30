@@ -13,7 +13,7 @@ import {
   STOMP_STUN, PLANK_CRACK_TIME, PLANK_FIX_TIME, type NadeKind,
 } from '../shared/constants';
 import { TAGGER_SPAWNS, RUNNER_SPAWNS, FULL_MAP, mapFor, roundTimeFor, type GameMap } from '../shared/map';
-import { newBody, stepBody, BTN_ACTION, BTN_ALT, type Body, type Dyn, type Input, type Role, type Status } from '../shared/sim';
+import { newBody, stepBody, BTN_ACTION, BTN_ALT, BTN_FLASH, BTN_FROST, type Body, type Dyn, type Input, type Role, type Status } from '../shared/sim';
 import type {
   GameEvent, GameMode, KillCause, LobbyPlayer, NetPlayer, NetProjectile, Phase, ServerMessage, Snapshot, Standing,
 } from '../shared/protocol';
@@ -406,10 +406,16 @@ export class Match {
       else p.stabPending = false;
     }
 
-    // Runner grenades: ALT (Q) switches, hold ACTION (Enter) to charge, release to throw
+    // Runner grenades: hold ACTION to charge, release to throw. J / K (FLASH / FROST) pick the
+    // grenade as they're pressed; Enter throws the selected one and ALT (Q) switches
     if (p.role === 'runner') {
       if (canAct && (ev.pressed & BTN_ALT)) this.cycleNade(p);
-      if (canAct && (ev.pressed & BTN_ACTION) && p.nades[p.nadeSel] > 0) p.aimT = 0;
+      if (canAct && (ev.pressed & BTN_ACTION)) {
+        const want: NadeKind | null = input.b & BTN_FROST ? 'frost' : input.b & BTN_FLASH ? 'flash' : null;
+        if (want && p.nades[want] > 0) p.nadeSel = want;
+        // Asking for one you're out of does nothing (no surprise throw of the other kind)
+        if (p.nades[p.nadeSel] > 0 && (!want || p.nadeSel === want)) p.aimT = 0;
+      }
       if (p.aimT >= 0) {
         if (!canAct) p.aimT = -1;
         else if (input.b & BTN_ACTION) p.aimT += TICK_DT;
