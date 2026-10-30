@@ -63,7 +63,7 @@ export function encodeSnapshot(s: Snapshot): Uint8Array {
   if (me) {
     for (const k of ME_F64) w.f64(me[k]);
     for (const k of ME_F32) w.f32(me[k]);
-    w.u8((me.grounded ? 1 : 0) | (me.rising ? 2 : 0) | (me.onHead ? 4 : 0) | (me.alive ? 8 : 0) | (me.role === 'tagger' ? 16 : 0) | (me.nadeSel === 'frost' ? 32 : 0));
+    w.u8((me.grounded ? 1 : 0) | (me.rising ? 2 : 0) | (me.onHead ? 4 : 0) | (me.alive ? 8 : 0) | (me.role === 'tagger' ? 16 : 0));
     w.u8(me.prevB);
     w.u8(me.hp);
     w.u8(me.nades.flash);
@@ -106,7 +106,6 @@ export function decodeSnapshot(data: ArrayBuffer | ArrayBufferView): Snapshot {
     const bits = r.u8();
     m.grounded = !!(bits & 1); m.rising = !!(bits & 2); m.onHead = !!(bits & 4); m.alive = !!(bits & 8);
     m.role = bits & 16 ? 'tagger' : 'runner';
-    m.nadeSel = bits & 32 ? 'frost' : 'flash';
     m.prevB = r.u8();
     m.hp = r.u8();
     m.nades = { flash: r.u8(), frost: r.u8() };

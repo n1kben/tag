@@ -1,7 +1,7 @@
 // Keyboard + gamepad → sim Input. Boomerang Fu is a stick game: you face where you move,
-// so there's no mouse aim. Space jumps; taggers slash with J, K or Enter; runners hold J for a
-// flash or K for a frost and release to throw (Enter throws the selected one, Q switches).
-import { BTN_ACTION, BTN_ALT, BTN_FLASH, BTN_FROST, BTN_JUMP, type Input } from '../shared/sim';
+// so there's no mouse aim. Space jumps; taggers slash with J, K or Enter; runners hold J (or
+// Enter) for a flash or K for a frost and let go to throw.
+import { BTN_ACTION, BTN_FLASH, BTN_FROST, BTN_JUMP, type Input } from '../shared/sim';
 
 const keys = new Set<string>();
 let enabled = true;
@@ -31,10 +31,8 @@ export function readInput(): Input {
   if (keys.has('KeyW') || keys.has('ArrowUp')) mz -= 1;
   if (keys.has('KeyS') || keys.has('ArrowDown')) mz += 1;
   if (keys.has('Space')) b |= BTN_JUMP;
-  if (keys.has('Enter') || keys.has('NumpadEnter')) b |= BTN_ACTION;
-  if (keys.has('KeyJ')) b |= BTN_ACTION | BTN_FLASH;
+  if (keys.has('KeyJ') || keys.has('Enter') || keys.has('NumpadEnter')) b |= BTN_ACTION | BTN_FLASH;
   if (keys.has('KeyK')) b |= BTN_ACTION | BTN_FROST;
-  if (keys.has('KeyQ')) b |= BTN_ALT;
 
   for (const pad of navigator.getGamepads?.() ?? []) {
     if (!pad) continue;
@@ -42,8 +40,8 @@ export function readInput(): Input {
     if (Math.hypot(ax, az) > 0.2) { mx = ax; mz = az; }
     const btn = (i: number) => pad.buttons[i]?.pressed;
     if (btn(0)) b |= BTN_JUMP; // A
-    if (btn(2) || btn(7)) b |= BTN_ACTION; // X / RT
-    if (btn(3) || btn(4) || btn(5)) b |= BTN_ALT; // Y / bumpers: switch grenade
+    if (btn(2) || btn(7)) b |= BTN_ACTION | BTN_FLASH; // X / RT: slash, or a flash
+    if (btn(3) || btn(4) || btn(5)) b |= BTN_ACTION | BTN_FROST; // Y / bumpers: slash, or a frost
     if (btn(12)) mz = -1;
     if (btn(13)) mz = 1;
     if (btn(14)) mx = -1;

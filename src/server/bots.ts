@@ -2,7 +2,7 @@
 // They drive the same Input as players, so they obey the same physics and rules.
 import { navFor, steerTo, type Nav, type NavEdge, type NavNode } from '../shared/nav';
 import type { GameMap } from '../shared/map';
-import { BTN_ACTION, BTN_ALT, type Body, type Input } from '../shared/sim';
+import { BTN_ACTION, BTN_FLASH, BTN_FROST, type Body, type Input } from '../shared/sim';
 import { STAB_RANGE, STAB_HEIGHT, PLAYER_RADIUS, TICK_DT, type NadeKind } from '../shared/constants';
 import type { Match, MPlayer } from './match';
 
@@ -21,7 +21,6 @@ export class Brain {
   private nadeCd = 2;
   private lastSeen: { x: number; z: number; y: number; t: number } | null = null;
   private think_t = 0;
-  private altToggle = false;
   private walkX = 0;
   private walkZ = 0;
 
@@ -67,15 +66,10 @@ export class Brain {
       const gap = gapBetween(this.nav.map, near.t.body, b);
       const want: NadeKind | null = gap && me.nades.frost > 0 ? 'frost' : near.d < 6 && me.nades.flash > 0 ? 'flash' : null;
       if (want) {
-        if (me.nadeSel !== want) {
-          // Cycling needs press/release, so tap ALT every other tick
-          this.altToggle = !this.altToggle;
-          return { mx: 0, mz: 0, b: this.altToggle ? BTN_ALT : 0 };
-        }
         this.nadeCd = 3 + Math.random() * 3;
         const dist = want === 'frost' && gap ? Math.hypot(gap.x - b.x, gap.z - b.z) : near.d;
         this.aimTicks = Math.round(8 + Math.min(1, dist / 9) * 25);
-        return { mx: 0, mz: 0, b: BTN_ACTION };
+        return { mx: 0, mz: 0, b: BTN_ACTION | (want === 'frost' ? BTN_FROST : BTN_FLASH) }; // like J / K
       }
     }
 

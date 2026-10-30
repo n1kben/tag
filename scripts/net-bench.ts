@@ -176,7 +176,7 @@ function viewOf(c: Client) {
     broken: new Set(s.planks.flatMap((st, i) => (st === 2 ? [i] : []))),
     me: {
       id: c.id, alive: me.alive, connected: true, role: me.role, prot: 0, body: { ...pred, x: pred.x + cn.err.x, z: pred.z + cn.err.z },
-      nades: me.nades, nadeSel: me.nadeSel, chilled: me.chilled, frozen: me.frozen, blind: me.blind,
+      nades: me.nades, chilled: me.chilled, frozen: me.frozen, blind: me.blind,
     },
     others: others.map(p => ({
       id: p.id, alive: p.alive, connected: true, role: p.role, prot: p.prot ? 1 : 0,

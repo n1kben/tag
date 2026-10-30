@@ -84,8 +84,8 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .hp { position: absolute; top: 58px; left: 18px; display: flex; gap: 4px; }
 .heart { font-size: 22px; filter: drop-shadow(0 2px 0 rgba(59,42,92,0.4)); }
 .inv { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
-.slot { background: #fff; border-radius: 18px; padding: 6px 12px; min-width: 74px; text-align: center; box-shadow: 0 5px 0 #c3b8e6; opacity: 0.55; transition: transform 0.1s; }
-.slot.sel { opacity: 1; transform: translateY(-6px) scale(1.08); box-shadow: 0 5px 0 var(--pink); }
+.slot { position: relative; background: #fff; border-radius: 18px; padding: 6px 12px; min-width: 74px; text-align: center; box-shadow: 0 5px 0 #c3b8e6; }
+.slot kbd { position: absolute; top: -10px; left: -10px; font-size: 14px; }
 .slot.empty { opacity: 0.25; }
 .slot .ic { width: 26px; height: 26px; border-radius: 50%; margin: 2px auto; border: 3px solid var(--ink); }
 .slot .lb { font-weight: 700; font-size: 13px; }
@@ -133,6 +133,7 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 `;
 
 const NADE_LABEL: Record<NadeKind, string> = { flash: 'Flash', frost: 'Frost' };
+const NADE_KEY: Record<NadeKind, string> = { flash: 'J', frost: 'K' };
 const NADE_CSS: Record<NadeKind, string> = { flash: '#fff2a8', frost: '#8fe3ff' };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] {
@@ -198,7 +199,6 @@ export interface HudState {
   frozen: number;
   blind: number;
   nades: Record<NadeKind, number>;
-  nadeSel: NadeKind;
   teams: { id: number; role: Role; alive: boolean }[];
   spectating: string | null;
   mode: GameMode;
@@ -399,7 +399,7 @@ export class UI {
     }
     if (s.alive && s.role === 'runner') {
       const inv = el('div', 'dyn inv', NADE_KINDS.map(k => `
-        <div class="slot ${k === s.nadeSel && s.nades[k] > 0 ? 'sel' : ''} ${s.nades[k] ? '' : 'empty'}">
+        <div class="slot ${s.nades[k] ? '' : 'empty'}"><kbd>${NADE_KEY[k]}</kbd>
           <div class="ic" style="background:${NADE_CSS[k]}"></div><div class="lb">${NADE_LABEL[k]} ×${s.nades[k]}</div></div>`).join(''));
       this.hud.append(inv);
       this.hud.append(el('div', 'dyn keys outlined', '<kbd>J</kbd> flash · <kbd>K</kbd> frost (hold, let go to throw)<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));

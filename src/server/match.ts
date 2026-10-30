@@ -13,7 +13,7 @@ import {
   STOMP_STUN, PLANK_CRACK_TIME, PLANK_FIX_TIME, type NadeKind,
 } from '../shared/constants';
 import { TAGGER_SPAWNS, RUNNER_SPAWNS, FULL_MAP, mapFor, roundTimeFor, type GameMap } from '../shared/map';
-import { newBody, stepBody, BTN_ACTION, BTN_ALT, BTN_FLASH, BTN_FROST, type Body, type Dyn, type Input, type Role, type Status } from '../shared/sim';
+import { newBody, stepBody, BTN_ACTION, BTN_FLASH, BTN_FROST, type Body, type Dyn, type Input, type Role, type Status } from '../shared/sim';
 import type {
   GameEvent, GameMode, KillCause, LobbyPlayer, NetPlayer, NetProjectile, Phase, ServerMessage, Snapshot, Standing,
 } from '../shared/protocol';
@@ -51,7 +51,7 @@ export interface MPlayer {
   chilled: number;
   blind: number;
   nades: Record<NadeKind, number>;
-  nadeSel: NadeKind;
+  aimKind: NadeKind; // the grenade being aimed (J: flash, K: frost)
   aimT: number; // grenade charge time, -1 when not aiming
   stabPending: boolean;
   shovedBy: number; // last opponent to knock us around, for crediting falls
@@ -114,7 +114,7 @@ export class Match {
       id: p.id, name: p.name, character: p.character, bot: p.bot, connected: true,
       body: newBody(this.map, 0, 0), input: { mx: 0, mz: 0, b: 0 }, queue: [], viewTick: 0, lastSeq: 0, hist: [], ack: 0, credit: 0, waitT: 0, owed: 0, net: { dropped: 0, waited: 0 },
       role: 'runner', hp: MAX_HP, alive: false, frozen: 0, chilled: 0, blind: 0,
-      nades: NO_NADES(), nadeSel: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
+      nades: NO_NADES(), aimKind: 'flash', aimT: -1, stabPending: false, shovedBy: 0, shovedT: 0,
       respawnT: 0, prot: 0, survT: 0, nadeT: 0, stun: 0, plankFallT: 0, score: 0, kills: 0, survived: 0, brain: p.bot ? new Brain() : null,
     };
     this.players.push(mp);
@@ -199,7 +199,6 @@ export class Match {
       p.alive = true;
       p.frozen = p.chilled = p.blind = 0;
       p.nades = p.role === 'runner' ? { ...NADE_LOADOUT } : NO_NADES();
-      p.nadeSel = 'flash';
       p.nadeT = 0;
       p.aimT = -1;
       p.stabPending = false;
@@ -248,7 +247,6 @@ export class Match {
     p.alive = true;
     p.frozen = p.chilled = p.blind = 0;
     p.nades = p.role === 'runner' ? { ...NADE_LOADOUT } : NO_NADES();
-    p.nadeSel = 'flash';
     p.aimT = -1;
     p.stabPending = false;
     p.respawnT = 0;
@@ -406,15 +404,12 @@ export class Match {
       else p.stabPending = false;
     }
 
-    // Runner grenades: hold ACTION to charge, release to throw. J / K (FLASH / FROST) pick the
-    // grenade as they're pressed; Enter throws the selected one and ALT (Q) switches
+    // Runner grenades: J (FLASH) or K (FROST) held to charge, let go to throw. Asking for one
+    // you're out of does nothing (no surprise throw of the other kind)
     if (p.role === 'runner') {
-      if (canAct && (ev.pressed & BTN_ALT)) this.cycleNade(p);
       if (canAct && (ev.pressed & BTN_ACTION)) {
-        const want: NadeKind | null = input.b & BTN_FROST ? 'frost' : input.b & BTN_FLASH ? 'flash' : null;
-        if (want && p.nades[want] > 0) p.nadeSel = want;
-        // Asking for one you're out of does nothing (no surprise throw of the other kind)
-        if (p.nades[p.nadeSel] > 0 && (!want || p.nadeSel === want)) p.aimT = 0;
+        const want: NadeKind = input.b & BTN_FROST ? 'frost' : 'flash';
+        if (p.nades[want] > 0) { p.aimKind = want; p.aimT = 0; }
       }
       if (p.aimT >= 0) {
         if (!canAct) p.aimT = -1;
@@ -445,7 +440,6 @@ export class Match {
       // The kind we're shortest of, relative to the kit (frost on a tie: it's the rarer one)
       const kind = missing.sort((a, b) => p.nades[a] / NADE_LOADOUT[a] - p.nades[b] / NADE_LOADOUT[b] || (a === 'frost' ? -1 : 1))[0];
       p.nades[kind]++;
-      if (p.nades[p.nadeSel] === 0) p.nadeSel = kind;
       this.events.push({ k: 'refill', id: p.id, kind });
     }
   }
@@ -456,16 +450,8 @@ export class Match {
     return this.players.find(q => q.id === p.shovedBy && this.enemies(q, p)) ?? null;
   }
 
-  private cycleNade(p: MPlayer): void {
-    const i = NADE_KINDS.indexOf(p.nadeSel);
-    for (let k = 1; k <= NADE_KINDS.length; k++) {
-      const kind = NADE_KINDS[(i + k) % NADE_KINDS.length];
-      if (p.nades[kind] > 0) { p.nadeSel = kind; return; }
-    }
-  }
-
   private throwNade(p: MPlayer, charge: number): void {
-    const kind = p.nadeSel;
+    const kind = p.aimKind;
     if (p.nades[kind] <= 0) return;
     p.nades[kind]--;
     const fx = Math.sin(p.body.facing), fz = Math.cos(p.body.facing);
@@ -478,7 +464,6 @@ export class Match {
       t: 0,
     });
     this.events.push({ k: 'throw', by: p.id, kind });
-    if (p.nades[kind] === 0) this.cycleNade(p);
   }
 
   /**
@@ -541,7 +526,6 @@ export class Match {
         // HNS deathmatch swap: the catcher runs now, the caught one hunts after respawning
         by.role = 'runner';
         by.nades = { ...NADE_LOADOUT };
-        by.nadeSel = 'flash';
         by.prot = SWAP_PROTECTION;
         by.survT = 0;
         by.nadeT = 0;
@@ -683,7 +667,7 @@ export class Match {
       id: p.id, x: r2(b.x), y: r2(b.y), z: r2(b.z), vx: r2(b.vx), vy: r2(b.vy), vz: r2(b.vz), f: r2(b.facing),
       hp: Math.round(p.hp), alive: p.alive, role: p.role, frozen: r2(p.frozen), chilled: r2(p.chilled),
       lunge: r2(b.lunge), aiming: p.aimT >= 0 ? r2(Math.min(1, p.aimT / NADE_CHARGE_TIME)) : 0,
-      nade: p.aimT >= 0 ? p.nadeSel : null,
+      nade: p.aimT >= 0 ? p.aimKind : null,
       prot: p.prot > 0,
       stun: r2(p.stun),
     };
@@ -703,7 +687,7 @@ export class Match {
         me: {
           ...viewer.body, hp: Math.round(viewer.hp), alive: viewer.alive, role: viewer.role,
           frozen: viewer.frozen, chilled: viewer.chilled, blind: viewer.blind,
-          nades: viewer.nades, nadeSel: viewer.nadeSel, respawn: r2(viewer.respawnT), stun: r2(viewer.stun),
+          nades: viewer.nades, respawn: r2(viewer.respawnT), stun: r2(viewer.stun),
         },
         players, projectiles, scores, planks: this.planks.map(pl => pl.state),
       };

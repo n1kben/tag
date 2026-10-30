@@ -42,9 +42,8 @@ Funnel has to be allowed for the node once in the Tailscale admin console; the f
 |---|---|---|
 | Move (you face where you move) | WASD / arrows | left stick / d-pad |
 | Jump: tap for a hop, hold for full height. No cooldown: **bunny hop** by pressing again right as you land (within 0.05s) and your top speed grows 8% per hop, up to 1.4×; linger on the ground and it's gone. `HOP_*` in constants.ts | Space | A |
-| Tagger slashes | J, K or Enter | X / RT |
-| Runner holds to aim a flash / frost (the throw arc shows) and releases to throw | J / K (Enter: the selected one) | X / RT |
-| Runner switches the selected grenade (for Enter / gamepad) | Q | Y / bumpers |
+| Tagger slashes | J, K or Enter | X / RT / Y / bumpers |
+| Runner holds to aim a flash / a frost (the throw arc shows), lets go to throw | J (or Enter) / K | X or RT / Y or bumpers |
 | Scoreboard · mute · debug HUD | Tab · M · P | |
 
 There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where you move.

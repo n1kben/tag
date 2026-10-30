@@ -268,7 +268,7 @@ export function startGame(): void {
     // Runner throw arc: mirror the server's charge timer locally
     const me = latest.me!;
     // J / K pick the grenade (as the server does); Enter uses the selected one
-    if (ev.pressed & BTN_ACTION) aimKind = input.b & BTN_FROST ? 'frost' : input.b & BTN_FLASH ? 'flash' : me.nadeSel;
+    if (ev.pressed & BTN_ACTION) aimKind = input.b & BTN_FROST ? 'frost' : 'flash';
     const canAim = me.alive && me.role === 'runner' && !st.locked && !st.frozen && me.nades[aimKind] > 0;
     if (canAim && (input.b & BTN_ACTION)) aimHeld = prevAction || aimHeld > 0 ? aimHeld + TICK_DT : (ev.pressed & BTN_ACTION ? TICK_DT : 0);
     else aimHeld = 0;
@@ -566,7 +566,7 @@ export function startGame(): void {
       const teams = Object.entries(roles).map(([id, role]) => ({ id: Number(id), role, alive: !dead.has(Number(id)) }));
       const hud: HudState = {
         phase, timeLeft, role: me.role, alive: me.alive, frozen: me.frozen, blind: me.blind,
-        nades: me.nades, nadeSel: me.nadeSel, teams,
+        nades: me.nades, teams,
         spectating: gameMode === 'tag' && !me.alive && spectate !== null ? ui.nameOf(spectate) : null,
         mode: gameMode,
         respawn: me.respawn,

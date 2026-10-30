@@ -7,7 +7,6 @@ import type { GameMap } from './map';
 
 export const BTN_JUMP = 1;
 export const BTN_ACTION = 2; // tagger: slash · runner: hold to aim grenade, release to throw
-export const BTN_ALT = 4; // runner: switch grenade
 export const BTN_FLASH = 8; // with ACTION (J): a runner aims a flash
 export const BTN_FROST = 16; // with ACTION (K): a runner aims a frost
 

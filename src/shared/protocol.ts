@@ -72,7 +72,7 @@ export interface Snapshot {
   phase: Phase;
   timeLeft: number;
   ack: number; // last input seq processed for the receiver
-  me: (Body & { hp: number; alive: boolean; role: Role; frozen: number; chilled: number; blind: number; nades: Record<NadeKind, number>; nadeSel: NadeKind; respawn: number; stun: number }) | null;
+  me: (Body & { hp: number; alive: boolean; role: Role; frozen: number; chilled: number; blind: number; nades: Record<NadeKind, number>; respawn: number; stun: number }) | null;
   players: NetPlayer[];
   projectiles: NetProjectile[];
   scores: { id: number; score: number; kills: number }[]; // live points, for the HUD and Tab board

@@ -28,7 +28,7 @@ function setup() {
   run(NADE_REFILL_EVERY - 0.5);
   check(me.nades.flash + me.nades.frost === 0, `nothing before ${NADE_REFILL_EVERY}s`);
   run(1);
-  check(me.nades.frost === 1 && me.nades.flash === 0 && me.nadeSel === 'frost', 'first one back is frost, and it gets selected');
+  check(me.nades.frost === 1 && me.nades.flash === 0, 'first one back is frost');
   check(events.some(e => e.k === 'refill' && e.id === 1 && e.kind === 'frost'), 'the client is told (refill event)');
   run(NADE_REFILL_EVERY * 2);
   check(me.nades.flash === 2 && me.nades.frost === 1, `then flashes, up to the kit (${me.nades.flash} flash, ${me.nades.frost} frost)`);
