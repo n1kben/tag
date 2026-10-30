@@ -369,7 +369,7 @@ export function startGame(): void {
         fx.detonate(e.kind, e.x, e.y, e.z, sp.vol);
         const v = Math.max(0.2, sp.vol);
         ({ flash: sfx.flash, frost: sfx.frost } as Record<NadeKind, (v: number, p: number) => void>)[e.kind](v, sp.pan);
-        if (e.hits.includes(myId) && e.kind === 'frost') ui.banner('FROZEN!', '', '#8fe3ff', 1200);
+        if (e.hits.includes(myId) && e.kind === 'frost') ui.banner(e.frozen.includes(myId) ? 'FROZEN!' : 'CHILLED', '', '#8fe3ff', 1200);
         break;
       }
       case 'refill': {

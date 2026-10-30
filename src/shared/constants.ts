@@ -87,9 +87,9 @@ export const NADE_RADIUS = 0.18;
 export const FLASH_RADIUS = 13; // taggers in line of sight within this get blinded
 export const FLASH_TIME = 3.2; // max blind seconds (less at range)
 export const FROST_RADIUS = 5.5; // taggers inside are frozen solid (mid-air: they drop straight down)
-export const FROST_TIME = 3;
-export const CHILL_RADIUS = 8; // taggers inside are slowed
-export const CHILL_TIME = 7;
+export const FROST_TIME = 2;
+export const CHILL_RADIUS = 8; // taggers inside it but outside FROST_RADIUS are slowed (never both)
+export const CHILL_TIME = 4;
 export const CHILL_SPEED = 0.6;
 
 // Deathmatch (CS "HNS deathmatch"): same teams and kit as Tag, no rounds.

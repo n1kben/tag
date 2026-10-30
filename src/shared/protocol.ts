@@ -86,7 +86,7 @@ export type GameEvent =
   | { k: 'hurt'; id: number; hp: number; cause: 'stab' | 'fall' }
   | { k: 'kill'; id: number; by: number | null; cause: KillCause; x: number; y: number; z: number; dx: number; dz: number }
   | { k: 'throw'; by: number; kind: NadeKind }
-  | { k: 'det'; kind: NadeKind; x: number; y: number; z: number; hits: number[] }
+  | { k: 'det'; kind: NadeKind; x: number; y: number; z: number; hits: number[]; frozen: number[] }
   | { k: 'bounce'; x: number; y: number; z: number }
   | { k: 'spawn'; id: number; x: number; y: number; z: number }
   | { k: 'stomp'; by: number; id: number; x: number; y: number; z: number }

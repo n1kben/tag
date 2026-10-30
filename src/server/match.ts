@@ -626,6 +626,7 @@ export class Match {
   private detonate(pr: Projectile): void {
     const kind = pr.kind;
     const hits: number[] = [];
+    const frozen: number[] = []; // frost: the direct hits (the rest were only chilled)
     const eyeY = pr.y + 0.3;
     const taggers = this.active().filter(p => p.alive && p.role === 'tagger');
     // Effects need a clear line from the blast (roof edges, tanks and booths block it)
@@ -646,17 +647,21 @@ export class Match {
       for (const s of taggers) {
         const d = reach(s, CHILL_RADIUS);
         if (d < 0) continue;
+        // Direct hit freezes, the outer ring chills; never both (thawing doesn't leave you slowed)
         if (d <= FROST_RADIUS) {
           // Frozen mid-jump = no sideways speed, so they drop; the thrower gets the kill
           s.frozen = FROST_TIME;
+          s.chilled = 0;
           s.shovedBy = pr.owner;
           s.shovedT = FROST_TIME + 2;
-        }
-        s.chilled = Math.max(s.chilled, CHILL_TIME);
+          frozen.push(s.id);
+        } else if (s.frozen <= 0) {
+          s.chilled = Math.max(s.chilled, CHILL_TIME);
+        } else continue; // already frozen solid: the ring doesn't stack a chill on top
         hits.push(s.id);
       }
     }
-    this.events.push({ k: 'det', kind, x: pr.x, y: pr.y, z: pr.z, hits });
+    this.events.push({ k: 'det', kind, x: pr.x, y: pr.y, z: pr.z, hits, frozen });
   }
 
   // ── Snapshots ───────────────────────────────────────────────────────────
