@@ -46,7 +46,7 @@ const CSS = `
   border: 4px solid #fff; background: rgba(255,255,255,0.75); color: var(--ink); border-radius: 999px; padding: 10px 14px; outline: none; }
 .code-in:focus { border-color: var(--yellow); }
 .status { min-height: 1.4em; color: #fff; font-weight: 600; text-shadow: 0 2px 0 var(--ink); }
-.outlined { color: #fff; font-weight: 700; -webkit-text-stroke: 5px var(--ink); paint-order: stroke fill; text-shadow: 0 3px 0 var(--ink); }
+.outlined { color: #fff; font-weight: 700; -webkit-text-stroke: 0.14em var(--ink); paint-order: stroke fill; text-shadow: 0 0.08em 0 var(--ink); }
 .outlined kbd { -webkit-text-stroke: 0; text-shadow: none; }
 .hint { position: absolute; bottom: 22px; left: 16px; right: 16px; text-align: center; font-size: 20px; line-height: 1.9; }
 .hint .rule { font-family: 'Lilita One'; font-weight: 400; font-size: 26px; letter-spacing: 0.02em; }
