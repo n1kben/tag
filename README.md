@@ -44,7 +44,9 @@ Funnel has to be allowed for the node once in the Tailscale admin console; the f
 | Jump: tap for a hop, hold for full height. No cooldown: **bunny hop** by pressing again right as you land (within 0.05s) and your top speed grows 8% per hop, up to 1.4×; linger on the ground and it's gone. `HOP_*` in constants.ts | Space | A | JUMP |
 | Tagger slashes | J, K or Enter | X / RT / Y / bumpers | SLASH |
 | Runner holds to aim a flash / a frost (the throw arc shows), lets go to throw | J (or Enter) / K | X or RT / Y or bumpers | FLASH / FROST |
-| Scoreboard · mute · debug HUD | Tab · M · P | | hold 🏆 · 🔊 |
+| Scoreboard · mute · debug HUD | Tab · M · P | hold Select (−) | hold 🏆 · 🔊 |
+
+Menus work on a gamepad too: the stick / d-pad moves a yellow focus ring, A presses, B leaves the lobby, Start readies up, the bumpers flip your character. Room codes are typed (keyboard, or the iPad's on-screen one). Once the pad is in use, the hints show its buttons, with Nintendo labels for 8BitDo / Switch pads (`src/client/pad.ts`, checked by `scripts/check-pad.ts <baseUrl>`). Safari only sees a controller after you press one of its buttons on the page.
 
 Touch controls appear after your first tap; any key or gamepad input hides them again (`src/client/touch.ts`, checked by `scripts/check-touch.ts <baseUrl>`). Phones and tablets work in portrait and landscape: held upright, the camera backs off to show as much width as a square screen. Tapping a menu button goes fullscreen where the browser allows it (Android, iPad); on iPhone use Share → **Add to Home Screen**, which also launches it full screen.
 

@@ -132,6 +132,11 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 /* Touch: the on-screen buttons (touch.ts) carry the labels and grenade counts */
 .touch .keys, .touch .kb, .touch .inv { display: none; }
 .touch .spect { bottom: 140px; }
+/* Gamepad (pad.ts): pad buttons in the hints, Nintendo labels when it looks like one, a focus ring in menus */
+.padh, .nn, .nin .xb { display: none; }
+.pad .padh, .nin .nn { display: inline; }
+.pad .kbh { display: none; }
+.pad .screen button:focus { outline: 4px solid var(--yellow); outline-offset: 4px; }
 .hud .feed { top: calc(14px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); }
 .hud .timer { top: calc(14px + env(safe-area-inset-top)); }
 @media (max-width: 640px) { .teams { width: 92vw; } .keys { display: none; } .btn { min-width: 200px; } }
@@ -139,6 +144,7 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 
 const NADE_LABEL: Record<NadeKind, string> = { flash: 'Flash', frost: 'Frost' };
 const NADE_KEY: Record<NadeKind, string> = { flash: 'J', frost: 'K' };
+const NADE_PAD: Record<NadeKind, string> = { flash: padKey('X', 'Y'), frost: padKey('Y', 'X') };
 const NADE_CSS: Record<NadeKind, string> = { flash: '#fff2a8', frost: '#8fe3ff' };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] {
@@ -404,14 +410,15 @@ export class UI {
     }
     if (s.alive && s.role === 'runner') {
       const inv = el('div', 'dyn inv', NADE_KINDS.map(k => `
-        <div class="slot ${s.nades[k] ? '' : 'empty'}"><kbd>${NADE_KEY[k]}</kbd>
+        <div class="slot ${s.nades[k] ? '' : 'empty'}">${hint(`<kbd>${NADE_KEY[k]}</kbd>`, NADE_PAD[k])}
           <div class="ic" style="background:${NADE_CSS[k]}"></div><div class="lb">${NADE_LABEL[k]} ×${s.nades[k]}</div></div>`).join(''));
       this.hud.append(inv);
-      this.hud.append(el('div', 'dyn keys outlined', '<kbd>J</kbd> flash · <kbd>K</kbd> frost (hold, let go to throw)<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));
+      this.hud.append(el('div', 'dyn keys outlined', hint('<kbd>J</kbd> flash · <kbd>K</kbd> frost (hold, let go to throw)<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores',
+        `${padKey('X', 'Y')} flash · ${padKey('Y', 'X')} frost (hold, let go to throw)<br>${PAD_JUMP} jump · ${PAD_SCORES} scores`)));
     } else if (s.alive && s.role === 'tagger') {
-      this.hud.append(el('div', 'dyn keys outlined', '<kbd>J</kbd> slash<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));
+      this.hud.append(el('div', 'dyn keys outlined', hint('<kbd>J</kbd> slash<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores', `${padKey('X', 'Y')} slash<br>${PAD_JUMP} jump · ${PAD_SCORES} scores`)));
     }
-    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)}<span class="kb"> · <kbd>J</kbd> next</span>`));
+    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)}<span class="kb"> · ${hint('<kbd>J</kbd>', padKey('X', 'Y'))} next</span>`));
   }
 
   banner(big: string, sub = '', color = '#ffd23f', ms = 1800): void {
@@ -493,5 +500,18 @@ function modeButtons(mode: GameMode): string {
 
 function titleHint(mode: GameMode): string {
   const how = mode === 'dm' ? 'Tag a runner to swap sides' : 'Taggers slash · runners escape';
-  return `<div class="rule">${how}</div><span class="kb"><kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>J</kbd> slash / flash · <kbd>K</kbd> frost</span>`;
+  return `<div class="rule">${how}</div><span class="kb">${hint('<kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>J</kbd> slash / flash · <kbd>K</kbd> frost',
+    `stick move · ${PAD_JUMP} jump · ${padKey('X', 'Y')} slash / flash · ${padKey('Y', 'X')} frost`)}</span>`;
+}
+
+/** A pad button: Xbox label, and the Nintendo one for the same spot. */
+function padKey(xbox: string, nintendo: string): string {
+  return `<kbd><span class="xb">${xbox}</span><span class="nn">${nintendo}</span></kbd>`;
+}
+const PAD_JUMP = padKey('A', 'B');
+const PAD_SCORES = padKey('Select', '−');
+
+/** Keyboard and gamepad versions of a hint; CSS shows the one in use. */
+function hint(keys: string, pad: string): string {
+  return `<span class="kbh">${keys}</span><span class="padh">${pad}</span>`;
 }

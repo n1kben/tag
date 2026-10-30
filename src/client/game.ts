@@ -8,6 +8,7 @@ import { UI, esc, type HudState } from './ui';
 import { Network } from './net';
 import { readInput, isHeld, setInputEnabled } from './input';
 import { touchBoardHeld, updateTouch } from './touch';
+import { padBoardHeld, pollPad } from './pad';
 import { sfx, spatial, setMuted, isMuted } from './audio';
 import { BTN_ACTION, BTN_FLASH, BTN_FROST, type Role } from '../shared/sim';
 import { ClientNet, lerpAngle } from './netcode';
@@ -417,6 +418,7 @@ export function startGame(): void {
     const now = performance.now();
     let dt = Math.min(0.1, (now - last) / 1000);
     last = now;
+    pollPad();
     fpsFrames++; fpsT += dt;
     adaptResolution(world, dt);
     if (fpsT >= 1) { fps = fpsFrames; fpsFrames = 0; fpsT = 0; }
@@ -575,7 +577,7 @@ export function startGame(): void {
       ui.updateHud(hud);
       updateTouch({ role: me.role, alive: me.alive, nades: me.nades, spectating: hud.spectating !== null });
     } else updateTouch(null);
-    const tab = isHeld('Tab') || touchBoardHeld();
+    const tab = isHeld('Tab') || touchBoardHeld() || padBoardHeld();
     if (tab !== boardHeld || tab) ui.showBoard(tab, standings, myId);
     boardHeld = tab;
   }
