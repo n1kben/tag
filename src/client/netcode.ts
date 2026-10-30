@@ -57,6 +57,8 @@ export class ClientNet {
   private now = 0;
   /** Visual offset left by a correction; decays so the fix is a slide, not a pop. */
   err = { x: 0, y: 0, z: 0 };
+  /** Where pred was one tick ago: we draw between the two, so movement is smooth at any refresh rate. */
+  private prev = { x: 0, y: 0, z: 0 };
   stats = new NetStats();
 
   constructor(public map: GameMap) {}
@@ -175,6 +177,9 @@ export class ClientNet {
       st.maxCorrection = Math.max(st.maxCorrection, d);
       if (d < 3) { this.err.x += dx; this.err.y += dy; this.err.z += dz; } else this.err = { x: 0, y: 0, z: 0 };
     }
+    // Keep the in-between-ticks blend on the corrected path (the jump itself is in err)
+    if (this.pred) { this.prev.x += server.x - this.pred.x; this.prev.y += server.y - this.pred.y; this.prev.z += server.z - this.pred.z; }
+    else this.prev = { x: server.x, y: server.y, z: server.z };
     this.pred = server;
   }
 
@@ -190,6 +195,7 @@ export class ClientNet {
     this.seq++;
     const v = Math.round(this.renderTick * 10) / 10;
     this.pending.push({ seq: this.seq, input, v });
+    this.prev = { x: pred.x, y: pred.y, z: pred.z };
     if (this.pending.length > 120) this.pending.shift();
     const frozenScene = latest.phase === 'end' || !latest.me?.alive;
     const ev = frozenScene
@@ -198,6 +204,17 @@ export class ClientNet {
     if (frozenScene) pred.prevB = input.b;
     // v: the tick we're showing everyone else at, so the server can judge our slashes by it
     return { msg: { type: 'input', seq: this.seq, mx: input.mx, mz: input.mz, b: input.b, v }, ev };
+  }
+
+  /**
+   * Where to draw our own player: between the last two predicted ticks (`alpha` = how far we
+   * are into the next one, 0..1), plus what's left of any correction. Drawing the latest tick
+   * as-is steps the character on frames that fall between ticks: judder on 120Hz screens,
+   * and a subtle unevenness even at 60.
+   */
+  drawPos(alpha: number): { x: number; y: number; z: number } {
+    const p = this.pred!, q = this.prev, e = this.err;
+    return { x: q.x + (p.x - q.x) * alpha + e.x, y: q.y + (p.y - q.y) * alpha + e.y, z: q.z + (p.z - q.z) * alpha + e.z };
   }
 
   /** Our best guess at the server's current tick. */

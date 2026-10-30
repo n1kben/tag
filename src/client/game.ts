@@ -466,15 +466,16 @@ export function startGame(): void {
 
     const remote = cn.interpolate();
     const me = cn.latest?.me ?? null;
-    const pred = cn.pred, errOffset = cn.err;
+    const pred = cn.pred;
+    const at = pred ? cn.drawPos(acc / TICK_DT) : null; // our player, smoothed between ticks
     const shown = new Set<number>();
 
     // Local player from prediction (+ decaying correction offset)
     const myChar = chars.get(myId);
     const meAlive = !!me && (me.alive || cn.deathPending()); // keep showing us until our death plays
-    if (myChar && pred && meAlive && !dead.has(myId)) {
+    if (myChar && pred && at && meAlive && !dead.has(myId)) {
       myChar.root.visible = !remote.get(myId)?.prot || Math.floor(performance.now() / 90) % 2 === 0;
-      myChar.root.position.set(pred.x + errOffset.x, pred.y + errOffset.y, pred.z + errOffset.z);
+      myChar.root.position.set(at.x, at.y, at.z);
       myChar.root.rotation.y = lerpAngle(myChar.root.rotation.y, pred.facing, Math.min(1, dt * 20));
       const charging = aimHeld > 0 ? Math.min(1, aimHeld / NADE_CHARGE_TIME) : 0;
       myChar.setNade(charging > 0 ? me.nadeSel : null);
@@ -482,9 +483,9 @@ export function startGame(): void {
       myChar.update(dt, {
         speed: Math.hypot(pred.vx, pred.vz), vy: pred.vy, grounded: pred.grounded, lunge: pred.lunge,
         aiming: charging, frozen: me.frozen > 0, chilled: me.chilled > 0, stunned: me.stun > 0,
-        ground: world.map.heightAt(pred.x + errOffset.x, pred.z + errOffset.z),
+        ground: world.map.heightAt(at.x, at.z),
       });
-      if (charging > 0) fx.showArc(pred.x, pred.y, pred.z, pred.facing, pred.vx, pred.vz, charging); else fx.hideArc();
+      if (charging > 0) fx.showArc(at.x, at.y, at.z, pred.facing, pred.vx, pred.vz, charging); else fx.hideArc();
       shown.add(myId);
     } else {
       fx.hideArc();
@@ -524,8 +525,8 @@ export function startGame(): void {
 
     // Camera: follow me, or whoever I'm spectating
     let fx0 = camTarget.x, fy0 = camTarget.y, fz0 = camTarget.z, lookVx = 0, lookVz = 0;
-    if (pred && meAlive) {
-      fx0 = pred.x + errOffset.x; fy0 = pred.y; fz0 = pred.z + errOffset.z; lookVx = pred.vx; lookVz = pred.vz;
+    if (pred && at && meAlive) {
+      fx0 = at.x; fy0 = at.y; fz0 = at.z; lookVx = pred.vx; lookVz = pred.vz;
     } else if (gameMode === 'tag') {
       if (spectate === null || !remote.get(spectate)?.alive) spectate = nextSpectate();
       const sp = spectate !== null ? remote.get(spectate) : undefined;

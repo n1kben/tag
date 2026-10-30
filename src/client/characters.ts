@@ -6,6 +6,11 @@ import { mat, addMist } from './world';
 import type { GameMap } from '../shared/map';
 import { COLOR_RUNNER, COLOR_TAGGER, type NadeKind } from '../shared/constants';
 
+// Blob shadow and team ring sit on the floor, above its decals (light patches at +0.02, the
+// plaza disc up to +0.045): lifted clear of them and pulled forward in depth so they never
+// z-fight (that's the flickering stripes you'd otherwise see under a character)
+const ON_FLOOR = { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 };
+
 interface CharDef {
   build(body: THREE.Group): void;
   eyeY: number; // eye height
@@ -253,17 +258,19 @@ export class Character {
     // Team ring on the floor
     this.ring = new THREE.Mesh(
       new THREE.RingGeometry(0.4, 0.46, 32),
-      new THREE.MeshBasicMaterial({ color: COLOR_RUNNER, transparent: true, opacity: 0.5, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: COLOR_RUNNER, transparent: true, opacity: 0.5, depthWrite: false, ...ON_FLOOR }),
     );
     this.ring.rotation.x = -Math.PI / 2;
-    this.ring.position.y = 0.03;
+    this.ring.position.y = 0.07;
+    this.ring.renderOrder = 2;
     // Soft blob straight below you: shows exactly where a jump will land, like platformer drop shadows
     const blob = new THREE.Mesh(
       new THREE.CircleGeometry(0.42, 24),
-      new THREE.MeshBasicMaterial({ color: 0x3b2a5c, transparent: true, opacity: 0.28, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: 0x3b2a5c, transparent: true, opacity: 0.28, depthWrite: false, ...ON_FLOOR }),
     );
     blob.rotation.x = -Math.PI / 2;
-    blob.position.y = 0.02;
+    blob.position.y = 0.06;
+    blob.renderOrder = 1;
     this.shadow.add(blob, this.ring);
     this.root.add(this.shadow);
 
