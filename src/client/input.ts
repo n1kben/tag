@@ -1,5 +1,5 @@
 // Keyboard + gamepad → sim Input. Boomerang Fu is a stick game: you face where you move,
-// so there's no mouse aim. Space jumps, Enter slashes / throws, Q switches grenade.
+// so there's no mouse aim. Space jumps, J or Enter slashes / throws, Q switches grenade.
 import { BTN_ACTION, BTN_ALT, BTN_JUMP, type Input } from '../shared/sim';
 
 const keys = new Set<string>();
@@ -30,7 +30,7 @@ export function readInput(): Input {
   if (keys.has('KeyW') || keys.has('ArrowUp')) mz -= 1;
   if (keys.has('KeyS') || keys.has('ArrowDown')) mz += 1;
   if (keys.has('Space')) b |= BTN_JUMP;
-  if (keys.has('Enter') || keys.has('NumpadEnter')) b |= BTN_ACTION;
+  if (keys.has('KeyJ') || keys.has('Enter') || keys.has('NumpadEnter')) b |= BTN_ACTION;
   if (keys.has('KeyQ')) b |= BTN_ALT;
 
   for (const pad of navigator.getGamepads?.() ?? []) {

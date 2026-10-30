@@ -402,11 +402,11 @@ export class UI {
         <div class="slot ${k === s.nadeSel && s.nades[k] > 0 ? 'sel' : ''} ${s.nades[k] ? '' : 'empty'}">
           <div class="ic" style="background:${NADE_CSS[k]}"></div><div class="lb">${NADE_LABEL[k]} ×${s.nades[k]}</div></div>`).join(''));
       this.hud.append(inv);
-      this.hud.append(el('div', 'dyn keys outlined', '<kbd>Enter</kbd> hold to throw · <kbd>Q</kbd> switch<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));
+      this.hud.append(el('div', 'dyn keys outlined', '<kbd>J</kbd> hold to throw · <kbd>Q</kbd> switch<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));
     } else if (s.alive && s.role === 'tagger') {
-      this.hud.append(el('div', 'dyn keys outlined', '<kbd>Enter</kbd> slash<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));
+      this.hud.append(el('div', 'dyn keys outlined', '<kbd>J</kbd> slash<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));
     }
-    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)} · <kbd>Enter</kbd> next`));
+    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)} · <kbd>J</kbd> next`));
   }
 
   banner(big: string, sub = '', color = '#ffd23f', ms = 1800): void {
@@ -488,5 +488,5 @@ function modeButtons(mode: GameMode): string {
 
 function titleHint(mode: GameMode): string {
   const how = mode === 'dm' ? 'Tag a runner to swap sides' : 'Taggers slash · runners escape';
-  return `<div class="rule">${how}</div><kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>Enter</kbd> slash / throw · <kbd>Q</kbd> grenade`;
+  return `<div class="rule">${how}</div><kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>J</kbd> / <kbd>Enter</kbd> slash / throw · <kbd>Q</kbd> grenade`;
 }

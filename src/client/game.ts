@@ -348,7 +348,7 @@ export function startGame(): void {
         const victim = esc(ui.nameOf(e.id));
         const icon = { stab: '🔪', fall: '💥 splat', void: e.by !== null ? '👋 knocked off' : '☁️ fell' }[e.cause];
         ui.killfeed(e.by !== null ? `${esc(ui.nameOf(e.by))} ${icon} ${victim}` : `${victim} ${icon}`);
-        if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', gameMode === 'dm' ? (e.by === null ? '−1 for falling off' : roles[myId] === 'runner' ? 'Tagged! You\'ll come back as a tagger' : '') : 'Spectating · press Enter to switch', '#f0408f', 2200);
+        if (e.id === myId) ui.banner(e.cause === 'void' ? 'WHOOPS!' : 'SLICED!', gameMode === 'dm' ? (e.by === null ? '−1 for falling off' : roles[myId] === 'runner' ? 'Tagged! You\'ll come back as a tagger' : '') : 'Spectating · press J to switch', '#f0408f', 2200);
         if (e.by === myId) ui.banner('GOTCHA!', '', '#ffd23f', 1100);
         break;
       }
