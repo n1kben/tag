@@ -154,6 +154,20 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''):
   return e;
 }
 
+/** Make `live` match the tree `twin` sits in, with `keep` standing in for `twin` and never detached. */
+function keepAround(live: HTMLElement, keep: HTMLElement, twin: HTMLElement): void {
+  let k = keep, t = twin;
+  while (k !== live) {
+    const kp = k.parentElement!, tp = t.parentElement!;
+    const kids = [...tp.childNodes], i = kids.indexOf(t);
+    for (const c of [...kp.childNodes]) if (c !== k) c.remove();
+    k.before(...kids.slice(0, i));
+    k.after(...kids.slice(i + 1));
+    if (kp !== live) kp.className = tp.className;
+    k = kp; t = tp;
+  }
+}
+
 export function esc(s: string): string {
   return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
@@ -317,10 +331,9 @@ export class UI {
     if (!this.lobby.classList.contains('on') || !this.lobbyHandlers) return;
     const h = this.lobbyHandlers;
     const me = players.find(p => p.id === myId);
-    const focused = document.activeElement instanceof HTMLInputElement ? document.activeElement.value : null;
     const results = last?.length
       ? `<div class="results">🏆 Last match: <b>${esc(last[0].name)}</b> won with ${last[0].score} pts</div>` : '';
-    this.lobby.innerHTML = `
+    const html = `
       <div class="panel">
         <div class="row" style="justify-content:space-between">
           <div><div style="font-weight:700;color:#8a7bb5">ROOM CODE · click to copy link</div><div class="room-code" title="Copy invite link">${esc(roomId)}</div></div>
@@ -343,6 +356,13 @@ export class UI {
             : `<button class="btn ${me?.ready ? '' : 'pink'}" data-a="ready">${me?.ready ? 'CANCEL' : players.length < 2 ? 'ADD A BOT TO START' : "I'M READY!"}</button>`}
         </div>
       </div>`;
+    // Mid-edit, rebuild everything around the name input but keep that element attached, so the caret,
+    // selection, IME composition and on-screen keyboard survive other players changing the lobby
+    const typing = this.lobby.querySelector<HTMLInputElement>('.name-in');
+    const next = el('div', '', html);
+    const fresh = next.querySelector<HTMLInputElement>('.name-in');
+    if (typing && fresh && document.activeElement === typing) keepAround(this.lobby, typing, fresh);
+    else this.lobby.innerHTML = html;
     const q = (a: string) => this.lobby.querySelector(`[data-a=${a}]`);
     q('add')?.addEventListener('click', () => h.addBot());
     q('rm')?.addEventListener('click', () => h.removeBot());
@@ -358,20 +378,14 @@ export class UI {
       void navigator.clipboard?.writeText(`${location.origin}${location.pathname}#${roomId}`);
     });
     const nameIn = this.lobby.querySelector<HTMLInputElement>('.name-in');
-    if (nameIn) {
-      if (focused !== null) { nameIn.value = focused; nameIn.focus(); }
-      let t: ReturnType<typeof setTimeout> | null = null;
-      const flush = () => {
-        if (t) clearTimeout(t);
-        t = null;
-        if (nameIn.value.trim() && nameIn.value.trim() !== me?.name) h.rename(nameIn.value);
-      };
-      nameIn.addEventListener('input', () => {
-        if (t) clearTimeout(t);
-        t = setTimeout(flush, 400);
+    if (nameIn && !nameIn.dataset.bound) {
+      nameIn.dataset.bound = '1';
+      // Rename once editing is done: renaming per keystroke would re-render the lobby under the user's fingers.
+      // defaultValue is the server's name when this input was rendered, and only we rename ourselves.
+      nameIn.addEventListener('blur', () => {
+        const name = nameIn.value.trim();
+        if (name && name !== nameIn.defaultValue) h.rename(name);
       });
-      // Clicking elsewhere re-renders the lobby, so don't lose a half-typed name
-      nameIn.addEventListener('blur', flush);
       nameIn.addEventListener('keydown', e => { if (e.key === 'Enter') nameIn.blur(); });
     }
   }

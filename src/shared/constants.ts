@@ -30,7 +30,7 @@ export const JUMP_BUFFER = 0.05; // a press this close before landing still coun
 // Heads: a teammate's head is a boost; a runner landing on a tagger = stomp (tagger stunned);
 // a tagger landing on a runner = bonk (knocked back, so a runner guarding an edge sends chasers into the alley)
 export const HEAD_JUMP_BOOST = 1.25; // jump velocity multiplier off a head (≈1.56× the height)
-export const STOMP_STUN = 0.8; // seconds the stomped player can't move
+export const STOMP_STUN = 5; // seconds the stomped player can't move
 export const STOMP_BOUNCE = 7; // upward bounce for the stomper
 export const STOMP_MIN_SPEED = 2; // falling at least this fast counts as a stomp
 export const BONK_BOUNCE = 3.5; // tagger hitting a runner's head: small hop…
@@ -74,9 +74,9 @@ export const STAB_HEIGHT = 0.4; // the blade's line: anything taller in between 
 // Flash a tagger right before they jump; frost them mid-air so they drop into the mist.
 export type NadeKind = 'flash' | 'frost';
 export const NADE_KINDS: NadeKind[] = ['flash', 'frost'];
-export const NADE_LOADOUT: Record<NadeKind, number> = { flash: 2, frost: 1 }; // per round
+export const NADE_LOADOUT: Record<NadeKind, number> = { flash: 10, frost: 5 }; // per round
 // Staying alive pays: a runner missing grenades gets one back after this many seconds of chase, up to the loadout
-export const NADE_REFILL_EVERY = 20;
+export const NADE_REFILL_EVERY = 5;
 export const NADE_FUSE: Record<NadeKind, number> = { flash: 1.2, frost: 1.4 }; // seconds
 export const NADE_THROW_SPEED = 9.5;
 export const NADE_THROW_UP = 5.5;
@@ -86,9 +86,9 @@ export const NADE_CHARGE_TIME = 0.6; // hold this long for a full throw
 export const NADE_RADIUS = 0.18;
 export const FLASH_RADIUS = 13; // taggers in line of sight within this get blinded
 export const FLASH_TIME = 3.2; // max blind seconds (less at range)
-export const FROST_RADIUS = 3.6; // taggers inside are frozen solid (mid-air: they drop straight down)
-export const FROST_TIME = 4;
-export const CHILL_RADIUS = 6; // taggers inside are slowed
+export const FROST_RADIUS = 5.5; // taggers inside are frozen solid (mid-air: they drop straight down)
+export const FROST_TIME = 3;
+export const CHILL_RADIUS = 8; // taggers inside are slowed
 export const CHILL_TIME = 7;
 export const CHILL_SPEED = 0.6;
 

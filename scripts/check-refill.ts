@@ -30,8 +30,8 @@ function setup() {
   run(1);
   check(me.nades.frost === 1 && me.nades.flash === 0, 'first one back is frost');
   check(events.some(e => e.k === 'refill' && e.id === 1 && e.kind === 'frost'), 'the client is told (refill event)');
-  run(NADE_REFILL_EVERY * 2);
-  check(me.nades.flash === 2 && me.nades.frost === 1, `then flashes, up to the kit (${me.nades.flash} flash, ${me.nades.frost} frost)`);
+  run(NADE_REFILL_EVERY * (NADE_LOADOUT.flash + NADE_LOADOUT.frost - 1));
+  check(me.nades.flash === NADE_LOADOUT.flash && me.nades.frost === NADE_LOADOUT.frost, `then the rest, up to the kit (${me.nades.flash} flash, ${me.nades.frost} frost)`);
   run(NADE_REFILL_EVERY * 2);
   check(me.nades.flash === NADE_LOADOUT.flash && me.nades.frost === NADE_LOADOUT.frost, 'never more than the kit');
 }
