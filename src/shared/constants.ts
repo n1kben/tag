@@ -108,7 +108,7 @@ export const ROUND_END_TIME = 5;
 export const ROUNDS_PER_MATCH = 8;
 export const MAX_PLAYERS = 10;
 
-// Palette (sampled from Boomerang Fu trailer frames + COLORS.csv team accents)
+// Palette (sampled from Boomerang Fu trailer frames)
 export const COLOR_RUNNER = 0x23f0c7;
 export const COLOR_TAGGER = 0xef767a;
 export const COLOR_ACCENT = 0xffe347;
