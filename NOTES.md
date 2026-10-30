@@ -1,2 +1,0 @@
-- Low poly blender game
-- Soft body physics
