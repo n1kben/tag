@@ -1,7 +1,8 @@
-// Keyboard + gamepad → sim Input. Boomerang Fu is a stick game: you face where you move,
+// Keyboard + gamepad + touch (touch.ts) → sim Input. Boomerang Fu is a stick game: you face where you move,
 // so there's no mouse aim. Space jumps; taggers slash with J, K or Enter; runners hold J (or
 // Enter) for a flash or K for a frost and let go to throw.
 import { BTN_ACTION, BTN_FLASH, BTN_FROST, BTN_JUMP, type Input } from '../shared/sim';
+import { gamepadUsed, readTouch } from './touch';
 
 const keys = new Set<string>();
 let enabled = true;
@@ -37,8 +38,9 @@ export function readInput(): Input {
   for (const pad of navigator.getGamepads?.() ?? []) {
     if (!pad) continue;
     const ax = pad.axes[0] ?? 0, az = pad.axes[1] ?? 0;
-    if (Math.hypot(ax, az) > 0.2) { mx = ax; mz = az; }
+    if (Math.hypot(ax, az) > 0.2) { mx = ax; mz = az; gamepadUsed(); }
     const btn = (i: number) => pad.buttons[i]?.pressed;
+    if (pad.buttons.some(x => x.pressed)) gamepadUsed();
     if (btn(0)) b |= BTN_JUMP; // A
     if (btn(2) || btn(7)) b |= BTN_ACTION | BTN_FLASH; // X / RT: slash, or a flash
     if (btn(3) || btn(4) || btn(5)) b |= BTN_ACTION | BTN_FROST; // Y / bumpers: slash, or a frost
@@ -46,6 +48,11 @@ export function readInput(): Input {
     if (btn(13)) mz = 1;
     if (btn(14)) mx = -1;
     if (btn(15)) mx = 1;
+  }
+  const touch = readTouch();
+  if (touch) {
+    if (touch.mx || touch.mz) { mx = touch.mx; mz = touch.mz; }
+    b |= touch.b;
   }
   const len = Math.hypot(mx, mz);
   if (len > 1) { mx /= len; mz /= len; }

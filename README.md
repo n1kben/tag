@@ -38,13 +38,15 @@ Funnel has to be allowed for the node once in the Tailscale admin console; the f
 
 ## Controls
 
-| | Keyboard | Gamepad |
-|---|---|---|
-| Move (you face where you move) | WASD / arrows | left stick / d-pad |
-| Jump: tap for a hop, hold for full height. No cooldown: **bunny hop** by pressing again right as you land (within 0.05s) and your top speed grows 8% per hop, up to 1.4×; linger on the ground and it's gone. `HOP_*` in constants.ts | Space | A |
-| Tagger slashes | J, K or Enter | X / RT / Y / bumpers |
-| Runner holds to aim a flash / a frost (the throw arc shows), lets go to throw | J (or Enter) / K | X or RT / Y or bumpers |
-| Scoreboard · mute · debug HUD | Tab · M · P | |
+| | Keyboard | Gamepad | Touch |
+|---|---|---|---|
+| Move (you face where you move) | WASD / arrows | left stick / d-pad | stick: put a thumb anywhere on the left half |
+| Jump: tap for a hop, hold for full height. No cooldown: **bunny hop** by pressing again right as you land (within 0.05s) and your top speed grows 8% per hop, up to 1.4×; linger on the ground and it's gone. `HOP_*` in constants.ts | Space | A | JUMP |
+| Tagger slashes | J, K or Enter | X / RT / Y / bumpers | SLASH |
+| Runner holds to aim a flash / a frost (the throw arc shows), lets go to throw | J (or Enter) / K | X or RT / Y or bumpers | FLASH / FROST |
+| Scoreboard · mute · debug HUD | Tab · M · P | | hold 🏆 · 🔊 |
+
+Touch controls appear after your first tap; any key or gamepad input hides them again (`src/client/touch.ts`, checked by `scripts/check-touch.ts <baseUrl>`). Phones and tablets work in portrait and landscape: held upright, the camera backs off to show as much width as a square screen. Tapping a menu button goes fullscreen where the browser allows it (Android, iPad); on iPhone use Share → **Add to Home Screen**, which also launches it full screen.
 
 There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where you move.
 

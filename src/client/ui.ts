@@ -129,6 +129,11 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .respawn { position: absolute; left: 0; right: 0; top: 58%; text-align: center; font-family: 'Lilita One'; font-size: 28px; color: #fff; text-shadow: 0 3px 0 var(--ink); }
 .debug { position: fixed; top: 8px; right: 8px; background: rgba(0,0,0,0.6); color: #9f9; font: 12px monospace; padding: 6px 10px; border-radius: 6px; display: none; z-index: 30; pointer-events: none; white-space: pre; }
 .mute { position: fixed; bottom: 14px; right: 14px; z-index: 20; }
+/* Touch: the on-screen buttons (touch.ts) carry the labels and grenade counts */
+.touch .keys, .touch .kb, .touch .inv { display: none; }
+.touch .spect { bottom: 140px; }
+.hud .feed { top: calc(14px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); }
+.hud .timer { top: calc(14px + env(safe-area-inset-top)); }
 @media (max-width: 640px) { .teams { width: 92vw; } .keys { display: none; } .btn { min-width: 200px; } }
 `;
 
@@ -406,7 +411,7 @@ export class UI {
     } else if (s.alive && s.role === 'tagger') {
       this.hud.append(el('div', 'dyn keys outlined', '<kbd>J</kbd> slash<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores'));
     }
-    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)} · <kbd>J</kbd> next`));
+    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)}<span class="kb"> · <kbd>J</kbd> next</span>`));
   }
 
   banner(big: string, sub = '', color = '#ffd23f', ms = 1800): void {
@@ -488,5 +493,5 @@ function modeButtons(mode: GameMode): string {
 
 function titleHint(mode: GameMode): string {
   const how = mode === 'dm' ? 'Tag a runner to swap sides' : 'Taggers slash · runners escape';
-  return `<div class="rule">${how}</div><kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>J</kbd> slash / flash · <kbd>K</kbd> frost`;
+  return `<div class="rule">${how}</div><span class="kb"><kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>J</kbd> slash / flash · <kbd>K</kbd> frost</span>`;
 }
