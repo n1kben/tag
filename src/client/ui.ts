@@ -10,10 +10,10 @@ const CSS = `
   --ink: #3b2a5c; --pink: #f0408f; --yellow: #ffd23f; --teal: #23f0c7; --red: #ef767a;
   --sky1: #4fa9f2; --sky2: #9fd5ff; --card: #ffffff; --soft: #efeaff;
 }
-.ui { position: fixed; inset: 0; pointer-events: none; font-family: 'Fredoka', system-ui, sans-serif; color: var(--ink); z-index: 10; }
+.ui { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h); pointer-events: none; font-family: 'Fredoka', system-ui, sans-serif; color: var(--ink); z-index: 10; }
 .ui * { pointer-events: auto; }
 .ui .pe-none, .ui .pe-none * { pointer-events: none; }
-.screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; }
+.screen { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h); display: none; align-items: center; justify-content: center; flex-direction: column; }
 .screen.on { display: flex; }
 .display { font-family: 'Lilita One', 'Fredoka', sans-serif; letter-spacing: 0.02em; color: #fff;
   -webkit-text-stroke: 0.09em var(--ink); paint-order: stroke fill; text-shadow: 0 0.09em 0 var(--ink); }
@@ -70,7 +70,7 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .name-in:focus { border-color: var(--yellow); }
 .results { background: #fff8dc; border-radius: 16px; padding: 10px 16px; margin-top: 8px; font-weight: 600; }
 
-.hud { position: fixed; inset: 0; pointer-events: none; display: none; }
+.hud { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h); pointer-events: none; display: none; }
 .hud.on { display: block; }
 .hud * { pointer-events: none; }
 .timer { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: #fff; border-radius: 999px; padding: 4px 26px 6px;

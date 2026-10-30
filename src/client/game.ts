@@ -553,10 +553,11 @@ export function startGame(): void {
 
     // Name labels
     const v = new THREE.Vector3();
+    const view = world.renderer.getSize(new THREE.Vector2());
     for (const id of shown) {
       const c = chars.get(id)!;
       v.set(c.root.position.x, c.root.position.y + 1.45, c.root.position.z).project(world.camera);
-      const sx = (v.x * 0.5 + 0.5) * window.innerWidth, sy = (-v.y * 0.5 + 0.5) * window.innerHeight;
+      const sx = (v.x * 0.5 + 0.5) * view.x, sy = (-v.y * 0.5 + 0.5) * view.y;
       const role = id === myId ? me?.role : remote.get(id)?.role;
       // Everyone (you too) wears their team colour
       const color = role === 'tagger' ? hex(COLOR_TAGGER) : '#14bfa0';

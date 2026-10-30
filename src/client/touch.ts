@@ -15,7 +15,7 @@ const CSS = `
 html.touch, html.touch body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 html.touch input { -webkit-user-select: text; user-select: text; }
 html.touch canvas { touch-action: none; }
-.tpad { position: fixed; inset: 0; z-index: 12; pointer-events: none; display: none; font-family: 'Lilita One', sans-serif; }
+.tpad { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h); z-index: 12; pointer-events: none; display: none; font-family: 'Lilita One', sans-serif; }
 html.touch .tpad.on { display: block; }
 .tpad .zone { position: absolute; left: 0; top: 70px; bottom: 0; width: 50%; pointer-events: auto; touch-action: none; }
 .tpad .base { position: absolute; width: ${STICK_R * 2 + 20}px; height: ${STICK_R * 2 + 20}px; margin: -${STICK_R + 10}px 0 0 -${STICK_R + 10}px;

@@ -77,7 +77,13 @@ export const CAMERA_FOV = 30;
 export const CAMERA_PITCH = THREE.MathUtils.degToRad(58);
 export const CAMERA_DIST = 31;
 
+// The canvas fills its parent, which CSS sizes to the real screen (taller than innerHeight in iOS home-screen apps)
+let viewParent: HTMLElement | null = null;
+const viewW = () => viewParent?.clientWidth || window.innerWidth;
+const viewH = () => viewParent?.clientHeight || window.innerHeight;
+
 export function createWorld(canvasParent: HTMLElement): World {
+  viewParent = canvasParent;
   // MSAA costs ~40% of frame time; dense (Retina) screens don't need it. ?noaa forces it off.
   const antialias = !new URLSearchParams(location.search).has('noaa') && window.devicePixelRatio < 1.5;
   const renderer = new THREE.WebGLRenderer({ antialias, powerPreference: 'high-performance' });
@@ -89,7 +95,7 @@ export function createWorld(canvasParent: HTMLElement): World {
   maxPixelRatio = lite ? 0.5 : fixed > 0 ? fixed : Math.min(window.devicePixelRatio, 2);
   pixelRatio = ceiling = maxPixelRatio;
   renderer.setPixelRatio(pixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(viewW(), viewH());
   renderer.shadowMap.enabled = !lite && !new URLSearchParams(location.search).has('noshadow');
   renderer.shadowMap.type = THREE.PCFShadowMap; // PCF + radius: soft enough, much cheaper than PCFSoft
   // The city never moves and characters use blob shadows, so the shadow map is drawn once
@@ -101,7 +107,7 @@ export function createWorld(canvasParent: HTMLElement): World {
   const scene = new THREE.Scene();
   scene.background = MIST.clone();
 
-  const camera = new THREE.PerspectiveCamera(CAMERA_FOV, window.innerWidth / window.innerHeight, 1, 200);
+  const camera = new THREE.PerspectiveCamera(CAMERA_FOV, viewW() / viewH(), 1, 200);
 
   // Bright sky fill with a lavender ground bounce: shadows come out periwinkle, never grey
   scene.add(new THREE.HemisphereLight(0xf7f8ff, 0xb3b9ee, 1.75));
@@ -127,9 +133,9 @@ export function createWorld(canvasParent: HTMLElement): World {
   setMap(world, FULL_MAP);
 
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.aspect = viewW() / viewH();
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(viewW(), viewH());
   });
   return world;
 }
@@ -172,7 +178,7 @@ export function adaptResolution(world: World, dt: number): void {
   if (Math.abs(next - pixelRatio) > 0.01) {
     pixelRatio = next;
     world.renderer.setPixelRatio(pixelRatio);
-    world.renderer.setSize(window.innerWidth, window.innerHeight);
+    world.renderer.setSize(viewW(), viewH());
   }
 }
 
