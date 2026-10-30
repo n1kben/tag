@@ -11,7 +11,7 @@ const NADES: NadeKind[] = ['flash', 'frost'];
 export const SNAPSHOT_TAG = 1; // first byte; every other server message is JSON text
 export const INPUTS_TAG = 2; // client → server over UDP: the last few inputs
 
-const ME_F64 = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'airTime', 'groundTime', 'jumpBuf', 'attackCd', 'lunge'] as const;
+const ME_F64 = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'airTime', 'groundTime', 'jumpBuf', 'attackCd', 'lunge', 'hop'] as const;
 const ME_F32 = ['frozen', 'chilled', 'blind', 'respawn', 'stun'] as const;
 const TAU = Math.PI * 2;
 

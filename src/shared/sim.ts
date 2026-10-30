@@ -1,6 +1,6 @@
 import {
   PLAYER_RADIUS, STEP_HEIGHT, RUN_SPEED, GROUND_ACCEL, GROUND_DECEL, AIR_CONTROL, GRAVITY, FALL_GRAVITY,
-  JUMP_VELOCITY, JUMP_CUT, COYOTE_TIME, JUMP_BUFFER, JUMP_COOLDOWN, STAB_COOLDOWN, LUNGE_SPEED, LUNGE_TIME,
+  JUMP_VELOCITY, JUMP_CUT, COYOTE_TIME, JUMP_BUFFER, HOP_WINDOW, HOP_GAIN, HOP_MAX, STAB_COOLDOWN, LUNGE_SPEED, LUNGE_TIME,
   CHILL_SPEED, AIM_SPEED, PLAYER_HEIGHT, HEAD_JUMP_BOOST, STOMP_BOUNCE, STOMP_MIN_SPEED, BONK_BOUNCE, BONK_KNOCKBACK,
 } from './constants';
 import type { GameMap } from './map';
@@ -23,13 +23,14 @@ export interface Body {
   facing: number; // radians, 0 = +z (towards camera)
   grounded: boolean;
   airTime: number; // since leaving ground (coyote)
-  groundTime: number; // since landing (jump cooldown)
+  groundTime: number; // since landing (bunny-hop timing)
   jumpBuf: number;
   rising: boolean; // in a jump that can still be cut short by releasing Space
   attackCd: number;
   lunge: number;
   prevB: number;
   onHead: boolean; // standing on another player (jumping from here is a boost)
+  hop: number; // bunny-hop speed multiplier: 1 normal, up to HOP_MAX
 }
 
 /** Everything that moves and isn't in the map: other players (solid, with heads to stand on) and broken planks. */
@@ -59,7 +60,7 @@ export function newBody(map: GameMap, x: number, z: number): Body {
   return {
     x, y: map.heightAt(x, z), z, vx: 0, vy: 0, vz: 0, facing: 0,
     grounded: true, airTime: 0, groundTime: 1, jumpBuf: 0, rising: false,
-    attackCd: 0, lunge: 0, prevB: 0, onHead: false,
+    attackCd: 0, lunge: 0, prevB: 0, onHead: false, hop: 1,
   };
 }
 
@@ -96,7 +97,7 @@ export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: nu
     // Runners charging a throw shuffle slowly so the stick can aim (Boomerang Fu charge-throw)
     const aiming = st.role === 'runner' && (input.b & BTN_ACTION) !== 0;
     const speedMul = (st.chilled ? CHILL_SPEED : 1) * (aiming ? AIM_SPEED : 1);
-    const cap = RUN_SPEED * speedMul;
+    const cap = RUN_SPEED * speedMul * s.hop;
     const tx = mx * cap, tz = mz * cap;
     if (s.grounded) {
       const k = 1 - Math.exp(-(len > 0.2 ? GROUND_ACCEL : GROUND_DECEL) * dt);
@@ -113,16 +114,17 @@ export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: nu
       if (newSpeed < keep && newSpeed > 1e-6) { s.vx *= keep / newSpeed; s.vz *= keep / newSpeed; }
     }
   }
-  if (st.frozen) { s.vx = 0; s.vz = 0; }
+  if (st.frozen) { s.vx = 0; s.vz = 0; s.hop = 1; }
 
-  // Jump with buffer + coyote time, and a cooldown after landing. A press during the cooldown
-  // (or just before touching down) is held and fires the moment the cooldown ends.
+  // Jump with a short buffer (a press just before touching down fires on landing) + coyote time
   if (s.grounded) s.groundTime += dt; else s.airTime += dt;
-  const coolingDown = s.grounded && s.groundTime < JUMP_COOLDOWN;
   if (canAct && (ev.pressed & BTN_JUMP)) s.jumpBuf = JUMP_BUFFER;
-  else if (!coolingDown) s.jumpBuf = Math.max(0, s.jumpBuf - dt);
+  else s.jumpBuf = Math.max(0, s.jumpBuf - dt);
+  if (s.grounded && s.groundTime > HOP_WINDOW) s.hop = 1; // lingered on the ground: hop speed gone
 
-  if (s.jumpBuf > 0 && !coolingDown && (s.grounded || s.airTime < COYOTE_TIME) && s.vy <= 0.01) {
+  if (s.jumpBuf > 0 && (s.grounded || s.airTime < COYOTE_TIME) && s.vy <= 0.01) {
+    // Hopping again right as you land builds speed (bunny hop)
+    if (s.grounded && s.groundTime <= HOP_WINDOW) s.hop = Math.min(HOP_MAX, s.hop + HOP_GAIN);
     s.vy = JUMP_VELOCITY * (s.onHead ? HEAD_JUMP_BOOST : 1); // off a teammate's head = boost
     s.onHead = false;
     s.rising = true;

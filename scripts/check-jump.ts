@@ -1,46 +1,62 @@
-// Jump cooldown checks with the real movement sim.
+// Jump timing and bunny hopping with the real movement sim, on a flat open floor.
 // Run: npx tsx scripts/check-jump.ts
 import { newBody, stepBody, BTN_JUMP, type Body } from '../src/shared/sim';
-import { FULL_MAP } from '../src/shared/map';
-import { TICK_DT, JUMP_COOLDOWN } from '../src/shared/constants';
+import type { GameMap } from '../src/shared/map';
+import { TICK_DT, RUN_SPEED, HOP_MAX, JUMP_BUFFER } from '../src/shared/constants';
 
 let failures = 0;
 const check = (ok: boolean, what: string) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${what}`); if (!ok) failures++; };
 const st = { role: 'runner' as const, frozen: false, chilled: false, locked: false };
-const step = (b: Body, jump: boolean) => stepBody(FULL_MAP, b, { mx: 0, mz: 0, b: jump ? BTN_JUMP : 0 }, st, TICK_DT);
+// Endless flat floor: nothing to bump into, so only timing decides
+const FLAT = { solids: [], bridges: [], heightAt: () => 0 } as unknown as GameMap;
+const step = (b: Body, jump: boolean, mx = 0) => stepBody(FLAT, b, { mx, mz: 0, b: jump ? BTN_JUMP : 0 }, st, TICK_DT);
 
-/** Jump once, then press again `pressAfter` seconds after landing; when does the 2nd jump happen? */
-function secondJumpDelay(pressAfter: number): number {
-  const b = newBody(FULL_MAP, -2, -3); // open plaza
+/** Jump once, then press `offset` seconds relative to landing (negative = before). Seconds from landing to the 2nd jump. */
+function secondJump(offset: number): number {
+  const b = newBody(FLAT, 0, 0);
   step(b, true);
-  let t = 0, landedAt = -1, jumpedAt = -1, held = false;
-  for (let i = 0; i < 200 && jumpedAt < 0; i++) {
-    t += TICK_DT;
-    const press = landedAt >= 0 && t - landedAt >= pressAfter - 1e-9 && !held;
-    const ev = step(b, press || (held && landedAt >= 0 && t - landedAt < pressAfter + 0.05));
-    if (press) held = true;
-    if (ev.landed && landedAt < 0) landedAt = t;
-    if (ev.jumped && landedAt >= 0) jumpedAt = t;
+  // Find when this jump lands (same physics, dry run)
+  const dry = newBody(FLAT, 0, 0);
+  step(dry, true);
+  let landT = 0;
+  for (let t = TICK_DT; ; t += TICK_DT) { if (step(dry, t < 0.3).landed) { landT = t; break; } }
+  let jumpedAt = -1;
+  for (let t = TICK_DT; t < 2 && jumpedAt < 0; t += TICK_DT) {
+    const press = Math.abs(t - (landT + offset)) < TICK_DT / 2;
+    if (step(b, press || t < 0.3).jumped && t > 0.1) jumpedAt = t;
   }
-  return jumpedAt < 0 ? Infinity : jumpedAt - landedAt;
+  return jumpedAt < 0 ? Infinity : jumpedAt - landT;
 }
 
-const queued = secondJumpDelay(0.1);
-check(Math.abs(queued - JUMP_COOLDOWN) < 0.05, `press 0.1s after landing → jumps when the cooldown ends (${queued.toFixed(2)}s)`);
-const free = secondJumpDelay(0.5);
-check(Math.abs(free - 0.5) < 0.05, `press after the cooldown → jumps immediately (${free.toFixed(2)}s)`);
+const after = secondJump(0.15);
+check(Math.abs(after - 0.15) < TICK_DT + 1e-6, `no cooldown: press 0.15s after landing → jumps at once (${after.toFixed(2)}s)`);
+const early = secondJump(-0.03);
+check(after < Infinity && Math.abs(early) <= TICK_DT * 2 + 1e-6, `press just before landing → fires on landing (${early.toFixed(3)}s after)`);
+const tooEarly = secondJump(-0.12);
+check(tooEarly === Infinity, `press ${0.12}s before landing (buffer ${JUMP_BUFFER}s) → lost, no jump`);
 
-// Mashing Space can't out-pace the cooldown: count jumps in 3 seconds
-{
-  const b = newBody(FULL_MAP, -2, -3);
-  let jumps = 0, landings = 0, minGap = Infinity, lastLand = -1, t = 0;
-  for (let i = 0; i < 180; i++) {
-    t += TICK_DT;
-    const ev = step(b, i % 2 === 0); // press every other tick
-    if (ev.landed) { landings++; lastLand = t; }
-    if (ev.jumped) { jumps++; if (lastLand >= 0) minGap = Math.min(minGap, t - lastLand); }
+/** Run +x for `secs`, pressing Space per `press(t, sinceLanding, airborne)`; top hop multiplier and final speed. */
+function hopRun(secs: number, press: (t: number, sinceLand: number, air: boolean) => boolean) {
+  const b = newBody(FLAT, 0, 0);
+  let landedAt = 0, top = 1, t = 0;
+  for (; t < secs; t += TICK_DT) {
+    const ev = step(b, press(t, t - landedAt, !b.grounded), 1);
+    if (ev.landed) landedAt = t;
+    top = Math.max(top, b.hop);
   }
-  check(minGap >= JUMP_COOLDOWN - 1e-6, `mashing: never jumps sooner than ${JUMP_COOLDOWN}s after landing (min ${minGap.toFixed(2)}s, ${jumps} jumps in 3s)`);
+  return { top, speed: Math.hypot(b.vx, b.vz) };
 }
+
+// Perfect timing: press on the first tick back on the ground
+const timed = hopRun(4, (_t, since, air) => !air && since < TICK_DT * 1.5);
+check(timed.top >= HOP_MAX - 1e-6 && timed.speed > RUN_SPEED * (HOP_MAX - 0.05), `timed hops build to ${HOP_MAX}× speed (top ${timed.top.toFixed(2)}×, ${timed.speed.toFixed(1)} u/s)`);
+// Late: a fifth of a second on the ground each time
+const late = hopRun(4, (_t, since, air) => !air && since > 0.2 && since < 0.2 + TICK_DT);
+check(late.top <= 1 + 1e-6, `late hops gain nothing (top ${late.top.toFixed(2)}×)`);
+// Mashing at a human 8 presses/s: some speed, nowhere near the timed top end on average
+const mash = hopRun(6, t => Math.floor(t * 16) % 2 === 0);
+console.log(`     (mashing 8×/s tops out at ${mash.top.toFixed(2)}×)`);
+check(mash.top < timed.top, 'mashing does worse than timing');
+
 console.log(failures ? `${failures} FAILURE(S)` : 'ALL PASS');
 process.exit(failures ? 1 : 0);

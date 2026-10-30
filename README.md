@@ -41,7 +41,7 @@ Funnel has to be allowed for the node once in the Tailscale admin console; the f
 | | Keyboard | Gamepad |
 |---|---|---|
 | Move (you face where you move) | WASD / arrows | left stick / d-pad |
-| Jump: tap for a hop, hold for full height (0.3s cooldown after landing; an early press is queued) | Space | A |
+| Jump: tap for a hop, hold for full height. No cooldown: **bunny hop** by pressing again right as you land (within 0.05s) and your top speed grows 8% per hop, up to 1.4×; linger on the ground and it's gone. `HOP_*` in constants.ts | Space | A |
 | Tagger slashes · runner holds to aim a grenade (the throw arc shows) and releases to throw | Enter | X / RT |
 | Runner switches grenade | Q | Y / bumpers |
 | Scoreboard · mute · debug HUD | Tab · M · P | |

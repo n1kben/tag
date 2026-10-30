@@ -25,7 +25,7 @@ export const JUMP_HEIGHT = 1.45; // full-hold apex: clears a 1-unit ledge with r
 export const JUMP_VELOCITY = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT);
 export const JUMP_CUT = 0.45; // releasing Space while rising keeps this much upward speed
 export const COYOTE_TIME = 0.1;
-export const JUMP_BUFFER = 0.12;
+export const JUMP_BUFFER = 0.05; // a press this close before landing still counts; earlier is lost (hops take timing)
 
 // Heads: a teammate's head is a boost; a runner landing on a tagger = stomp (tagger stunned);
 // a tagger landing on a runner = bonk (knocked back, so a runner guarding an edge sends chasers into the alley)
@@ -40,8 +40,12 @@ export const BONK_KNOCKBACK = 0.6; // …and sent back the way they came at this
 export const PLANK_CRACK_TIME = 1.2;
 export const PLANK_FIX_TIME = 12;
 
-// No jump spam: after landing you wait this long before the next jump (a press is queued, not lost)
-export const JUMP_COOLDOWN = 0.3;
+// Bunny hopping, CS-style: jump again right as you land (within HOP_WINDOW on the ground) and
+// your top speed grows by HOP_GAIN per hop, up to HOP_MAX × RUN_SPEED. Stay on the ground any
+// longer and it's gone. No cooldown: timing is the limit.
+export const HOP_WINDOW = 0.05;
+export const HOP_GAIN = 0.08;
+export const HOP_MAX = 1.4;
 
 // Falling: drops up to SAFE_DROP are free; damage scales up to death at FATAL_DROP
 export const SAFE_DROP = 3.5;

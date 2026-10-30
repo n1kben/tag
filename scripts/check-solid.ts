@@ -12,9 +12,11 @@ const map = FULL_MAP;
 const status = (role: Role) => ({ role, frozen: false, chilled: false, locked: false });
 const still = (id: number, b: Body, role: Role): Dyn['bodies'][number] => ({ id, x: b.x, y: b.y, z: b.z, role });
 
-// 1) Edge block: tagger leaps plaza → east terrace across the alley (z = -6, away from the planks)
+// 1) Edge block: tagger leaps plaza → east terrace across the alley (z = -6, away from the planks).
+// A plain run-up on open floor (from on top of a crate, a chained bunny hop can clear the guard)
+const RUNUP_X = 6.5;
 function leap(blocker: boolean, tap: boolean): 'landed' | 'fell' | 'other' {
-  const tagger = newBody(map, 5, -6);
+  const tagger = newBody(map, RUNUP_X, -6);
   const guard = newBody(map, 10.95, -6); // runner standing right at the far roof's edge
   const dyn: Dyn = { bodies: blocker ? [still(2, guard, 'runner')] : [] };
   let jumped = false;
@@ -28,7 +30,8 @@ function leap(blocker: boolean, tap: boolean): 'landed' | 'fell' | 'other' {
   }
   return 'other';
 }
-check(map.heightAt(11.5, -6) === 0 && map.heightAt(9.75, -6) === -Infinity, 'test setup: open alley at z=-6');
+const runupClear = Array.from({ length: 30 }, (_, i) => RUNUP_X + i * 0.1).filter(x => map.heightAt(x, -6) !== -Infinity).every(x => map.heightAt(x, -6) === 0);
+check(map.heightAt(11.5, -6) === 0 && map.heightAt(9.75, -6) === -Infinity && runupClear, 'test setup: open alley at z=-6, clear run-up');
 check(leap(false, false) === 'landed', 'no guard: the leap to the next roof lands');
 check(leap(true, false) === 'fell', 'runner guarding the edge: a full leap is bonked into the alley');
 check(leap(true, true) === 'fell', 'runner guarding the edge: a short hop is body-blocked into the alley');

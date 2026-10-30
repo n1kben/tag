@@ -19,7 +19,7 @@ const MIN_DELAY = SNAPSHOT_EVERY + 1, MAX_DELAY = 20;
 const LATE_WINDOW = 90; // snapshots (~3s) of lateness samples
 const EXTRAPOLATE_TICKS = 6; // a late snapshot: keep others moving along their velocity this long
 const EVENT_MAX_WAIT = 400; // ms: play an event anyway if the render clock hasn't reached it by then
-const BODY_KEYS: (keyof Body)[] = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'grounded', 'airTime', 'groundTime', 'jumpBuf', 'rising', 'attackCd', 'lunge', 'prevB', 'onHead'];
+const BODY_KEYS: (keyof Body)[] = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'facing', 'grounded', 'airTime', 'groundTime', 'jumpBuf', 'rising', 'attackCd', 'lunge', 'prevB', 'onHead', 'hop'];
 
 /** Running totals; read (and reset) by the netgraph and the bench. */
 export class NetStats {
