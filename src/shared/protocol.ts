@@ -89,7 +89,8 @@ export type GameEvent =
   | { k: 'det'; kind: NadeKind; x: number; y: number; z: number; hits: number[] }
   | { k: 'bounce'; x: number; y: number; z: number }
   | { k: 'spawn'; id: number; x: number; y: number; z: number }
-  | { k: 'stomp'; by: number; id: number; x: number; y: number; z: number };
+  | { k: 'stomp'; by: number; id: number; x: number; y: number; z: number }
+  | { k: 'refill'; id: number; kind: NadeKind }; // a runner got a grenade back for staying alive
 
 export type ServerMessage =
   | { type: 'welcome'; roomId: string; playerId: number; practice: boolean }

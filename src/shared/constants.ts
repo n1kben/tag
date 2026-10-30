@@ -75,6 +75,8 @@ export const STAB_HEIGHT = 0.4; // the blade's line: anything taller in between 
 export type NadeKind = 'flash' | 'frost';
 export const NADE_KINDS: NadeKind[] = ['flash', 'frost'];
 export const NADE_LOADOUT: Record<NadeKind, number> = { flash: 2, frost: 1 }; // per round
+// Staying alive pays: a runner missing grenades gets one back after this many seconds of chase, up to the loadout
+export const NADE_REFILL_EVERY = 20;
 export const NADE_FUSE: Record<NadeKind, number> = { flash: 1.2, frost: 1.4 }; // seconds
 export const NADE_THROW_SPEED = 9.5;
 export const NADE_THROW_UP = 5.5;

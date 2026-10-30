@@ -367,6 +367,10 @@ export function startGame(): void {
         if (e.hits.includes(myId) && e.kind === 'frost') ui.banner('FROZEN!', '', '#8fe3ff', 1200);
         break;
       }
+      case 'refill': {
+        if (e.id === myId) { ui.banner(`+1 ${e.kind.toUpperCase()}`, '', e.kind === 'frost' ? '#8fe3ff' : '#ffd23f', 900); sfx.ui(); }
+        break;
+      }
       case 'stomp': {
         const sp = spatial(e.x, e.z, L.x, L.z);
         sfx.boing(Math.max(0.3, sp.vol), sp.pan);

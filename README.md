@@ -57,7 +57,7 @@ There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where 
 | Hiders win if anyone survives the round timer; seekers win by killing every hider | Same (runners/taggers), with a 2:00 chase |
 | Teams swap only when seekers win | Same (taggers) |
 | `hns_hiders_alivefrags`: +1 per surviving hider | +1 point per surviving runner, +1 per tag |
-| Hiders can't attack; kit: 2 flash, 1 frost (4s freeze / 60% chill), smoke, HE | **2 flash + 1 frost** (smoke and HE cut). Flash a tagger right before a jump; frost them mid-air and they drop into the mist (you get the kill). Tune in the grenade block of `src/shared/constants.ts` |
+| Hiders can't attack; kit: 2 flash, 1 frost (4s freeze / 60% chill), smoke, HE | **2 flash + 1 frost**, and one back for every 20s you stay alive missing some, up to the kit (smoke and HE cut). Flash a tagger right before a jump; frost them mid-air and they drop into the mist (you get the kill). Tune in the grenade block of `src/shared/constants.ts` |
 | Knife: 2 front stabs (100 HP + armour), backstab one-shots | Boomerang Fu rules: **one hit kills**, and there's no health. The slash is a short step-in: you have to be practically touching (a gap of 0.3u or less), walls, hedges, crates, ducts and huts block it, and you can swing again after 0.3s |
 | Fall damage; kill triggers off the map | Fall damage on big drops; falling into the mist kills |
 | Semiclip for teammates | Teammates pass through each other; opponents shove |
