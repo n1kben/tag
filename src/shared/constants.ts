@@ -83,7 +83,6 @@ export const NADE_THROW_UP = 5.5;
 export const NADE_GRAVITY = 20;
 export const NADE_MIN_CHARGE = 0.45; // fraction of a full throw on a tap
 export const NADE_CHARGE_TIME = 0.6; // hold this long for a full throw
-export const AIM_SPEED = 0.4; // move speed multiplier while charging a throw
 export const NADE_RADIUS = 0.18;
 export const FLASH_RADIUS = 13; // taggers in line of sight within this get blinded
 export const FLASH_TIME = 3.2; // max blind seconds (less at range)

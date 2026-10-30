@@ -1,7 +1,7 @@
 import {
   PLAYER_RADIUS, STEP_HEIGHT, RUN_SPEED, GROUND_ACCEL, GROUND_DECEL, AIR_CONTROL, GRAVITY, FALL_GRAVITY,
   JUMP_VELOCITY, JUMP_CUT, COYOTE_TIME, JUMP_BUFFER, HOP_WINDOW, HOP_GAIN, HOP_MAX, STAB_COOLDOWN, LUNGE_SPEED, LUNGE_TIME,
-  CHILL_SPEED, AIM_SPEED, PLAYER_HEIGHT, HEAD_JUMP_BOOST, STOMP_BOUNCE, STOMP_MIN_SPEED, BONK_BOUNCE, BONK_KNOCKBACK,
+  CHILL_SPEED, PLAYER_HEIGHT, HEAD_JUMP_BOOST, STOMP_BOUNCE, STOMP_MIN_SPEED, BONK_BOUNCE, BONK_KNOCKBACK,
 } from './constants';
 import type { GameMap } from './map';
 
@@ -95,16 +95,15 @@ export function stepBody(map: GameMap, s: Body, input: Input, st: Status, dt: nu
 
   // Horizontal: snap up to speed, short slide when letting go, near-full steering in the air
   if (s.lunge <= 0) {
-    // Runners charging a throw shuffle slowly so the stick can aim (Boomerang Fu charge-throw)
+    // Runners charging a throw plant their feet: the move keys only turn them to aim
     const aiming = st.role === 'runner' && (input.b & BTN_ACTION) !== 0;
-    const speedMul = (st.chilled ? CHILL_SPEED : 1) * (aiming ? AIM_SPEED : 1);
-    const cap = RUN_SPEED * speedMul * s.hop;
+    const cap = aiming ? 0 : RUN_SPEED * (st.chilled ? CHILL_SPEED : 1) * s.hop;
     const tx = mx * cap, tz = mz * cap;
     if (s.grounded) {
-      const k = 1 - Math.exp(-(len > 0.2 ? GROUND_ACCEL : GROUND_DECEL) * dt);
+      const k = 1 - Math.exp(-(len > 0.2 && !aiming ? GROUND_ACCEL : GROUND_DECEL) * dt);
       s.vx += (tx - s.vx) * k;
       s.vz += (tz - s.vz) * k;
-    } else if (len > 0.2) {
+    } else if (len > 0.2 && !aiming) {
       // Steer freely, but never brake below the speed you jumped with
       const k = 1 - Math.exp(-AIR_CONTROL * dt);
       const oldSpeed = Math.hypot(s.vx, s.vz);

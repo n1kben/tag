@@ -50,7 +50,7 @@ Menus work on a gamepad too: the stick / d-pad moves a yellow focus ring, A pres
 
 Touch controls appear after your first tap; any key or gamepad input hides them again (`src/client/touch.ts`, checked by `scripts/check-touch.ts <baseUrl>`). Phones and tablets work in portrait and landscape: held upright, the camera backs off to show as much width as a square screen. Tapping a menu button goes fullscreen where the browser allows it (Android, iPad); on iPhone use Share → **Add to Home Screen**, which also launches it full screen.
 
-There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where you move.
+There's no mouse aim on purpose. As in Boomerang Fu, you face (and throw) where you move; while holding a grenade you stand still and the move keys just turn you to aim.
 
 ## Rules (CS 1.6 hidenseek defaults → this game)
 
