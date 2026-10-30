@@ -78,11 +78,11 @@ export const NADE_LOADOUT: Record<NadeKind, number> = { flash: 10, frost: 5 }; /
 // Staying alive pays: a runner missing grenades gets one back after this many seconds of chase, up to the loadout
 export const NADE_REFILL_EVERY = 5;
 export const NADE_FUSE: Record<NadeKind, number> = { flash: 1.2, frost: 1.4 }; // seconds
-export const NADE_THROW_SPEED = 9.5;
-export const NADE_THROW_UP = 5.5;
+export const NADE_THROW_SPEED = 14;
+export const NADE_THROW_UP = 7;
 export const NADE_GRAVITY = 20;
-export const NADE_MIN_CHARGE = 0.45; // fraction of a full throw on a tap
-export const NADE_CHARGE_TIME = 0.6; // hold this long for a full throw
+export const NADE_MIN_CHARGE = 0.3; // fraction of a full throw on a tap
+export const NADE_CHARGE_TIME = 0.8; // hold this long for a full throw
 export const NADE_RADIUS = 0.18;
 export const FLASH_RADIUS = 13; // taggers in line of sight within this get blinded
 export const FLASH_TIME = 3.2; // max blind seconds (less at range)
