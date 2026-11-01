@@ -4,6 +4,44 @@
 import { BTN_ACTION, BTN_FLASH, BTN_FROST, BTN_JUMP, type Input } from '../shared/sim';
 import { gamepadUsed, readTouch } from './touch';
 
+// Pad buttons per action, remappable on the CONTROLS screen and kept in localStorage. Standard-mapping
+// button numbers; the stick, d-pad, Select (scoreboard) and the menu buttons in pad.ts stay fixed.
+export type PadAction = 'jump' | 'flash' | 'frost';
+export const PAD_ACTIONS: PadAction[] = ['jump', 'flash', 'frost'];
+const DEFAULT_BINDS: Record<PadAction, number[]> = { jump: [0], flash: [2, 7], frost: [3, 4, 5] }; // A · X, RT · Y, bumpers
+/** Buttons you can bind, with their Xbox and Nintendo labels. */
+export const PAD_BUTTONS: Record<number, [string, string]> = {
+  0: ['A', 'B'], 1: ['B', 'A'], 2: ['X', 'Y'], 3: ['Y', 'X'], 4: ['LB', 'L'], 5: ['RB', 'R'],
+  6: ['LT', 'ZL'], 7: ['RT', 'ZR'], 9: ['Start', '+'], 10: ['LS', 'LS'], 11: ['RS', 'RS'],
+};
+const BINDS_KEY = 'padBinds';
+let binds = loadBinds();
+
+function loadBinds(): Record<PadAction, number[]> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(BINDS_KEY) ?? 'null');
+    if (saved && PAD_ACTIONS.every(a => Array.isArray(saved[a]) && saved[a].every((i: unknown) => typeof i === 'number' && i in PAD_BUTTONS))) return saved;
+  } catch { /* fall back to the defaults */ }
+  return structuredClone(DEFAULT_BINDS);
+}
+
+export function padBinds(action: PadAction): readonly number[] {
+  return binds[action];
+}
+
+/** Bind a button to an action, replacing what it had; the button leaves any other action. */
+export function setPadBind(action: PadAction, button: number): void {
+  if (!(button in PAD_BUTTONS)) return;
+  for (const a of PAD_ACTIONS) binds[a] = binds[a].filter(i => i !== button);
+  binds[action] = [button];
+  localStorage.setItem(BINDS_KEY, JSON.stringify(binds));
+}
+
+export function resetPadBinds(): void {
+  binds = structuredClone(DEFAULT_BINDS);
+  localStorage.removeItem(BINDS_KEY);
+}
+
 const keys = new Set<string>();
 let enabled = true;
 
@@ -41,9 +79,9 @@ export function readInput(): Input {
     if (Math.hypot(ax, az) > 0.2) { mx = ax; mz = az; gamepadUsed(); }
     const btn = (i: number) => pad.buttons[i]?.pressed;
     if (pad.buttons.some(x => x.pressed)) gamepadUsed();
-    if (btn(0)) b |= BTN_JUMP; // A
-    if (btn(2) || btn(7)) b |= BTN_ACTION | BTN_FLASH; // X / RT: slash, or a flash
-    if (btn(3) || btn(4) || btn(5)) b |= BTN_ACTION | BTN_FROST; // Y / bumpers: slash, or a frost
+    if (binds.jump.some(btn)) b |= BTN_JUMP;
+    if (binds.flash.some(btn)) b |= BTN_ACTION | BTN_FLASH; // slash, or a flash
+    if (binds.frost.some(btn)) b |= BTN_ACTION | BTN_FROST; // slash, or a frost
     if (btn(12)) mz = -1;
     if (btn(13)) mz = 1;
     if (btn(14)) mx = -1;

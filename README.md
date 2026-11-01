@@ -42,6 +42,7 @@ Grenade, slash and jump numbers live in `src/shared/constants.ts`.
 
 - **Jump**: tap for a hop, hold for full height. Jump again within 0.05s of landing to **bunny hop**: each hop adds 8% top speed, up to 1.4×. Stay on the ground and it's gone.
 - **Aiming**: no mouse aim. You throw where you face; while holding a grenade you stand still and the move keys turn you.
+- **Remap the pad**: title → **CONTROLS**, pick an action, press the button. Saved in the browser; RESET restores the defaults. Stick, d-pad, Select and the menu buttons stay fixed.
 - **Gamepad menus**: stick moves the focus ring, A presses, B leaves the lobby, Start readies up, bumpers change character. Hints switch to Nintendo labels for 8BitDo / Switch pads. Safari only sees a pad after you press one of its buttons.
 - **Touch**: controls appear after your first tap and hide on keyboard or pad input. Portrait and landscape both work. Tapping a menu button goes fullscreen on Android and iPad; on iPhone use Share → **Add to Home Screen**.
 

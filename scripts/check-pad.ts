@@ -48,6 +48,26 @@ await press(p, 13); await press(p, 13);
 check(await focused() === 'create', `down twice → CREATE ROOM (${await focused()})`);
 if (out) await p.screenshot({ path: `${out}/pad-title.png` });
 
+// CONTROLS: rebind jump to RB, which leaves frost; RESET brings the defaults back
+await p.evaluate(`document.querySelector('[data-a=controls]').focus()`);
+await press(p, 0);
+check(await shown('.screen.on [data-a=bind-jump]'), 'A on CONTROLS opens the controls screen');
+await p.evaluate(`document.querySelector('[data-a=bind-jump]').focus()`);
+await press(p, 0); // pick Jump
+check(await p.evaluate(`document.querySelector('[data-a=bind-jump]').textContent.includes('PRESS')`) as boolean, 'picking Jump waits for a button');
+await press(p, 5); // RB
+const bindText = (a: string) => p.evaluate(`document.querySelector('[data-a=bind-${a}]').textContent`) as Promise<string>;
+check((await bindText('jump')).includes('RB'), `Jump is now RB (${await bindText('jump')})`);
+check(!(await bindText('frost')).includes('RB'), `RB left frost (${await bindText('frost')})`);
+check(await p.evaluate(`JSON.parse(localStorage.getItem('padBinds')).jump[0] === 5`) as boolean, 'binding saved');
+check(await focused() === 'bind-jump', `focus stays on the Jump row (${await focused()})`);
+if (out) await p.screenshot({ path: `${out}/pad-controls.png` });
+await p.evaluate(`document.querySelector('[data-a=reset]').click()`);
+check((await bindText('jump')).includes('A') && (await bindText('frost')).includes('RB'), 'RESET restores the defaults');
+await press(p, 1); // B: back
+check(await shown('.screen.sky.on [data-a=practice]'), 'B goes back to the title');
+await p.evaluate(`document.querySelector('[data-a=create]').focus()`);
+
 await press(p, 0); // A: create a room
 for (let i = 0; i < 20 && !(await shown('.lobby.on')); i++) await p.waitForTimeout(250);
 await p.waitForTimeout(300);

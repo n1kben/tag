@@ -4,6 +4,8 @@ import { Character } from './characters';
 import { CHARACTERS, NADE_KINDS, type NadeKind } from '../shared/constants';
 import type { GameMode, LobbyPlayer, Phase, Standing } from '../shared/protocol';
 import type { Role } from '../shared/sim';
+import { PAD_ACTIONS, PAD_BUTTONS, padBinds, resetPadBinds, setPadBind, type PadAction } from './input';
+import { capturePad } from './pad';
 
 const CSS = `
 :root {
@@ -137,6 +139,9 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .pad .padh, .nin .nn { display: inline; }
 .pad .kbh { display: none; }
 .pad .screen button:focus { outline: 4px solid var(--yellow); outline-offset: 4px; }
+.binds { display: grid; grid-template-columns: auto auto; gap: 12px 18px; align-items: center; font-weight: 700; font-size: 20px; }
+.binds .btn { min-width: 220px; }
+.binds .btn.listen { background: var(--yellow); }
 .hud .feed { top: calc(14px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); }
 .hud .timer { top: calc(14px + env(safe-area-inset-top)); }
 @media (max-width: 640px) { .teams { width: 92vw; } .keys { display: none; } .btn { min-width: 200px; } }
@@ -144,7 +149,6 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 
 const NADE_LABEL: Record<NadeKind, string> = { flash: 'Flash', frost: 'Frost' };
 const NADE_KEY: Record<NadeKind, string> = { flash: 'J', frost: 'K' };
-const NADE_PAD: Record<NadeKind, string> = { flash: padKey('X', 'Y'), frost: padKey('Y', 'X') };
 const NADE_CSS: Record<NadeKind, string> = { flash: '#fff2a8', frost: '#8fe3ff' };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] {
@@ -235,6 +239,7 @@ export class UI {
   private title = el('div', 'screen sky');
   private lobby = el('div', 'screen lobby');
   private end = el('div', 'screen');
+  private controls = el('div', 'screen sky');
   private hud = el('div', 'hud');
   private labels = el('div', 'pe-none');
   private debugEl = el('div', 'debug');
@@ -255,7 +260,7 @@ export class UI {
     const style = document.createElement('style');
     style.textContent = CSS;
     document.head.appendChild(style);
-    this.root.append(this.labels, this.hud, this.title, this.lobby, this.end, this.debugEl);
+    this.root.append(this.labels, this.hud, this.title, this.lobby, this.end, this.controls, this.debugEl);
     document.body.appendChild(this.root);
 
     this.hud.append(this.countdown, this.whiteout, this.frostout, this.feed, this.bannerEl, this.board);
@@ -290,11 +295,13 @@ export class UI {
       <button class="btn pink" data-a="practice">PLAY VS BOTS</button>
       <button class="btn" data-a="create">CREATE ROOM</button>
       <div class="row"><input class="code-in" maxlength="5" placeholder="CODE" /><button class="btn teal small" data-a="join">JOIN</button></div>
+      <button class="btn small" data-a="controls">CONTROLS</button>
       <div class="status"></div>`;
     this.titleStatus = box.querySelector('.status')!;
     const code = box.querySelector('input')!;
     box.querySelector('[data-a=practice]')!.addEventListener('click', () => h.practice(this.titleMode));
     box.querySelector('[data-a=create]')!.addEventListener('click', () => h.create(this.titleMode));
+    box.querySelector('[data-a=controls]')!.addEventListener('click', () => this.showControls(() => this.showTitle(h)));
     const modes = box.querySelector<HTMLElement>('[data-a=modes]')!;
     modes.addEventListener('click', e => {
       const m = (e.target as HTMLElement).dataset.m as GameMode | undefined;
@@ -317,6 +324,37 @@ export class UI {
 
   setStatus(text: string): void {
     if (this.titleStatus) this.titleStatus.textContent = text;
+  }
+
+  // ── Controls: pick an action, press the pad button for it ───────────────
+  private showControls(back: () => void): void {
+    this.hideAll();
+    const listen = (action: PadAction | null) => {
+      render(action);
+      capturePad(action && (i => {
+        if (i in PAD_BUTTONS) { setPadBind(action, i); listen(null); }
+        else listen(action); // d-pad, Select: fixed, keep waiting
+      }));
+    };
+    const render = (listening: PadAction | null) => {
+      const had = document.activeElement instanceof HTMLElement && this.controls.contains(document.activeElement) ? document.activeElement.dataset.a : 'bind-jump';
+      this.controls.innerHTML = `
+        <div class="panel col">
+          <div class="display" style="font-size:48px;color:var(--yellow)">CONTROLS</div>
+          <div class="binds">${PAD_ACTIONS.map(a => `
+            <div>${ACTION_LABEL[a]}</div>
+            <button class="btn ${a === listening ? 'listen' : ''}" data-a="bind-${a}">${a === listening ? 'PRESS A BUTTON…' : padActionAll(a)}</button>`).join('')}
+          </div>
+          <div style="font-weight:600;color:#8a7bb5">Pick an action, then press the controller button for it. Stick, d-pad and Select stay as they are.</div>
+          <div class="row"><button class="btn small" data-a="reset">RESET</button><button class="btn pink" data-a="back">BACK</button></div>
+        </div>`;
+      for (const a of PAD_ACTIONS) this.controls.querySelector(`[data-a=bind-${a}]`)!.addEventListener('click', () => listen(a === listening ? null : a));
+      this.controls.querySelector('[data-a=reset]')!.addEventListener('click', () => { resetPadBinds(); listen(null); });
+      this.controls.querySelector('[data-a=back]')!.addEventListener('click', () => { capturePad(null); back(); });
+      this.controls.querySelector<HTMLElement>(`[data-a=${had}]`)?.focus({ preventScroll: true }); // the pad's ring stays put
+    };
+    listen(null);
+    this.controls.classList.add('on');
   }
 
   // ── Lobby ───────────────────────────────────────────────────────────────
@@ -424,15 +462,15 @@ export class UI {
     }
     if (s.alive && s.role === 'runner') {
       const inv = el('div', 'dyn inv', NADE_KINDS.map(k => `
-        <div class="slot ${s.nades[k] ? '' : 'empty'}">${hint(`<kbd>${NADE_KEY[k]}</kbd>`, NADE_PAD[k])}
+        <div class="slot ${s.nades[k] ? '' : 'empty'}">${hint(`<kbd>${NADE_KEY[k]}</kbd>`, padAction(k))}
           <div class="ic" style="background:${NADE_CSS[k]}"></div><div class="lb">${NADE_LABEL[k]} ×${s.nades[k]}</div></div>`).join(''));
       this.hud.append(inv);
       this.hud.append(el('div', 'dyn keys outlined', hint('<kbd>J</kbd> flash · <kbd>K</kbd> frost (hold, let go to throw)<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores',
-        `${padKey('X', 'Y')} flash · ${padKey('Y', 'X')} frost (hold, let go to throw)<br>${PAD_JUMP} jump · ${PAD_SCORES} scores`)));
+        `${padAction('flash')} flash · ${padAction('frost')} frost (hold, let go to throw)<br>${padAction('jump')} jump · ${PAD_SCORES} scores`)));
     } else if (s.alive && s.role === 'tagger') {
-      this.hud.append(el('div', 'dyn keys outlined', hint('<kbd>J</kbd> slash<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores', `${padKey('X', 'Y')} slash<br>${PAD_JUMP} jump · ${PAD_SCORES} scores`)));
+      this.hud.append(el('div', 'dyn keys outlined', hint('<kbd>J</kbd> slash<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores', `${padAction('flash')} slash<br>${padAction('jump')} jump · ${PAD_SCORES} scores`)));
     }
-    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)}<span class="kb"> · ${hint('<kbd>J</kbd>', padKey('X', 'Y'))} next</span>`));
+    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)}<span class="kb"> · ${hint('<kbd>J</kbd>', padAction('flash'))} next</span>`));
   }
 
   banner(big: string, sub = '', color = '#ffd23f', ms = 1800): void {
@@ -500,7 +538,8 @@ export class UI {
   }
 
   hideAll(): void {
-    for (const s of [this.title, this.lobby, this.end]) s.classList.remove('on');
+    for (const s of [this.title, this.lobby, this.end, this.controls]) s.classList.remove('on');
+    capturePad(null);
     this.hud.classList.remove('on');
     this.board.style.display = 'none';
     this.hideLabelsExcept(new Set());
@@ -515,14 +554,26 @@ function modeButtons(mode: GameMode): string {
 function titleHint(mode: GameMode): string {
   const how = mode === 'dm' ? 'Tag a runner to swap sides' : 'Taggers slash · runners escape';
   return `<div class="rule">${how}</div><span class="kb">${hint('<kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>J</kbd> slash / flash · <kbd>K</kbd> frost',
-    `stick move · ${PAD_JUMP} jump · ${padKey('X', 'Y')} slash / flash · ${padKey('Y', 'X')} frost`)}</span>`;
+    `stick move · ${padAction('jump')} jump · ${padAction('flash')} slash / flash · ${padAction('frost')} frost`)}</span>`;
 }
 
 /** A pad button: Xbox label, and the Nintendo one for the same spot. */
 function padKey(xbox: string, nintendo: string): string {
   return `<kbd><span class="xb">${xbox}</span><span class="nn">${nintendo}</span></kbd>`;
 }
-const PAD_JUMP = padKey('A', 'B');
+
+/** The pad button for an action, as bound on the CONTROLS screen (the first one, to keep hints short). */
+function padAction(action: PadAction): string {
+  const i = padBinds(action)[0];
+  return i === undefined ? '<kbd>—</kbd>' : padKey(...PAD_BUTTONS[i]);
+}
+
+/** Every button bound to an action, for the CONTROLS screen. */
+function padActionAll(action: PadAction): string {
+  return padBinds(action).map(i => padKey(...PAD_BUTTONS[i])).join(' ') || '<kbd>—</kbd>';
+}
+
+const ACTION_LABEL: Record<PadAction, string> = { jump: 'Jump', flash: 'Slash / flash', frost: 'Slash / frost' };
 const PAD_SCORES = padKey('Select', '−');
 
 /** Keyboard and gamepad versions of a hint; CSS shows the one in use. */

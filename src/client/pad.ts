@@ -12,6 +12,7 @@ let prevDir = '';
 let repeatAt = 0;
 let lastKey = ''; // data-a / data-m of the focused button, to find it again after a re-render
 let selectHeld = false;
+let capture: ((button: number) => void) | null = null;
 
 const html = document.documentElement;
 const setPad = (on: boolean) => html.classList.toggle('pad', on);
@@ -21,6 +22,11 @@ window.addEventListener('pointerdown', () => setPad(false), { capture: true });
 /** Select (−) held: show the scoreboard. */
 export function padBoardHeld(): boolean {
   return selectHeld;
+}
+
+/** The CONTROLS screen: the next fresh button press goes to `cb` instead of the menus. null cancels. */
+export function capturePad(cb: ((button: number) => void) | null): void {
+  capture = cb;
 }
 
 /** Call once a frame. */
@@ -41,6 +47,12 @@ export function pollPad(): void {
   const down = (i: number) => !!now[i] && !was[i];
   prev = now;
   selectHeld = !!now[SELECT];
+  if (capture) {
+    // Buttons held when capture started (the A that picked the row) don't count until let go
+    const i = now.findIndex((on, i) => on && !was[i]);
+    if (i >= 0) { const cb = capture; capture = null; cb(i); }
+    return;
+  }
 
   const screen = document.querySelector<HTMLElement>('.ui .screen.on');
   if (!screen || !html.classList.contains('pad') || document.activeElement instanceof HTMLInputElement) return;
