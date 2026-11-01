@@ -1,6 +1,7 @@
 // Gamepad menus with a fake 8BitDo: a press shows the focus ring and pad hints (Nintendo labels),
 // the d-pad moves between buttons, A presses, B leaves the lobby, Start readies up, Select holds
-// the scoreboard, and a key press brings the keyboard hints back.
+// the scoreboard, and a key press brings the keyboard hints back. Then two pads: each window follows the
+// input picked on CONTROLS (one pad, or the keyboard only), kept per window and across a reconnect.
 // Usage: npx tsx scripts/check-pad.ts <baseUrl> [outDir]
 import { chromium, type Page } from 'playwright-core';
 
@@ -21,12 +22,14 @@ p.on('pageerror', e => console.log('PAGEERROR', e.message));
 await p.goto(`${base}/?lite`);
 await p.waitForTimeout(800);
 
+/** Wait out a few rendered frames: swiftshader stalls for hundreds of ms now and then, so a timed tap can miss every frame. */
+const frames = (pg: Page, n = 3) => pg.evaluate(`new Promise(r => { let n = ${n}; const f = () => --n ? requestAnimationFrame(f) : r(); requestAnimationFrame(f); })`);
 /** Tap a button for a few frames. */
 const press = async (pg: Page, i: number, ms = 120) => {
   await pg.evaluate(`window.__pad.buttons[${i}].pressed = true`);
-  await pg.waitForTimeout(ms);
+  await pg.waitForTimeout(ms); await frames(pg);
   await pg.evaluate(`window.__pad.buttons[${i}].pressed = false`);
-  await pg.waitForTimeout(150);
+  await pg.waitForTimeout(150); await frames(pg);
 };
 const focused = () => p.evaluate(`(() => { const e = document.activeElement; return e?.dataset?.a ?? e?.dataset?.m ?? e?.tagName; })()`) as Promise<string>;
 const shown = (sel: string) => p.evaluate(`(() => { const e = document.querySelector('${sel}'); return !!e && getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0; })()`) as Promise<boolean>;
@@ -103,6 +106,66 @@ check(!(await shown('.board')), 'letting go hides it');
 await p.keyboard.press('KeyW');
 await p.waitForTimeout(300);
 check(await shown('.hud .keys .kbh') && !(await shown('.hud .keys .padh')), 'a key press brings keyboard hints back');
+
+// Two pads, two windows: one follows pad 2 only, one the keyboard only
+const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+await ctx2.addInitScript(() => {
+  const pads = ['8BitDo Pro 2 (STANDARD GAMEPAD Vendor: 2dc8)', 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e)'].map((id, index) => ({
+    id, index, connected: true, mapping: 'standard', timestamp: 0,
+    axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })) }));
+  (window as unknown as { __pads: typeof pads }).__pads = pads;
+  navigator.getGamepads = () => pads as unknown as Gamepad[];
+});
+const w1 = await ctx2.newPage(), w2 = await ctx2.newPage();
+for (const w of [w1, w2]) { w.on('pageerror', e => console.log('PAGEERROR', e.message)); await w.goto(`${base}/?lite`); }
+await w1.waitForTimeout(800);
+// Focus checks below only ask "did it move": a stall mid-hold can auto-repeat a direction
+const tap = async (pg: Page, pad: number, i: number) => {
+  await pg.evaluate(`window.__pads[${pad}].buttons[${i}].pressed = true`);
+  await pg.waitForTimeout(120); await frames(pg);
+  await pg.evaluate(`window.__pads[${pad}].buttons[${i}].pressed = false`);
+  await pg.waitForTimeout(150); await frames(pg);
+};
+const focusIn = (pg: Page) => pg.evaluate(`document.activeElement?.dataset?.a ?? document.activeElement?.tagName`) as Promise<string>;
+const source = (pg: Page) => pg.evaluate(`sessionStorage.getItem('inputSource')`) as Promise<string | null>;
+const isPad = (pg: Page) => pg.evaluate(`document.documentElement.classList.contains('pad')`) as Promise<boolean>;
+
+await w1.bringToFront();
+await w1.click('[data-a=controls]');
+check(await w1.evaluate(`!!document.querySelector('[data-a=src-pad0]') && !!document.querySelector('[data-a=src-pad1]')`) as boolean, 'CONTROLS lists both pads');
+await w1.click('[data-a=pick]');
+await tap(w1, 1, 0); // A on the Xbox pad picks it
+check(JSON.parse(await source(w1) ?? 'null')?.index === 1, `pressing on pad 2 picks it (${await source(w1)})`);
+check(await w1.evaluate(`document.querySelector('[data-a=src-pad1]').classList.contains('on')`) as boolean, 'PAD 2 shows as chosen');
+if (out) await w1.screenshot({ path: `${out}/pad-source.png` });
+await w1.click('[data-a=back]'); // the click drops pad mode, so the next press only wakes it
+check(!(await isPad(w1)), 'window 1 back in keyboard hints');
+await tap(w1, 0, 13);
+check(!(await isPad(w1)), 'window 1 ignores pad 1');
+await tap(w1, 1, 13);
+check(await isPad(w1) && await focusIn(w1) === 'practice', `window 1 wakes on pad 2 (${await focusIn(w1)})`);
+await tap(w1, 0, 13);
+check(await focusIn(w1) === 'practice', `pad 1 doesn't move window 1's focus (${await focusIn(w1)})`);
+await tap(w1, 1, 13);
+check(await focusIn(w1) !== 'practice', `pad 2 does (${await focusIn(w1)})`);
+
+await w2.bringToFront();
+check(await source(w2) === null, 'window 2 has its own choice (default ANY)');
+await w2.click('[data-a=controls]');
+await w2.click('[data-a=src-keys]');
+check(await source(w2) === '"keys"', 'window 2 picks KEYBOARD');
+await w2.click('[data-a=back]');
+await tap(w2, 0, 13); await tap(w2, 1, 13); await tap(w2, 1, 0);
+check(!(await isPad(w2)) && await w2.evaluate(`document.querySelector('.screen.sky.on')`) !== null, 'keyboard window ignores both pads');
+
+// Reconnect with the indexes swapped: window 1 follows the Xbox pad to index 0
+await w1.evaluate(`(() => { const [a, b] = window.__pads; a.index = 1; b.index = 0; window.__pads.reverse(); })()`);
+const before = await focusIn(w1);
+await tap(w1, 1, 12); // the 8BitDo, now index 1
+check(await focusIn(w1) === before, `after the swap pad 1 still ignored (${await focusIn(w1)})`);
+await tap(w1, 0, 12); // the Xbox, now index 0
+check(await focusIn(w1) !== before, `after the swap the Xbox pad still drives window 1 (${await focusIn(w1)})`);
+check(JSON.parse(await source(w1) ?? 'null')?.index === 0, `stored index follows it (${await source(w1)})`);
 
 await browser.close();
 console.log(failures ? `${failures} FAILURE(S)` : 'ALL PASS');

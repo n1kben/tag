@@ -1,7 +1,9 @@
 // Gamepad in the menus: the stick / d-pad moves a focus ring between the buttons, A presses, B leaves
 // (or goes back), Start readies up, the bumpers flip your character. Also: holding Select shows the
 // scoreboard, and the `pad` class on <html> swaps the key hints for pad buttons (`nin` for
-// Nintendo-style labels, where A and B, X and Y trade places). In-match movement is input.ts.
+// Nintendo-style labels, where A and B, X and Y trade places). In-match movement is input.ts. Only the
+// pads this window listens to count (myPads, the CONTROLS screen's input choice).
+import { connectedPads, inputSource, myPads } from './input';
 import { gamepadUsed } from './touch';
 
 const A = 0, B = 1, LB = 4, RB = 5, SELECT = 8, START = 9, UP = 12, DOWN = 13, LEFT = 14, RIGHT = 15;
@@ -13,10 +15,12 @@ let repeatAt = 0;
 let lastKey = ''; // data-a / data-m of the focused button, to find it again after a re-render
 let selectHeld = false;
 let capture: ((button: number) => void) | null = null;
+let pick: ((pad: Gamepad) => void) | null = null;
+let prevAll = new Map<number, boolean[]>(); // per pad index, for picking among every pad
 
 const html = document.documentElement;
 const setPad = (on: boolean) => html.classList.toggle('pad', on);
-window.addEventListener('keydown', () => setPad(false), { capture: true });
+window.addEventListener('keydown', () => { if (typeof inputSource() !== 'object') setPad(false); }, { capture: true });
 window.addEventListener('pointerdown', () => setPad(false), { capture: true });
 
 /** Select (−) held: show the scoreboard. */
@@ -29,9 +33,20 @@ export function capturePad(cb: ((button: number) => void) | null): void {
   capture = cb;
 }
 
+/** The CONTROLS screen: the next fresh button press on any pad, even ones this window ignores, picks it. */
+export function pickPad(cb: ((pad: Gamepad) => void) | null): void {
+  pick = cb;
+}
+
 /** Call once a frame. */
 export function pollPad(): void {
-  const pads = (navigator.getGamepads?.() ?? []).filter((p): p is Gamepad => !!p);
+  const all = connectedPads();
+  const pressedOnAll = new Map(all.map(p => [p.index, p.buttons.map(b => b.pressed)]));
+  const fresh = all.find(p => pressedOnAll.get(p.index)!.some((on, i) => on && !prevAll.get(p.index)?.[i]));
+  prevAll = pressedOnAll;
+  if (pick && fresh) { const cb = pick; pick = null; prev = fresh.buttons.map(b => b.pressed); cb(fresh); return; }
+
+  const pads = myPads();
   const now: boolean[] = [];
   let ax = 0, ay = 0;
   for (const p of pads) {

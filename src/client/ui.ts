@@ -4,8 +4,8 @@ import { Character } from './characters';
 import { CHARACTERS, NADE_KINDS, type NadeKind } from '../shared/constants';
 import type { GameMode, LobbyPlayer, Phase, Standing } from '../shared/protocol';
 import type { Role } from '../shared/sim';
-import { PAD_ACTIONS, PAD_BUTTONS, padBinds, resetPadBinds, setPadBind, type PadAction } from './input';
-import { capturePad } from './pad';
+import { PAD_ACTIONS, PAD_BUTTONS, connectedPads, inputSource, padBinds, resetPadBinds, setInputSource, setPadBind, type InputSource, type PadAction } from './input';
+import { capturePad, pickPad } from './pad';
 
 const CSS = `
 :root {
@@ -326,33 +326,57 @@ export class UI {
     if (this.titleStatus) this.titleStatus.textContent = text;
   }
 
-  // ── Controls: pick an action, press the pad button for it ───────────────
+  // ── Controls: which input this window follows; pick an action, press the pad button for it ──
   private showControls(back: () => void): void {
     this.hideAll();
-    const listen = (action: PadAction | null) => {
-      render(action);
-      capturePad(action && (i => {
-        if (i in PAD_BUTTONS) { setPadBind(action, i); listen(null); }
-        else listen(action); // d-pad, Select: fixed, keep waiting
-      }));
+    let listening: PadAction | 'pick' | null = null;
+    const listen = (what: PadAction | 'pick' | null) => {
+      listening = what;
+      render();
+      capturePad(what && what !== 'pick' ? (i => {
+        if (i in PAD_BUTTONS) { setPadBind(what, i); listen(null); }
+        else listen(what); // d-pad, Select: fixed, keep waiting
+      }) : null);
+      pickPad(what === 'pick' ? (pad => { setInputSource({ index: pad.index, id: pad.id }); listen(null); }) : null);
     };
-    const render = (listening: PadAction | null) => {
+    const choose = (src: InputSource) => { setInputSource(src); listen(null); };
+    const render = () => {
       const had = document.activeElement instanceof HTMLElement && this.controls.contains(document.activeElement) ? document.activeElement.dataset.a : 'bind-jump';
+      const src = inputSource(), pads = connectedPads();
+      const mine = typeof src === 'object' ? pads.find(p => p.id === src.id && p.index === src.index) ?? pads.find(p => p.id === src.id) : undefined;
+      const srcInfo = src === 'any' ? 'Keyboard and every controller.' : src === 'keys' ? 'Keyboard only, controllers are ignored.'
+        : mine ? `Only ${esc(padName(mine.id))}.` : `Only ${esc(padName(src.id))}, not connected.`;
       this.controls.innerHTML = `
         <div class="panel col">
           <div class="display" style="font-size:48px;color:var(--yellow)">CONTROLS</div>
-          <div class="binds">${PAD_ACTIONS.map(a => `
+          <div class="binds">
+            <div>This window</div>
+            <div class="seg">
+              <button data-a="src-any" class="${src === 'any' ? 'on' : ''}">ANY</button>
+              <button data-a="src-keys" class="${src === 'keys' ? 'on' : ''}">KEYBOARD</button>
+              ${pads.map(p => `<button data-a="src-pad${p.index}" class="${p === mine ? 'on' : ''}" title="${esc(p.id)}">PAD ${p.index + 1}</button>`).join('')}
+            </div>
+            <div></div>
+            <button class="btn ${listening === 'pick' ? 'listen' : ''}" data-a="pick">${listening === 'pick' ? 'PRESS A BUTTON ON IT…' : 'PICK A CONTROLLER'}</button>
+            <div style="grid-column:1/-1;text-align:center;font-size:16px;font-weight:600;color:#8a7bb5;margin-bottom:8px">${srcInfo} One window per player to play side by side.</div>${PAD_ACTIONS.map(a => `
             <div>${ACTION_LABEL[a]}</div>
             <button class="btn ${a === listening ? 'listen' : ''}" data-a="bind-${a}">${a === listening ? 'PRESS A BUTTON…' : padActionAll(a)}</button>`).join('')}
           </div>
           <div style="font-weight:600;color:#8a7bb5">Pick an action, then press the controller button for it. Stick, d-pad and Select stay as they are.</div>
           <div class="row"><button class="btn small" data-a="reset">RESET</button><button class="btn pink" data-a="back">BACK</button></div>
         </div>`;
-      for (const a of PAD_ACTIONS) this.controls.querySelector(`[data-a=bind-${a}]`)!.addEventListener('click', () => listen(a === listening ? null : a));
-      this.controls.querySelector('[data-a=reset]')!.addEventListener('click', () => { resetPadBinds(); listen(null); });
-      this.controls.querySelector('[data-a=back]')!.addEventListener('click', () => { capturePad(null); back(); });
+      const on = (a: string, fn: () => void) => this.controls.querySelector(`[data-a=${a}]`)!.addEventListener('click', fn);
+      on('src-any', () => choose('any'));
+      on('src-keys', () => choose('keys'));
+      for (const p of pads) on(`src-pad${p.index}`, () => choose({ index: p.index, id: p.id }));
+      on('pick', () => listen(listening === 'pick' ? null : 'pick'));
+      for (const a of PAD_ACTIONS) on(`bind-${a}`, () => listen(a === listening ? null : a));
+      on('reset', () => { resetPadBinds(); listen(null); });
+      on('back', () => { capturePad(null); pickPad(null); removeEventListener('gamepadconnected', render); removeEventListener('gamepaddisconnected', render); back(); });
       this.controls.querySelector<HTMLElement>(`[data-a=${had}]`)?.focus({ preventScroll: true }); // the pad's ring stays put
     };
+    addEventListener('gamepadconnected', render);
+    addEventListener('gamepaddisconnected', render);
     listen(null);
     this.controls.classList.add('on');
   }
@@ -569,6 +593,11 @@ function padAction(action: PadAction): string {
 }
 
 /** Every button bound to an action, for the CONTROLS screen. */
+/** "8BitDo Pro 2 (STANDARD GAMEPAD Vendor: 2dc8)" → "8BitDo Pro 2". */
+function padName(id: string): string {
+  return id.replace(/\s*\(.*$/, '').trim() || id;
+}
+
 function padActionAll(action: PadAction): string {
   return padBinds(action).map(i => padKey(...PAD_BUTTONS[i])).join(' ') || '<kbd>—</kbd>';
 }

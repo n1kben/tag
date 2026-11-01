@@ -42,6 +42,47 @@ export function resetPadBinds(): void {
   localStorage.removeItem(BINDS_KEY);
 }
 
+// Which input this window follows, so several windows on one machine can each have a player: any
+// (keyboard and every pad), the keyboard only, or one pad. Per window, so sessionStorage. A pad is kept
+// by index and id: indexes can shift on reconnect, so a pad with the same id elsewhere takes over.
+export type InputSource = 'any' | 'keys' | { index: number; id: string };
+const SOURCE_KEY = 'inputSource';
+let source = loadSource();
+
+function loadSource(): InputSource {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(SOURCE_KEY) ?? 'null');
+    if (saved === 'keys' || (typeof saved?.index === 'number' && typeof saved?.id === 'string')) return saved;
+  } catch { /* any */ }
+  return 'any';
+}
+
+export function inputSource(): InputSource {
+  return source;
+}
+
+export function setInputSource(s: InputSource): void {
+  source = s;
+  if (s === 'any') sessionStorage.removeItem(SOURCE_KEY);
+  else sessionStorage.setItem(SOURCE_KEY, JSON.stringify(s));
+}
+
+export function connectedPads(): Gamepad[] {
+  return (navigator.getGamepads?.() ?? []).filter((p): p is Gamepad => !!p);
+}
+
+/** The pads this window listens to. */
+export function myPads(): Gamepad[] {
+  const all = connectedPads();
+  if (source === 'any') return all;
+  if (source === 'keys') return [];
+  const { index, id } = source;
+  const pad = all.find(p => p.index === index && p.id === id) ?? all.find(p => p.id === id);
+  if (!pad) return [];
+  if (pad.index !== index) setInputSource({ index: pad.index, id });
+  return [pad];
+}
+
 const keys = new Set<string>();
 let enabled = true;
 
@@ -65,16 +106,17 @@ export function isHeld(code: string): boolean {
 export function readInput(): Input {
   if (!enabled) return { mx: 0, mz: 0, b: 0 };
   let mx = 0, mz = 0, b = 0;
-  if (keys.has('KeyA') || keys.has('ArrowLeft')) mx -= 1;
-  if (keys.has('KeyD') || keys.has('ArrowRight')) mx += 1;
-  if (keys.has('KeyW') || keys.has('ArrowUp')) mz -= 1;
-  if (keys.has('KeyS') || keys.has('ArrowDown')) mz += 1;
-  if (keys.has('Space')) b |= BTN_JUMP;
-  if (keys.has('KeyJ') || keys.has('Enter') || keys.has('NumpadEnter')) b |= BTN_ACTION | BTN_FLASH;
-  if (keys.has('KeyK')) b |= BTN_ACTION | BTN_FROST;
+  if (typeof source !== 'object') {
+    if (keys.has('KeyA') || keys.has('ArrowLeft')) mx -= 1;
+    if (keys.has('KeyD') || keys.has('ArrowRight')) mx += 1;
+    if (keys.has('KeyW') || keys.has('ArrowUp')) mz -= 1;
+    if (keys.has('KeyS') || keys.has('ArrowDown')) mz += 1;
+    if (keys.has('Space')) b |= BTN_JUMP;
+    if (keys.has('KeyJ') || keys.has('Enter') || keys.has('NumpadEnter')) b |= BTN_ACTION | BTN_FLASH;
+    if (keys.has('KeyK')) b |= BTN_ACTION | BTN_FROST;
+  }
 
-  for (const pad of navigator.getGamepads?.() ?? []) {
-    if (!pad) continue;
+  for (const pad of myPads()) {
     const ax = pad.axes[0] ?? 0, az = pad.axes[1] ?? 0;
     if (Math.hypot(ax, az) > 0.2) { mx = ax; mz = az; gamepadUsed(); }
     const btn = (i: number) => pad.buttons[i]?.pressed;
