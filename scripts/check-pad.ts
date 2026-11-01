@@ -222,6 +222,17 @@ await w.press('.lobby.on .name-in[data-n="1"]', 'Enter');
 for (let i = 0; i < 20 && !(await w.evaluate(`[...document.querySelectorAll('.lobby.on .card')].some(c => c.querySelector('.name-in')?.value === 'Player Two')`)); i++) await w.waitForTimeout(150);
 check(await w.evaluate(`document.querySelector('.lobby.on .name-in[data-n="1"]').value === 'Player Two'`) as boolean, 'P2 renames from their own name box');
 check((await localCards()).length === 3, 'Enter in a name box doesn\'t join the keyboard');
+// P2's ⚙: their pad drives CONTROLS, and B there is BACK, not dropping out of the lobby
+await w.click('.lobby.on [data-a=ctl-1]');
+await w.waitForSelector('.screen.on [data-a=bind-jump]');
+check(await w.evaluate(`document.querySelector('.screen.on [data-a=dev-1]').classList.contains('on')`) as boolean, 'P2\'s ⚙ opens on P2\'s pad');
+await tap(1, 1); // wakes the focus ring
+await tap(1, 5); // RB would change P2's character in the lobby
+check((await seatsNow()).length === 3 && await w.evaluate(`!!document.querySelector('.screen.sky.on [data-a=bind-jump]')`) as boolean, 'P2\'s B and RB stay on CONTROLS');
+await w.evaluate(`document.querySelector('.screen.on [data-a=back]').focus()`);
+await tap(1, 1); // B: back
+for (let i = 0; i < 20 && !(await w.evaluate(`!!document.querySelector('.lobby.on')`)); i++) await w.waitForTimeout(150);
+check(await w.evaluate(`!!document.querySelector('.lobby.on')`) && (await localCards()).length === 3, `B on P2's pad goes back to the lobby, P2 still in (${(await localCards()).length})`);
 if (out) await w.screenshot({ path: `${out}/split-lobby.png` });
 
 const wShown = (sel: string) => w.evaluate(`(() => { const e = document.querySelector('${sel}'); return !!e && getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0; })()`) as Promise<boolean>;

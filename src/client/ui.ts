@@ -245,6 +245,7 @@ export interface LobbyHandlers {
   addSeat(): void;
   changeDevice(seat: number): void; // the next key or pad press becomes this player's device
   identify(seat: number): void; // pointing at their card: buzz their pad
+  controlsFor(seat: number | null): void; // their CONTROLS screen opened (their pad drives it) or closed
   dropSeat(seat: number): void;
   ready(): void;
   addBot(): void;
@@ -482,6 +483,11 @@ export class UI {
     this.menu.classList.add('on');
   }
 
+  /** The lobby itself is up (not CONTROLS over it): its per-player pad buttons and joining apply. */
+  lobbyShowing(): boolean {
+    return this.lobby.classList.contains('on');
+  }
+
   hideMenu(): void {
     this.menu.classList.remove('on');
   }
@@ -533,7 +539,7 @@ export class UI {
         <div class="couch">${local.length < MAX_SEATS ? `Same screen: press <b>A</b> on another controller, or <b>Enter</b> on the keyboard, to join (up to ${MAX_SEATS}, split screen). B / Esc drops out.` : `${MAX_SEATS} players on this screen.`}${local.length > 1 ? ' Their pad: bumpers change character.' : ''} Your device: click it, then press the one you want.</div>
         <div class="row">
           ${inMatch ? '<div class="status" style="color:#8a7bb5;text-shadow:none">Match in progress — you\'ll join next round</div>'
-            : `<button class="btn ${me?.ready ? '' : 'pink'}" data-a="ready">${me?.ready ? 'CANCEL' : players.length < 2 ? 'ADD A BOT TO START' : "I'M READY!"}</button>`}
+            : `<button class="btn ${me?.ready ? '' : 'pink'}" data-a="ready">${me?.ready ? 'CANCEL' : players.length < 2 ? 'ADD A BOT OR A PLAYER' : "I'M READY!"}</button>`}
         </div>
       </div>`;
     // Mid-edit, rebuild everything around the name input but keep that element attached, so the caret,
@@ -547,11 +553,12 @@ export class UI {
     q('add')?.addEventListener('click', () => h.addBot());
     q('rm')?.addEventListener('click', () => h.removeBot());
     q('leave')?.addEventListener('click', () => h.leave());
-    const controls = (n: number) => this.showControls(local[n]?.device ?? 'any', () => {
+    const controls = (n: number) => { h.controlsFor(n); this.showControls(local[n]?.device ?? 'any', () => {
+      h.controlsFor(null);
       this.hideAll();
       this.lobby.classList.add('on');
       if (this.lobbyArgs) this.updateLobby(...this.lobbyArgs);
-    });
+    }); };
     for (let n = 0; n < local.length; n++) {
       q(`ctl-${n}`)?.addEventListener('click', () => controls(n));
       q(`seatdev-${n}`)?.addEventListener('click', () => h.changeDevice(n));

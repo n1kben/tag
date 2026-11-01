@@ -130,7 +130,7 @@ export function startGame(): void {
 
   /** The device P1 keeps if `src` joins now, or false when it can't (taken, full, or P1's own). */
   function canJoin(src: InputSource): InputSource | false {
-    if (mode !== 'lobby' || !roomId || seats.length >= MAX_SEATS || waiting) return false;
+    if (mode !== 'lobby' || !ui.lobbyShowing() || !roomId || seats.length >= MAX_SEATS || waiting) return false;
     if (seats.length === 1) return p1Device && !sameSource(p1Device, src) ? p1Device : false;
     return sourceTaken(src) ? false : p1.src;
   }
@@ -273,12 +273,14 @@ export function startGame(): void {
 
   function showLobby(): void {
     mode = 'lobby';
+    setMenuOwner(null);
     ui.showLobby({
       rename: (name, n) => seats[n]?.net.send({ type: 'profile', name }),
       character: (delta, n) => { if (seats[n]) changeCharacter(seats[n], delta); },
       addSeat: () => startWait(null),
       changeDevice: n => { if (seats[n]) startWait(seats[n]); },
       identify: n => { if (seats[n]) identify(seats[n]); },
+      controlsFor: n => setMenuOwner(n === null ? null : seats[n]?.src ?? null),
       dropSeat: n => { if (seats[n]) dropSeat(seats[n]); },
       ready: readyAll,
       addBot: () => net.send({ type: 'add_bot' }),
@@ -444,6 +446,7 @@ export function startGame(): void {
     cleanupMatch();
     mode = 'match';
     cancelWait();
+    setMenuOwner(null);
     cn.stats.reset(); // the netgraph counts per match
     ui.showHud();
     for (const p of roster) ensureChar(p.id, p.character);
@@ -737,10 +740,12 @@ export function startGame(): void {
     const now = performance.now();
     let dt = Math.min(0.1, (now - last) / 1000);
     last = now;
-    const menuWasOpen = menuSeat !== null; // so the Start that closes it doesn't reopen it
+    // Judged before pollPad: a press that closes a menu (or leaves CONTROLS for the lobby) mustn't also act on what's under it
+    const menuWasOpen = menuSeat !== null;
+    const lobbyWasUp = mode === 'lobby' && ui.lobbyShowing();
     pollPad();
     p1Device = lastDevice(); // after this frame's presses were judged against the old one
-    if (mode === 'lobby') seatPadButtons();
+    if (lobbyWasUp && mode === 'lobby' && ui.lobbyShowing()) seatPadButtons();
     if (mode === 'match' && !menuWasOpen) menuPadButtons();
     fpsFrames++; fpsT += dt;
     adaptResolution(world, dt);
