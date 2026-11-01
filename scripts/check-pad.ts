@@ -1,7 +1,8 @@
 // Gamepad menus with a fake 8BitDo: a press shows the focus ring and pad hints (Nintendo labels),
 // the d-pad moves between buttons, A presses, B leaves the lobby, Start readies up, Select holds
 // the scoreboard, and a key press brings the keyboard hints back. Then two pads: each window follows the
-// input picked on CONTROLS (one pad, or the keyboard only), kept per window and across a reconnect.
+// input picked on CONTROLS (one pad, or the keyboard only), kept per window and across a reconnect, and
+// pickable from the lobby too, for a window that joined by link.
 // Usage: npx tsx scripts/check-pad.ts <baseUrl> [outDir]
 import { chromium, type Page } from 'playwright-core';
 
@@ -166,6 +167,35 @@ check(await focusIn(w1) === before, `after the swap pad 1 still ignored (${await
 await tap(w1, 0, 12); // the Xbox, now index 0
 check(await focusIn(w1) !== before, `after the swap the Xbox pad still drives window 1 (${await focusIn(w1)})`);
 check(JSON.parse(await source(w1) ?? 'null')?.index === 0, `stored index follows it (${await source(w1)})`);
+
+// From the lobby: window 1 makes a room, window 2 joins by link (never sees the title). Each card shows
+// its window's input, CONTROLS opens from the lobby, and BACK redraws a lobby that changed meanwhile.
+const cards = (pg: Page) => pg.evaluate(`document.querySelectorAll('.lobby.on .card').length`) as Promise<number>;
+const srcLabel = (pg: Page) => pg.evaluate(`document.querySelector('.lobby.on .card.me [data-a=input]')?.textContent ?? ''`) as Promise<string>;
+await w1.bringToFront();
+await w1.click('[data-a=create]');
+await w1.waitForSelector('.lobby.on .room-code');
+check((await srcLabel(w1)).includes('PAD 1 · Xbox Wireless Controller'), `window 1's card shows its pad (${await srcLabel(w1)})`);
+const room = (await w1.textContent('.lobby.on .room-code'))!.trim();
+await w1.click('.lobby.on [data-a=controls]');
+check(await w1.evaluate(`!!document.querySelector('.screen.on [data-a=src-any]')`) as boolean, 'CONTROLS opens from the lobby');
+await w2.goto('about:blank'); // a bare hash change wouldn't reload
+await w2.goto(`${base}/?lite#${room}`);
+await w2.waitForSelector('.lobby.on .card.me');
+check((await srcLabel(w2)).includes('KEYBOARD'), `window 2 kept KEYBOARD across the reload (${await srcLabel(w2)})`);
+await w2.click('.lobby.on .card.me [data-a=input]');
+await w2.click('[data-a=pick]');
+await tap(w2, 0, 0); // the 8BitDo (the reload put the fake pads back in order)
+await w2.click('[data-a=back]');
+await w2.waitForSelector('.lobby.on');
+check((await srcLabel(w2)).includes('PAD 1 · 8BitDo'), `window 2 picked its pad from the lobby (${await srcLabel(w2)})`);
+await w1.bringToFront();
+await w1.click('[data-a=src-keys]');
+await w1.click('[data-a=back]');
+await w1.waitForSelector('.lobby.on');
+check(await cards(w1) === 2, `window 1's lobby caught up with the join (${await cards(w1)} cards)`);
+check((await srcLabel(w1)).includes('KEYBOARD'), `window 1's card shows KEYBOARD (${await srcLabel(w1)})`);
+if (out) await w1.screenshot({ path: `${out}/pad-lobby.png` });
 
 await browser.close();
 console.log(failures ? `${failures} FAILURE(S)` : 'ALL PASS');

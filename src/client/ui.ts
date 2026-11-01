@@ -4,7 +4,7 @@ import { Character } from './characters';
 import { CHARACTERS, NADE_KINDS, type NadeKind } from '../shared/constants';
 import type { GameMode, LobbyPlayer, Phase, Standing } from '../shared/protocol';
 import type { Role } from '../shared/sim';
-import { PAD_ACTIONS, PAD_BUTTONS, connectedPads, inputSource, padBinds, resetPadBinds, setInputSource, setPadBind, type InputSource, type PadAction } from './input';
+import { PAD_ACTIONS, PAD_BUTTONS, connectedPads, inputSource, myPads, padBinds, resetPadBinds, setInputSource, setPadBind, type InputSource, type PadAction } from './input';
 import { capturePad, pickPad } from './pad';
 
 const CSS = `
@@ -68,6 +68,8 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .card .tag.rdy { background: var(--teal); }
 .card .arrows { display: flex; justify-content: space-between; position: absolute; top: 50px; left: 4px; right: 4px; }
 .card .arrows button { width: 30px; height: 30px; border-radius: 50%; border: none; background: #fff; font-weight: 800; color: var(--ink); cursor: pointer; box-shadow: 0 3px 0 #c3b8e6; }
+.card .src { margin-top: 6px; max-width: 100%; font-family: 'Fredoka'; font-weight: 600; font-size: 13px; color: #8a7bb5; background: #fff; border: none; border-radius: 999px;
+  padding: 3px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 0 #d9d0f5; }
 .name-in { font-family: 'Fredoka'; font-weight: 600; font-size: 16px; border: 3px solid #d9d0f5; border-radius: 12px; padding: 4px 8px; width: 100%; text-align: center; outline: none; color: var(--ink); }
 .name-in:focus { border-color: var(--yellow); }
 .results { background: #fff8dc; border-radius: 16px; padding: 10px 16px; margin-top: 8px; font-weight: 600; }
@@ -251,6 +253,8 @@ export class UI {
   private frostout = el('div', 'frostout');
   private board = el('div', 'board panel');
   private lobbyHandlers: LobbyHandlers | null = null;
+  private lobbyArgs: Parameters<UI['updateLobby']> | null = null; // to redraw the lobby on the way back from CONTROLS
+  private controlsOff: (() => void) | null = null;
   private labelEls = new Map<number, HTMLDivElement>();
   private names = new Map<number, { name: string; character: number }>();
   private lastHud = '';
@@ -372,11 +376,12 @@ export class UI {
       on('pick', () => listen(listening === 'pick' ? null : 'pick'));
       for (const a of PAD_ACTIONS) on(`bind-${a}`, () => listen(a === listening ? null : a));
       on('reset', () => { resetPadBinds(); listen(null); });
-      on('back', () => { capturePad(null); pickPad(null); removeEventListener('gamepadconnected', render); removeEventListener('gamepaddisconnected', render); back(); });
+      on('back', back);
       this.controls.querySelector<HTMLElement>(`[data-a=${had}]`)?.focus({ preventScroll: true }); // the pad's ring stays put
     };
     addEventListener('gamepadconnected', render);
     addEventListener('gamepaddisconnected', render);
+    this.controlsOff = () => { capturePad(null); pickPad(null); removeEventListener('gamepadconnected', render); removeEventListener('gamepaddisconnected', render); };
     listen(null);
     this.controls.classList.add('on');
   }
@@ -389,6 +394,7 @@ export class UI {
   }
 
   updateLobby(roomId: string, players: LobbyPlayer[], myId: number, inMatch: boolean, mode: GameMode, last?: Standing[]): void {
+    this.lobbyArgs = [roomId, players, myId, inMatch, mode, last];
     this.setNames(players);
     if (!this.lobby.classList.contains('on') || !this.lobbyHandlers) return;
     const h = this.lobbyHandlers;
@@ -399,7 +405,7 @@ export class UI {
       <div class="panel">
         <div class="row" style="justify-content:space-between">
           <div><div style="font-weight:700;color:#8a7bb5">ROOM CODE · click to copy link</div><div class="room-code" title="Copy invite link">${esc(roomId)}</div></div>
-          <div class="row"><button class="btn small" data-a="add">+ BOT</button><button class="btn small" data-a="rm">− BOT</button><button class="btn small" data-a="leave">LEAVE</button></div>
+          <div class="row"><button class="btn small" data-a="add">+ BOT</button><button class="btn small" data-a="rm">− BOT</button><button class="btn small" data-a="controls">CONTROLS</button><button class="btn small" data-a="leave">LEAVE</button></div>
         </div>
         <div class="row" style="justify-content:flex-start;margin-top:10px">
           <div class="seg" data-a="modes">${modeButtons(mode)}</div>
@@ -411,7 +417,8 @@ export class UI {
             ${p.bot ? '<div class="tag">BOT</div>' : p.ready ? '<div class="tag rdy">READY</div>' : ''}
             <img src="${portrait(p.character)}" alt="${CHARACTERS[p.character]}" />
             ${p.id === myId ? `<div class="arrows"><button data-a="prev">‹</button><button data-a="next">›</button></div>
-              <input class="name-in" maxlength="16" value="${esc(p.name)}" />` : `<div class="nm">${esc(p.name)}</div>`}
+              <input class="name-in" maxlength="16" value="${esc(p.name)}" />
+              <button class="src" data-a="input" title="Which input this window follows">${inputLabel()}</button>` : `<div class="nm">${esc(p.name)}</div>`}
           </div>`).join('')}</div>
         <div class="row">
           ${inMatch ? '<div class="status" style="color:#8a7bb5;text-shadow:none">Match in progress — you\'ll join next round</div>'
@@ -429,6 +436,13 @@ export class UI {
     q('add')?.addEventListener('click', () => h.addBot());
     q('rm')?.addEventListener('click', () => h.removeBot());
     q('leave')?.addEventListener('click', () => h.leave());
+    const controls = () => this.showControls(() => {
+      this.hideAll();
+      this.lobby.classList.add('on');
+      if (this.lobbyArgs) this.updateLobby(...this.lobbyArgs);
+    });
+    q('controls')?.addEventListener('click', controls);
+    q('input')?.addEventListener('click', controls);
     q('ready')?.addEventListener('click', () => h.ready());
     q('prev')?.addEventListener('click', () => h.character(-1));
     q('next')?.addEventListener('click', () => h.character(1));
@@ -564,6 +578,8 @@ export class UI {
   hideAll(): void {
     for (const s of [this.title, this.lobby, this.end, this.controls]) s.classList.remove('on');
     capturePad(null);
+    this.controlsOff?.(); // leaving CONTROLS by any route (BACK, or a match starting under it)
+    this.controlsOff = null;
     this.hud.classList.remove('on');
     this.board.style.display = 'none';
     this.hideLabelsExcept(new Set());
@@ -593,6 +609,15 @@ function padAction(action: PadAction): string {
 }
 
 /** Every button bound to an action, for the CONTROLS screen. */
+/** What this window listens to, for its lobby card. */
+function inputLabel(): string {
+  const src = inputSource();
+  if (src === 'any') return 'ANY INPUT';
+  if (src === 'keys') return '⌨ KEYBOARD';
+  const pad = myPads()[0];
+  return pad ? `🎮 PAD ${pad.index + 1} · ${esc(padName(pad.id))}` : `🎮 ${esc(padName(src.id))} · not connected`;
+}
+
 /** "8BitDo Pro 2 (STANDARD GAMEPAD Vendor: 2dc8)" → "8BitDo Pro 2". */
 function padName(id: string): string {
   return id.replace(/\s*\(.*$/, '').trim() || id;
