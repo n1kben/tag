@@ -1,6 +1,7 @@
 // Gamepad menus with a fake 8BitDo: a press shows the focus ring and pad hints (Nintendo labels),
-// the d-pad moves between buttons, A presses, B leaves the lobby, Start readies up, Select holds
-// the scoreboard, and a key press brings the keyboard hints back. Then split screen: two pads and the
+// the d-pad moves between buttons, A presses, B leaves the lobby, Start readies up, CONTROLS (in the
+// lobby) rebinds this pad model and the keyboard, Select holds the scoreboard, a key press brings the
+// keyboard hints back, and Start / Esc open the in-match menu. Then split screen: two pads and the
 // keyboard join one lobby as three players, and each moves only its own player.
 // Usage: npx tsx scripts/check-pad.ts <baseUrl> [outDir]
 import { chromium, type Page } from 'playwright-core';
@@ -51,26 +52,8 @@ await press(p, 13); await press(p, 13);
 check(await focused() === 'create', `down twice → CREATE ROOM (${await focused()})`);
 if (out) await p.screenshot({ path: `${out}/pad-title.png` });
 
-// CONTROLS: rebind jump to RB, which leaves frost; RESET brings the defaults back
-await p.evaluate(`document.querySelector('[data-a=controls]').focus()`);
-await press(p, 0);
-check(await shown('.screen.on [data-a=bind-jump]'), 'A on CONTROLS opens the controls screen');
-await p.evaluate(`document.querySelector('[data-a=bind-jump]').focus()`);
-await press(p, 0); // pick Jump
-check(await p.evaluate(`document.querySelector('[data-a=bind-jump]').textContent.includes('PRESS')`) as boolean, 'picking Jump waits for a button');
-await press(p, 5); // RB
-const bindText = (a: string) => p.evaluate(`document.querySelector('[data-a=bind-${a}]').textContent`) as Promise<string>;
-check((await bindText('jump')).includes('RB'), `Jump is now RB (${await bindText('jump')})`);
-check(!(await bindText('frost')).includes('RB'), `RB left frost (${await bindText('frost')})`);
-check(await p.evaluate(`JSON.parse(localStorage.getItem('padBinds')).jump[0] === 5`) as boolean, 'binding saved');
-check(await focused() === 'bind-jump', `focus stays on the Jump row (${await focused()})`);
-if (out) await p.screenshot({ path: `${out}/pad-controls.png` });
-await p.evaluate(`document.querySelector('[data-a=reset]').click()`);
-check((await bindText('jump')).includes('A') && (await bindText('frost')).includes('RB'), 'RESET restores the defaults');
-await press(p, 1); // B: back
-check(await shown('.screen.sky.on [data-a=practice]'), 'B goes back to the title');
+check(!(await shown('.screen.sky.on [data-a=controls]')), 'the title has no CONTROLS');
 await p.evaluate(`document.querySelector('[data-a=create]').focus()`);
-
 await press(p, 0); // A: create a room
 for (let i = 0; i < 20 && !(await shown('.lobby.on')); i++) await p.waitForTimeout(250);
 await p.waitForTimeout(300);
@@ -80,17 +63,48 @@ const img0 = await p.evaluate(`document.querySelector('.card.me img').src`);
 await press(p, 5); // RB: next character
 await p.waitForTimeout(400);
 check(await p.evaluate(`document.querySelector('.card.me img').src`) !== img0, 'RB changes character');
+
+// CONTROLS from the lobby, on this pad: rebind jump to RB, which leaves frost; RESET brings the defaults back
+const PAD_ID = '8BitDo Pro 2 (STANDARD GAMEPAD Vendor: 2dc8)';
+await p.evaluate(`document.querySelector('[data-a=controls]').focus()`);
+await press(p, 0);
+check(await shown('.screen.on [data-a=bind-jump]'), 'A on CONTROLS opens the controls screen');
+check(await p.evaluate(`document.querySelector('[data-a=dev-0]').classList.contains('on')`) as boolean, 'it opens on the pad in use');
+await p.evaluate(`document.querySelector('[data-a=bind-jump]').focus()`);
+await press(p, 0); // pick Jump
+check(await p.evaluate(`document.querySelector('[data-a=bind-jump]').textContent.includes('PRESS')`) as boolean, 'picking Jump waits for a button');
+await press(p, 5); // RB
+const bindText = (a: string) => p.evaluate(`document.querySelector('[data-a=bind-${a}]').textContent`) as Promise<string>;
+check((await bindText('jump')).includes('RB'), `Jump is now RB (${await bindText('jump')})`);
+check(!(await bindText('frost')).includes('RB'), `RB left frost (${await bindText('frost')})`);
+check(await p.evaluate(`JSON.parse(localStorage.getItem('binds')).pads[${JSON.stringify(PAD_ID)}].jump[0] === 5`) as boolean, 'binding saved for this pad model');
+check(await focused() === 'bind-jump', `focus stays on the Jump row (${await focused()})`);
+if (out) await p.screenshot({ path: `${out}/pad-controls.png` });
+await p.evaluate(`document.querySelector('[data-a=reset]').click()`);
+check((await bindText('jump')).includes('A') && (await bindText('frost')).includes('RB'), 'RESET restores the defaults');
+// …and the keyboard: jump on L
+await p.click('[data-a=dev-keys]');
+await p.click('[data-a=bind-jump]');
+check((await bindText('jump')).includes('PRESS A KEY'), 'keyboard Jump waits for a key');
+await p.keyboard.press('KeyW'); // moving keys stay fixed: still waiting
+await p.keyboard.press('KeyL');
+check((await bindText('jump')).trim() === 'L', `keyboard Jump is now L (${await bindText('jump')})`);
+check(await p.evaluate(`JSON.parse(localStorage.getItem('binds')).keys.jump[0] === 'KeyL'`) as boolean, 'key binding saved');
+await press(p, 13); // the clicks put the menus on keyboard hints: wake the pad
+await press(p, 1); // B: back
+check(await shown('.lobby.on'), 'B goes back to the lobby');
 await press(p, 1); // B: leave
 for (let i = 0; i < 20 && !(await shown('.screen.sky.on')); i++) await p.waitForTimeout(250);
 check(await shown('.screen.sky.on'), 'B leaves to the title');
 
-// Practice: Start a match from the pad, hold Select for the board
+// PLAY VS BOTS: a lobby with bots in it; Start readies and the match starts. Hold Select for the board
 await p.waitForTimeout(300);
-await press(p, 0); // A on the remembered/default button
-await p.waitForTimeout(400);
-if (!(await shown('.hud.on'))) { // landed on a lobby: ready up with Start
-  await press(p, 9);
-}
+await p.evaluate(`document.querySelector('[data-a=practice]').focus()`);
+await press(p, 0);
+for (let i = 0; i < 20 && !(await shown('.lobby.on .card')); i++) await p.waitForTimeout(250);
+await p.waitForTimeout(300);
+check(await p.evaluate(`document.querySelectorAll('.lobby.on .card').length`) === 6, `PLAY VS BOTS opens a lobby with 5 bots (${await p.evaluate(`document.querySelectorAll('.lobby.on .card').length`)} cards)`);
+await press(p, 9);
 for (let i = 0; i < 20 && !(await shown('.hud.on')); i++) await p.waitForTimeout(250);
 check(await shown('.hud.on'), 'a match starts from the pad');
 await p.waitForTimeout(500);
@@ -106,6 +120,27 @@ check(!(await shown('.board')), 'letting go hides it');
 await p.keyboard.press('KeyW');
 await p.waitForTimeout(300);
 check(await shown('.hud .keys .kbh') && !(await shown('.hud .keys .padh')), 'a key press brings keyboard hints back');
+const kbHint = await p.evaluate(`document.querySelector('.hud .keys .kbh').textContent`) as string;
+check(/L jump/.test(kbHint), `keyboard hints follow the binding (${kbHint})`);
+
+// The menu: Start opens it, B resumes; Esc opens and closes it; LEAVE MATCH asks, then leaves
+await press(p, 9);
+check(await shown('.screen.menu.on'), 'Start opens the menu');
+if (out) await p.screenshot({ path: `${out}/pad-menu.png` });
+await press(p, 1);
+check(!(await shown('.screen.menu.on')) && await shown('.hud.on'), 'B resumes');
+await p.keyboard.press('Escape'); await frames(p);
+check(await shown('.screen.menu.on'), 'Esc opens the menu');
+await p.keyboard.press('Escape'); await frames(p);
+check(!(await shown('.screen.menu.on')), 'Esc closes it');
+await press(p, 9);
+await p.evaluate(`document.querySelector('.menu [data-a=quit]').focus()`);
+await press(p, 0);
+check((await p.textContent('.menu [data-a=quit]'))!.includes('SURE'), 'LEAVE MATCH asks first');
+check(await shown('.hud.on'), 'still in the match');
+await press(p, 0);
+for (let i = 0; i < 20 && !(await shown('.screen.sky.on [data-a=practice]')); i++) await p.waitForTimeout(250);
+check(await shown('.screen.sky.on [data-a=practice]'), 'the second press leaves to the title');
 
 // Split screen on one page: P1 on the 8BitDo, P2 joins with the Xbox pad, P3 with the keyboard. Each
 // seat moves only with its own device, and the match draws a slice of the screen per seat.

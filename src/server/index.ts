@@ -74,7 +74,7 @@ function dispatch(ws: WebSocket, msg: ClientMessage): void {
       break;
     case 'create_room':
       leaveRoom(ws);
-      createRoom(ws, !!msg.practice, msg.mode === 'dm' ? 'dm' : 'tag');
+      createRoom(ws, !!msg.practice, msg.mode === 'dm' ? 'dm' : 'tag', Number(msg.bots) || 0);
       break;
     case 'join_room':
       leaveRoom(ws);

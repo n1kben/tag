@@ -22,7 +22,7 @@ function generateRoomId(): string {
 const rooms = new Map<string, Room>();
 const roomOf = new Map<WebSocket, Room>();
 
-export function createRoom(ws: WebSocket, practice: boolean, mode: GameMode): Room {
+export function createRoom(ws: WebSocket, practice: boolean, mode: GameMode, bots = 0): Room {
   let id: string;
   do { id = generateRoomId(); } while (rooms.has(id));
   const room = new Room(id, practice);
@@ -30,6 +30,7 @@ export function createRoom(ws: WebSocket, practice: boolean, mode: GameMode): Ro
   rooms.set(id, room);
   room.join(ws);
   if (practice) room.startPractice();
+  else room.addBots(bots);
   return room;
 }
 
@@ -145,6 +146,12 @@ export class Room {
         break;
       }
     }
+  }
+
+  /** PLAY VS BOTS: a lobby that starts with bots in it. */
+  addBots(n: number): void {
+    for (let i = 0; i < Math.min(n, 9) && this.roster.length < MAX_PLAYERS; i++) this.roster.push(this.newPlayer(true));
+    if (n > 0) this.broadcastLobby();
   }
 
   startPractice(): void {

@@ -52,7 +52,7 @@ root.innerHTML = `
     <div class="tb a1" data-b="a1"></div>
     <div class="tb a2" data-b="a2"></div>
   </div>
-  <div class="menu"><div class="tb" data-b="board">🏆</div><div class="tb" data-b="mute">🔊</div></div>`;
+  <div class="menu"><div class="tb" data-b="pause">☰</div><div class="tb" data-b="board">🏆</div><div class="tb" data-b="mute">🔊</div></div>`;
 const zone = root.querySelector<HTMLElement>('.zone')!;
 const base = root.querySelector<HTMLElement>('.base')!;
 const knob = root.querySelector<HTMLElement>('.knob')!;
@@ -120,6 +120,7 @@ for (const el of root.querySelectorAll<HTMLElement>('.tb')) {
     held.set(e.pointerId, b);
     el.classList.add('down');
     if (b === 'mute') { setMuted(!isMuted()); mute.textContent = isMuted() ? '🔇' : '🔊'; }
+    if (b === 'pause') onMenu?.();
   });
   const up = (e: PointerEvent) => {
     if (!held.delete(e.pointerId)) return;
@@ -132,6 +133,12 @@ for (const el of root.querySelectorAll<HTMLElement>('.tb')) {
 root.addEventListener('contextmenu', e => e.preventDefault());
 
 const isHeld = (b: string) => [...held.values()].includes(b);
+let onMenu: (() => void) | null = null;
+
+/** ☰: the in-match menu (game.ts), which phones can't reach with Esc or Start. */
+export function onTouchMenu(cb: () => void): void {
+  onMenu = cb;
+}
 
 /** Buttons and stick as sim input, or null when no finger is on the controls. */
 export function readTouch(): { mx: number; mz: number; b: number } | null {

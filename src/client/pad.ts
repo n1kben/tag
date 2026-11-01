@@ -18,7 +18,8 @@ let prevDir = '';
 let repeatAt = 0;
 let lastKey = ''; // data-a / data-m of the focused button, to find it again after a re-render
 let selectHeld = false;
-let capture: ((button: number) => void) | null = null;
+let capture: { cb: (button: number) => void; index: number | null } | null = null;
+let hintPad = ''; // id of the pad the menus last saw, for its button labels
 let pick: ((pad: Gamepad) => void) | null = null;
 let prevAll = new Map<number, boolean[]>(); // per pad index, for picking among every pad
 let presses: { pad: Gamepad; button: number }[] = [];
@@ -33,9 +34,14 @@ export function padBoardHeld(): boolean {
   return selectHeld;
 }
 
-/** The CONTROLS screen: the next fresh button press goes to `cb` instead of the menus. null cancels. */
-export function capturePad(cb: ((button: number) => void) | null): void {
-  capture = cb;
+/** The CONTROLS screen: the next fresh button press on pad `index` (or the menu pads) goes to `cb` instead of the menus. null cancels. */
+export function capturePad(cb: ((button: number) => void) | null, index: number | null = null): void {
+  capture = cb && { cb, index };
+}
+
+/** The pad the menus last saw (for hints when one player has every pad). */
+export function hintPadId(): string {
+  return hintPad;
 }
 
 /** Fresh button presses on every pad this frame. */
@@ -66,6 +72,7 @@ export function pollPad(): void {
     if (p.buttons.some(b => b.pressed) || Math.hypot(p.axes[0] ?? 0, p.axes[1] ?? 0) > 0.5) {
       setPad(true);
       html.classList.toggle('nin', NINTENDO.test(p.id));
+      hintPad = p.id;
       gamepadUsed();
     }
   }
@@ -74,9 +81,10 @@ export function pollPad(): void {
   prev = now;
   selectHeld = !!now[SELECT];
   if (capture) {
-    // Buttons held when capture started (the A that picked the row) don't count until let go
-    const i = now.findIndex((on, i) => on && !was[i]);
-    if (i >= 0) { const cb = capture; capture = null; cb(i); }
+    // Only fresh presses: the A that picked the row doesn't count until it's let go and pressed again
+    const { cb, index } = capture;
+    const hit = presses.find(q => (index === null ? pads.some(p => p.index === q.pad.index) : q.pad.index === index));
+    if (hit) { capture = null; cb(hit.button); }
     return;
   }
 

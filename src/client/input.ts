@@ -1,45 +1,99 @@
 // Keyboard + gamepad + touch (touch.ts) → sim Input. Boomerang Fu is a stick game: you face where you move,
-// so there's no mouse aim. Space jumps; taggers slash with J, K or Enter; runners hold J (or
+// so there's no mouse aim. By default Space jumps; taggers slash with J, K or Enter; runners hold J (or
 // Enter) for a flash or K for a frost and let go to throw.
 import { BTN_ACTION, BTN_FLASH, BTN_FROST, BTN_JUMP, type Input } from '../shared/sim';
 import { gamepadUsed, readTouch } from './touch';
 
-// Pad buttons per action, remappable on the CONTROLS screen and kept in localStorage. Standard-mapping
-// button numbers; the stick, d-pad, Select (scoreboard) and the menu buttons in pad.ts stay fixed.
+// Bindings per device, remappable on the CONTROLS screen and kept in localStorage: one set for the
+// keyboard and one per pad model (by id, so two identical pads share theirs). Pads use standard-mapping
+// button numbers. Moving (WASD / arrows, stick, d-pad), the scores (Tab, Select), the menu (Esc, Start)
+// and the menu buttons in pad.ts stay fixed.
 export type PadAction = 'jump' | 'flash' | 'frost';
 export const PAD_ACTIONS: PadAction[] = ['jump', 'flash', 'frost'];
-const DEFAULT_BINDS: Record<PadAction, number[]> = { jump: [0], flash: [2, 7], frost: [3, 4, 5] }; // A · X, RT · Y, bumpers
+const DEFAULT_PAD: Record<PadAction, number[]> = { jump: [0], flash: [2, 7], frost: [3, 4, 5] }; // A · X, RT · Y, bumpers
+const DEFAULT_KEYS: Record<PadAction, string[]> = { jump: ['Space'], flash: ['KeyJ', 'Enter', 'NumpadEnter'], frost: ['KeyK'] };
 /** Buttons you can bind, with their Xbox and Nintendo labels. */
 export const PAD_BUTTONS: Record<number, [string, string]> = {
   0: ['A', 'B'], 1: ['B', 'A'], 2: ['X', 'Y'], 3: ['Y', 'X'], 4: ['LB', 'L'], 5: ['RB', 'R'],
-  6: ['LT', 'ZL'], 7: ['RT', 'ZR'], 9: ['Start', '+'], 10: ['LS', 'LS'], 11: ['RS', 'RS'],
+  6: ['LT', 'ZL'], 7: ['RT', 'ZR'], 10: ['LS', 'LS'], 11: ['RS', 'RS'],
 };
-const BINDS_KEY = 'padBinds';
-let binds = loadBinds();
+const FIXED_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Escape', 'KeyM', 'KeyP']);
+const BINDS_KEY = 'binds';
+type Saved = { keys?: Record<PadAction, string[]>; pads?: Record<string, Record<PadAction, number[]>> };
+let saved = loadBinds();
+let version = 0;
 
-function loadBinds(): Record<PadAction, number[]> {
+function loadBinds(): Saved {
   try {
-    const saved = JSON.parse(localStorage.getItem(BINDS_KEY) ?? 'null');
-    if (saved && PAD_ACTIONS.every(a => Array.isArray(saved[a]) && saved[a].every((i: unknown) => typeof i === 'number' && i in PAD_BUTTONS))) return saved;
+    const s = JSON.parse(localStorage.getItem(BINDS_KEY) ?? 'null');
+    if (s && typeof s === 'object') return s;
   } catch { /* fall back to the defaults */ }
-  return structuredClone(DEFAULT_BINDS);
+  return {};
 }
 
-export function padBinds(action: PadAction): readonly number[] {
-  return binds[action];
+function validPad(b: unknown): b is Record<PadAction, number[]> {
+  const r = b as Record<string, unknown> | null;
+  return !!r && PAD_ACTIONS.every(a => Array.isArray(r[a]) && (r[a] as unknown[]).every(i => typeof i === 'number' && i in PAD_BUTTONS));
 }
 
-/** Bind a button to an action, replacing what it had; the button leaves any other action. */
-export function setPadBind(action: PadAction, button: number): void {
-  if (!(button in PAD_BUTTONS)) return;
-  for (const a of PAD_ACTIONS) binds[a] = binds[a].filter(i => i !== button);
-  binds[action] = [button];
-  localStorage.setItem(BINDS_KEY, JSON.stringify(binds));
+function validKeys(b: unknown): b is Record<PadAction, string[]> {
+  const r = b as Record<string, unknown> | null;
+  return !!r && PAD_ACTIONS.every(a => Array.isArray(r[a]) && (r[a] as unknown[]).every(k => typeof k === 'string' && keyBindable(k)));
 }
 
-export function resetPadBinds(): void {
-  binds = structuredClone(DEFAULT_BINDS);
-  localStorage.removeItem(BINDS_KEY);
+/** A pad model's buttons for an action. */
+export function padBinds(action: PadAction, padId: string): readonly number[] {
+  const b = saved.pads?.[padId];
+  return (validPad(b) ? b : DEFAULT_PAD)[action];
+}
+
+/** The keyboard's keys for an action (KeyboardEvent.code). */
+export function keyBinds(action: PadAction): readonly string[] {
+  return (validKeys(saved.keys) ? saved.keys : DEFAULT_KEYS)[action];
+}
+
+/** Changes whenever a binding does (HUD hints cache on it). */
+export function bindsVersion(): number {
+  return version;
+}
+
+export function keyBindable(code: string): boolean {
+  return !FIXED_KEYS.has(code) && /^(Key|Digit|Numpad|Space|Enter|Shift|Control|Alt|Comma|Period|Slash|Semicolon|Quote|Bracket|Backslash|Minus|Equal|Backquote)/.test(code);
+}
+
+/** "KeyJ" → "J", "ShiftLeft" → "L Shift". */
+export function keyName(code: string): string {
+  const side = /Left$/.test(code) ? 'L ' : /Right$/.test(code) ? 'R ' : '';
+  return side + code.replace(/^Key|^Digit|Left$|Right$/g, '').replace(/^Numpad/, 'Num ');
+}
+
+/** Bind a key (device 'keys') or a pad button (device = pad id) to an action, replacing what it had; it leaves any other action. */
+export function setBind(device: string, action: PadAction, value: string | number): void {
+  if (device === 'keys') {
+    if (typeof value !== 'string' || !keyBindable(value)) return;
+    const b = { jump: [...keyBinds('jump')], flash: [...keyBinds('flash')], frost: [...keyBinds('frost')] };
+    for (const a of PAD_ACTIONS) b[a] = b[a].filter(k => k !== value);
+    b[action] = [value];
+    saved.keys = b;
+  } else {
+    if (typeof value !== 'number' || !(value in PAD_BUTTONS)) return;
+    const b = { jump: [...padBinds('jump', device)], flash: [...padBinds('flash', device)], frost: [...padBinds('frost', device)] };
+    for (const a of PAD_ACTIONS) b[a] = b[a].filter(i => i !== value);
+    b[action] = [value];
+    saved.pads = { ...saved.pads, [device]: b };
+  }
+  store();
+}
+
+export function resetBinds(device: string): void {
+  if (device === 'keys') delete saved.keys;
+  else if (saved.pads) delete saved.pads[device];
+  store();
+}
+
+function store(): void {
+  version++;
+  localStorage.setItem(BINDS_KEY, JSON.stringify(saved));
 }
 
 // Which device a local player (a split-screen seat, see game.ts) follows: any (keyboard, touch and
@@ -54,9 +108,15 @@ export function setSeatSources(list: InputSource[]): void {
   seatSrcs = list;
 }
 
-/** Seat 1's device: the one that drives the menus. */
+let menuOwner: InputSource | null = null;
+
+/** The device that drives the menus: whoever opened the in-match menu, else seat 1's. */
 export function menuSource(): InputSource {
-  return seatSrcs[0] ?? 'any';
+  return menuOwner ?? seatSrcs[0] ?? 'any';
+}
+
+export function setMenuOwner(src: InputSource | null): void {
+  menuOwner = src;
 }
 
 export function sameSource(a: InputSource, b: InputSource): boolean {
@@ -123,9 +183,10 @@ export function readInput(src: InputSource, touch: boolean): Input {
     if (keys.has('KeyD') || keys.has('ArrowRight')) mx += 1;
     if (keys.has('KeyW') || keys.has('ArrowUp')) mz -= 1;
     if (keys.has('KeyS') || keys.has('ArrowDown')) mz += 1;
-    if (keys.has('Space')) b |= BTN_JUMP;
-    if (keys.has('KeyJ') || keys.has('Enter') || keys.has('NumpadEnter')) b |= BTN_ACTION | BTN_FLASH;
-    if (keys.has('KeyK')) b |= BTN_ACTION | BTN_FROST;
+    const held = (a: PadAction) => keyBinds(a).some(k => keys.has(k));
+    if (held('jump')) b |= BTN_JUMP;
+    if (held('flash')) b |= BTN_ACTION | BTN_FLASH; // slash, or a flash
+    if (held('frost')) b |= BTN_ACTION | BTN_FROST; // slash, or a frost
   }
 
   for (const pad of padsFor(src)) {
@@ -133,9 +194,9 @@ export function readInput(src: InputSource, touch: boolean): Input {
     if (Math.hypot(ax, az) > 0.2) { mx = ax; mz = az; gamepadUsed(); }
     const btn = (i: number) => pad.buttons[i]?.pressed;
     if (pad.buttons.some(x => x.pressed)) gamepadUsed();
-    if (binds.jump.some(btn)) b |= BTN_JUMP;
-    if (binds.flash.some(btn)) b |= BTN_ACTION | BTN_FLASH; // slash, or a flash
-    if (binds.frost.some(btn)) b |= BTN_ACTION | BTN_FROST; // slash, or a frost
+    if (padBinds('jump', pad.id).some(btn)) b |= BTN_JUMP;
+    if (padBinds('flash', pad.id).some(btn)) b |= BTN_ACTION | BTN_FLASH;
+    if (padBinds('frost', pad.id).some(btn)) b |= BTN_ACTION | BTN_FROST;
     if (btn(12)) mz = -1;
     if (btn(13)) mz = 1;
     if (btn(14)) mx = -1;

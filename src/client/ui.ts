@@ -4,8 +4,8 @@ import { Character } from './characters';
 import { CHARACTERS, NADE_KINDS, type NadeKind } from '../shared/constants';
 import type { GameMode, LobbyPlayer, Phase, Standing } from '../shared/protocol';
 import type { Role } from '../shared/sim';
-import { PAD_ACTIONS, PAD_BUTTONS, padBinds, padsFor, resetPadBinds, setPadBind, type InputSource, type PadAction } from './input';
-import { NINTENDO, capturePad } from './pad';
+import { PAD_ACTIONS, PAD_BUTTONS, bindsVersion, connectedPads, keyBindable, keyBinds, keyName, padBinds, padsFor, resetBinds, setBind, type InputSource, type PadAction } from './input';
+import { NINTENDO, capturePad, hintPadId } from './pad';
 
 const CSS = `
 :root {
@@ -68,7 +68,13 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .card .tag.rdy { background: var(--teal); }
 .card .arrows { display: flex; justify-content: space-between; position: absolute; top: 50px; left: 4px; right: 4px; }
 .card .arrows button { width: 30px; height: 30px; border-radius: 50%; border: none; background: #fff; font-weight: 800; color: var(--ink); cursor: pointer; box-shadow: 0 3px 0 #c3b8e6; }
-.card .src { margin-top: 6px; font-weight: 600; font-size: 13px; color: #8a7bb5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .src { margin-top: 6px; max-width: 100%; font-family: 'Fredoka'; font-weight: 600; font-size: 13px; color: #8a7bb5; background: #fff; border: none; border-radius: 999px;
+  padding: 3px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 0 #d9d0f5; }
+.screen.menu { background: rgba(59,42,92,0.35); }
+.screen.menu .btn { min-width: 300px; }
+/* CONTROLS shows one device's labels whatever the menus are using */
+.binds.nin .xb { display: none; } .binds.nin .nn { display: inline; }
+.binds.xbl .xb { display: inline; } .binds.xbl .nn { display: none; }
 .card .pn { position: absolute; top: 8px; left: 8px; font-family: 'Lilita One'; font-size: 14px; color: #fff; padding: 1px 8px; border-radius: 999px; }
 .card .drop { position: absolute; bottom: 8px; right: 8px; width: 26px; height: 26px; border-radius: 50%; border: none; background: #fff; font-weight: 800; color: var(--ink); cursor: pointer; box-shadow: 0 3px 0 #c3b8e6; }
 .couch { font-weight: 600; color: #8a7bb5; text-align: center; margin-top: -8px; margin-bottom: 14px; }
@@ -167,7 +173,6 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 `;
 
 const NADE_LABEL: Record<NadeKind, string> = { flash: 'Flash', frost: 'Frost' };
-const NADE_KEY: Record<NadeKind, string> = { flash: 'J', frost: 'K' };
 const NADE_CSS: Record<NadeKind, string> = { flash: '#fff2a8', frost: '#8fe3ff' };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] {
@@ -241,6 +246,14 @@ export interface LobbyHandlers {
   leave(): void;
 }
 
+export interface MenuHandlers {
+  resume(): void;
+  controls(): void;
+  toggleSound(): boolean; // → muted
+  dropOut?: () => void;
+  leave(): void;
+}
+
 export interface HudState {
   phase: Phase;
   timeLeft: number;
@@ -261,6 +274,7 @@ export class UI {
   private lobby = el('div', 'screen lobby');
   private end = el('div', 'screen');
   private controls = el('div', 'screen sky');
+  private menu = el('div', 'screen menu');
   private hud = el('div', 'hud');
   private debugEl = el('div', 'debug');
   private titleStatus!: HTMLDivElement;
@@ -278,7 +292,7 @@ export class UI {
     const style = document.createElement('style');
     style.textContent = CSS;
     document.head.appendChild(style);
-    this.root.append(this.hud, this.title, this.lobby, this.end, this.controls, this.debugEl);
+    this.root.append(this.hud, this.title, this.lobby, this.end, this.controls, this.menu, this.debugEl);
     document.body.appendChild(this.root);
 
     this.hud.append(this.feed, this.board);
@@ -331,13 +345,11 @@ export class UI {
       <button class="btn pink" data-a="practice">PLAY VS BOTS</button>
       <button class="btn" data-a="create">CREATE ROOM</button>
       <div class="row"><input class="code-in" maxlength="5" placeholder="CODE" /><button class="btn teal small" data-a="join">JOIN</button></div>
-      <button class="btn small" data-a="controls">CONTROLS</button>
       <div class="status"></div>`;
     this.titleStatus = box.querySelector('.status')!;
     const code = box.querySelector('input')!;
     box.querySelector('[data-a=practice]')!.addEventListener('click', () => h.practice(this.titleMode));
     box.querySelector('[data-a=create]')!.addEventListener('click', () => h.create(this.titleMode));
-    box.querySelector('[data-a=controls]')!.addEventListener('click', () => this.showControls(() => this.showTitle(h)));
     const modes = box.querySelector<HTMLElement>('[data-a=modes]')!;
     modes.addEventListener('click', e => {
       const m = (e.target as HTMLElement).dataset.m as GameMode | undefined;
@@ -362,36 +374,107 @@ export class UI {
     if (this.titleStatus) this.titleStatus.textContent = text;
   }
 
-  // ── Controls: pick an action, press the pad button for it ───────────────
-  private showControls(back: () => void): void {
+  // ── Controls: pick a device and an action, press the key or button for it ──
+  /** Opens on `device` (the player who asked); 'any' starts on the pad the menus last saw, else the keyboard. */
+  showControls(device: InputSource, back: () => void): void {
     this.hideAll();
+    const padIndex = (src: InputSource) => typeof src === 'object' ? padsFor(src)[0]?.index ?? null
+      : src === 'any' ? connectedPads().find(p => p.id === hintPadId() && document.documentElement.classList.contains('pad'))?.index ?? null : null;
+    let pad: number | null = padIndex(device); // null: the keyboard
+    let stopKey = () => {};
     const listen = (action: PadAction | null) => {
+      stopKey();
+      stopKey = () => {};
+      capturePad(null);
       render(action);
-      capturePad(action && (i => {
-        if (i in PAD_BUTTONS) { setPadBind(action, i); listen(null); }
-        else listen(action); // d-pad, Select: fixed, keep waiting
-      }));
+      if (!action) return;
+      const id = pad === null ? 'keys' : connectedPads().find(p => p.index === pad)?.id;
+      if (!id) return;
+      if (pad === null) {
+        // Swallow the key (it mustn't press the focused button, mute, …); fixed keys keep it waiting
+        const onKey = (e: KeyboardEvent) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (e.code === 'Escape') listen(null);
+          else if (keyBindable(e.code)) { setBind('keys', action, e.code); listen(null); }
+        };
+        window.addEventListener('keydown', onKey, { capture: true });
+        stopKey = () => window.removeEventListener('keydown', onKey, { capture: true });
+      } else {
+        capturePad(i => {
+          if (i in PAD_BUTTONS) { setBind(id, action, i); listen(null); }
+          else listen(action); // d-pad, Select, Start: fixed, keep waiting
+        }, pad);
+      }
     };
     const render = (listening: PadAction | null) => {
       const had = document.activeElement instanceof HTMLElement && this.controls.contains(document.activeElement) ? document.activeElement.dataset.a : 'bind-jump';
+      const pads = connectedPads();
+      if (pad !== null && !pads.some(p => p.index === pad)) pad = null;
+      const cur = pads.find(p => p.index === pad);
+      const shown = (a: PadAction) => cur ? padBinds(a, cur.id).map(i => padKey(...PAD_BUTTONS[i])).join(' ') || '<kbd>—</kbd>'
+        : keyBinds(a).map(k => `<kbd>${esc(keyName(k))}</kbd>`).join(' ') || '<kbd>—</kbd>';
       this.controls.innerHTML = `
         <div class="panel col">
           <div class="display" style="font-size:48px;color:var(--yellow)">CONTROLS</div>
-          <div class="binds">${PAD_ACTIONS.map(a => `
-            <div>${ACTION_LABEL[a]}</div>
-            <button class="btn ${a === listening ? 'listen' : ''}" data-a="bind-${a}">${a === listening ? 'PRESS A BUTTON…' : padActionAll(a)}</button>`).join('')}
+          <div class="seg">
+            <button data-a="dev-keys" class="${pad === null ? 'on' : ''}">KEYBOARD</button>
+            ${pads.map(p => `<button data-a="dev-${p.index}" class="${p.index === pad ? 'on' : ''}" title="${esc(p.id)}">PAD ${p.index + 1}</button>`).join('')}
           </div>
-          <div style="font-weight:600;color:#8a7bb5">Pick an action, then press the controller button for it. Stick, d-pad and Select stay as they are.</div>
+          <div style="font-weight:600;color:#8a7bb5">${cur ? `${esc(padName(cur.id))}: every controller of this model shares these` : 'Keyboard'}</div>
+          <div class="binds ${cur && NINTENDO.test(cur.id) ? 'nin' : 'xbl'}">${PAD_ACTIONS.map(a => `
+            <div>${ACTION_LABEL[a]}</div>
+            <button class="btn ${a === listening ? 'listen' : ''}" data-a="bind-${a}">${a === listening ? (cur ? 'PRESS A BUTTON…' : 'PRESS A KEY…') : shown(a)}</button>`).join('')}
+          </div>
+          <div style="font-weight:600;color:#8a7bb5">${cur ? 'Pick an action, then press the button for it on that controller. Stick, d-pad, Select and Start stay as they are.'
+            : 'Pick an action, then press the key for it. WASD / arrows, Tab, Esc, M and P stay as they are.'}</div>
           <div class="row"><button class="btn small" data-a="reset">RESET</button><button class="btn pink" data-a="back">BACK</button></div>
         </div>`;
-      for (const a of PAD_ACTIONS) this.controls.querySelector(`[data-a=bind-${a}]`)!.addEventListener('click', () => listen(a === listening ? null : a));
-      this.controls.querySelector('[data-a=reset]')!.addEventListener('click', () => { resetPadBinds(); listen(null); });
-      this.controls.querySelector('[data-a=back]')!.addEventListener('click', back);
+      const on = (a: string, fn: () => void) => this.controls.querySelector(`[data-a=${a}]`)?.addEventListener('click', fn);
+      on('dev-keys', () => { pad = null; listen(null); });
+      for (const p of pads) on(`dev-${p.index}`, () => { pad = p.index; listen(null); });
+      for (const a of PAD_ACTIONS) on(`bind-${a}`, () => listen(a === listening ? null : a));
+      on('reset', () => { resetBinds(cur ? cur.id : 'keys'); listen(null); });
+      on('back', back);
       this.controls.querySelector<HTMLElement>(`[data-a=${had}]`)?.focus({ preventScroll: true }); // the pad's ring stays put
     };
-    this.controlsOff = () => capturePad(null);
+    const replug = () => listen(null);
+    addEventListener('gamepadconnected', replug);
+    addEventListener('gamepaddisconnected', replug);
+    this.controlsOff = () => { stopKey(); capturePad(null); removeEventListener('gamepadconnected', replug); removeEventListener('gamepaddisconnected', replug); };
     listen(null);
     this.controls.classList.add('on');
+  }
+
+  /** In a match (Esc / Start): RESUME, CONTROLS, SOUND, DROP OUT (split-screen seats), LEAVE MATCH (asks first). */
+  showMenu(h: MenuHandlers, seat: number | null, muted: boolean): void {
+    let sure = false;
+    const render = () => {
+      const had = document.activeElement instanceof HTMLElement && this.menu.contains(document.activeElement) ? document.activeElement.dataset.a : 'back';
+      this.menu.innerHTML = `
+        <div class="panel col">
+          <div class="display" style="font-size:44px;color:var(--yellow)">${seat !== null ? `<span style="color:${SEAT_COLORS[seat]}">P${seat + 1}</span> ` : ''}MENU</div>
+          <button class="btn pink" data-a="back">RESUME</button>
+          <button class="btn" data-a="controls">CONTROLS</button>
+          <button class="btn" data-a="sound">SOUND: ${muted ? 'OFF' : 'ON'}</button>
+          ${h.dropOut ? '<button class="btn" data-a="drop">DROP OUT</button>' : ''}
+          <button class="btn ${sure ? 'yellow' : ''}" data-a="quit">${sure ? 'SURE? LEAVE THE ROOM' : 'LEAVE MATCH'}</button>
+          <div style="font-weight:600;color:#8a7bb5">The match keeps going${seat !== null ? ' for the others' : ''} while this is open.</div>
+        </div>`;
+      const on = (a: string, fn: () => void) => this.menu.querySelector(`[data-a=${a}]`)?.addEventListener('click', fn);
+      on('back', h.resume);
+      on('controls', h.controls);
+      on('sound', () => { muted = h.toggleSound(); render(); });
+      on('drop', () => h.dropOut?.());
+      on('quit', () => { if (sure) h.leave(); else { sure = true; render(); } });
+      this.menu.querySelector<HTMLElement>(`[data-a=${had}]`)?.focus({ preventScroll: true });
+    };
+    render();
+    this.menu.classList.add('on');
+  }
+
+  hideMenu(): void {
+    this.menu.classList.remove('on');
   }
 
   // ── Lobby ───────────────────────────────────────────────────────────────
@@ -413,7 +496,7 @@ export class UI {
     const card = (p: LobbyPlayer) => {
       const n = seatOf(p.id);
       const chip = n >= 0 && local.length > 1 ? `<div class="pn" style="background:${SEAT_COLORS[n]}">P${n + 1}</div>` : '';
-      const src = n >= 0 && local.length > 1 ? `<div class="src">${deviceLabel(local[n].device)}</div>` : '';
+      const src = n >= 0 && local.length > 1 ? `<button class="src" data-a="ctl-${n}" title="Controls for this device">${deviceLabel(local[n].device)}</button>` : '';
       if (n === 0) return `${chip}<div class="arrows"><button data-a="prev">‹</button><button data-a="next">›</button></div>
               <input class="name-in" maxlength="16" value="${esc(p.name)}" />${src}`;
       if (n > 0) return `${chip}<div class="arrows"><button data-a="prev-${n}">‹</button><button data-a="next-${n}">›</button></div>
@@ -456,11 +539,13 @@ export class UI {
     q('add')?.addEventListener('click', () => h.addBot());
     q('rm')?.addEventListener('click', () => h.removeBot());
     q('leave')?.addEventListener('click', () => h.leave());
-    q('controls')?.addEventListener('click', () => this.showControls(() => {
+    const controls = (n: number) => this.showControls(local[n]?.device ?? 'any', () => {
       this.hideAll();
       this.lobby.classList.add('on');
       if (this.lobbyArgs) this.updateLobby(...this.lobbyArgs);
-    }));
+    });
+    q('controls')?.addEventListener('click', () => controls(0));
+    for (let n = 0; n < local.length; n++) q(`ctl-${n}`)?.addEventListener('click', () => controls(n));
     q('addseat')?.addEventListener('click', () => h.addSeat());
     q('ready')?.addEventListener('click', () => h.ready());
     q('prev')?.addEventListener('click', () => h.character(-1, 0));
@@ -539,7 +624,7 @@ export class UI {
   }
 
   hideAll(): void {
-    for (const s of [this.title, this.lobby, this.end, this.controls]) s.classList.remove('on');
+    for (const s of [this.title, this.lobby, this.end, this.controls, this.menu]) s.classList.remove('on');
     capturePad(null);
     this.controlsOff?.(); // leaving CONTROLS by any route (BACK, or a match starting under it)
     this.controlsOff = null;
@@ -565,6 +650,7 @@ export class SeatHud {
   private frostout = el('div', 'frostout');
   private labelEls = new Map<number, HTMLDivElement>();
   private lastHud = '';
+  private device: InputSource | null = null;
 
   constructor(private onRole: (role: string) => void) {
     this.root.append(this.labels, this.countdown, this.whiteout, this.frostout, this.bannerEl);
@@ -576,10 +662,18 @@ export class SeatHud {
     const pad = typeof device === 'object' && device ? padsFor(device)[0] : undefined;
     const cls = `seat${device ? ' split' : ''}${device === 'keys' ? ' kb' : ''}${typeof device === 'object' && device ? ' pad' : ''}${pad && NINTENDO.test(pad.id) ? ' nin' : ''}`;
     if (this.root.className !== cls) { this.root.className = cls; this.lastHud = ''; }
+    this.device = device;
+  }
+
+  /** Whose pad labels the hints: this seat's pad, or (one player with every pad) the one the menus last saw. */
+  private padId(): string {
+    const d = this.device;
+    return typeof d === 'object' && d ? padsFor(d)[0]?.id ?? d.id : hintPadId();
   }
 
   updateHud(s: HudState): void {
-    const key = JSON.stringify({ ...s, timeLeft: Math.ceil(s.timeLeft), frozen: s.frozen > 0, blind: 0, respawn: Math.ceil(s.respawn * 10) });
+    const pid = this.padId();
+    const key = JSON.stringify({ ...s, timeLeft: Math.ceil(s.timeLeft), frozen: s.frozen > 0, blind: 0, respawn: Math.ceil(s.respawn * 10), pid, binds: bindsVersion() });
     // Overlays update every frame; the rest only when something visible changed
     const taggerWaiting = s.phase === 'start' && s.role === 'tagger' && s.alive;
     this.countdown.classList.toggle('on', taggerWaiting);
@@ -606,15 +700,16 @@ export class SeatHud {
     }
     if (s.alive && s.role === 'runner') {
       const inv = el('div', 'dyn inv', NADE_KINDS.map(k => `
-        <div class="slot ${s.nades[k] ? '' : 'empty'}">${hint(`<kbd>${NADE_KEY[k]}</kbd>`, padAction(k))}
+        <div class="slot ${s.nades[k] ? '' : 'empty'}">${hint(keyAction(k), padAction(k, pid))}
           <div class="ic" style="background:${NADE_CSS[k]}"></div><div class="lb">${NADE_LABEL[k]} ×${s.nades[k]}</div></div>`).join(''));
       this.root.append(inv);
-      this.root.append(el('div', 'dyn keys outlined', hint('<kbd>J</kbd> flash · <kbd>K</kbd> frost (hold, let go to throw)<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores',
-        `${padAction('flash')} flash · ${padAction('frost')} frost (hold, let go to throw)<br>${padAction('jump')} jump · ${PAD_SCORES} scores`)));
+      this.root.append(el('div', 'dyn keys outlined', hint(`${keyAction('flash')} flash · ${keyAction('frost')} frost (hold, let go to throw)<br>${keyAction('jump')} jump · <kbd>Tab</kbd> scores · <kbd>Esc</kbd> menu`,
+        `${padAction('flash', pid)} flash · ${padAction('frost', pid)} frost (hold, let go to throw)<br>${padAction('jump', pid)} jump · ${PAD_SCORES} scores · ${PAD_MENU} menu`)));
     } else if (s.alive && s.role === 'tagger') {
-      this.root.append(el('div', 'dyn keys outlined', hint('<kbd>J</kbd> slash<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores', `${padAction('flash')} slash<br>${padAction('jump')} jump · ${PAD_SCORES} scores`)));
+      this.root.append(el('div', 'dyn keys outlined', hint(`${keyAction('flash')} slash<br>${keyAction('jump')} jump · <kbd>Tab</kbd> scores · <kbd>Esc</kbd> menu`,
+        `${padAction('flash', pid)} slash<br>${padAction('jump', pid)} jump · ${PAD_SCORES} scores · ${PAD_MENU} menu`)));
     }
-    if (s.spectating) this.root.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)}<span class="kb"> · ${hint('<kbd>J</kbd>', padAction('flash'))} next</span>`));
+    if (s.spectating) this.root.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)}<span class="kb"> · ${hint(keyAction('flash'), padAction('flash', pid))} next</span>`));
   }
 
   banner(big: string, sub = '', color = '#ffd23f', ms = 1800): void {
@@ -654,8 +749,9 @@ function modeButtons(mode: GameMode): string {
 
 function titleHint(mode: GameMode): string {
   const how = mode === 'dm' ? 'Tag a runner to swap sides' : 'Taggers slash · runners escape';
-  return `<div class="rule">${how}</div><span class="kb">${hint('<kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>J</kbd> slash / flash · <kbd>K</kbd> frost',
-    `stick move · ${padAction('jump')} jump · ${padAction('flash')} slash / flash · ${padAction('frost')} frost`)}</span>`;
+  const pid = hintPadId();
+  return `<div class="rule">${how}</div><span class="kb">${hint(`<kbd>WASD</kbd> move · ${keyAction('jump')} jump · ${keyAction('flash')} slash / flash · ${keyAction('frost')} frost`,
+    `stick move · ${padAction('jump', pid)} jump · ${padAction('flash', pid)} slash / flash · ${padAction('frost', pid)} frost`)}</span>`;
 }
 
 /** A pad button: Xbox label, and the Nintendo one for the same spot. */
@@ -663,10 +759,16 @@ function padKey(xbox: string, nintendo: string): string {
   return `<kbd><span class="xb">${xbox}</span><span class="nn">${nintendo}</span></kbd>`;
 }
 
-/** The pad button for an action, as bound on the CONTROLS screen (the first one, to keep hints short). */
-function padAction(action: PadAction): string {
-  const i = padBinds(action)[0];
+/** A pad model's button for an action, as bound on the CONTROLS screen (the first one, to keep hints short). */
+function padAction(action: PadAction, padId: string): string {
+  const i = padBinds(action, padId)[0];
   return i === undefined ? '<kbd>—</kbd>' : padKey(...PAD_BUTTONS[i]);
+}
+
+/** The keyboard's key for an action (the first one). */
+function keyAction(action: PadAction): string {
+  const k = keyBinds(action)[0];
+  return `<kbd>${k ? esc(keyName(k)) : '—'}</kbd>`;
 }
 
 /** A seat's device, for its lobby card. */
@@ -682,13 +784,10 @@ function padName(id: string): string {
   return id.replace(/\s*\(.*$/, '').trim() || id;
 }
 
-/** Every button bound to an action, for the CONTROLS screen. */
-function padActionAll(action: PadAction): string {
-  return padBinds(action).map(i => padKey(...PAD_BUTTONS[i])).join(' ') || '<kbd>—</kbd>';
-}
 
 const ACTION_LABEL: Record<PadAction, string> = { jump: 'Jump', flash: 'Slash / flash', frost: 'Slash / frost' };
 const PAD_SCORES = padKey('Select', '−');
+const PAD_MENU = padKey('Start', '+');
 
 /** Keyboard and gamepad versions of a hint; CSS shows the one in use. */
 function hint(keys: string, pad: string): string {

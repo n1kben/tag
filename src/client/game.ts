@@ -9,8 +9,8 @@ import { Character, SliceDeath, CHAR_DEFS } from './characters';
 import { Fx } from './fx';
 import { UI, esc, MAX_SEATS, SEAT_COLORS, type HudState, type Rect, type SeatHud } from './ui';
 import { Network } from './net';
-import { readInput, isHeld, setInputEnabled, setSeatSources, lastDevice, sameSource, sourceTaken, padsFor, type InputSource } from './input';
-import { touchBoardHeld, updateTouch } from './touch';
+import { readInput, isHeld, setInputEnabled, setMenuOwner, setSeatSources, lastDevice, sameSource, sourceTaken, padsFor, type InputSource } from './input';
+import { onTouchMenu, touchBoardHeld, updateTouch } from './touch';
 import { padBoardHeld, padPresses, pickPad, pollPad } from './pad';
 import { sfx, spatial, setMuted, isMuted } from './audio';
 import { BTN_ACTION, BTN_FLASH, BTN_FROST, type Role } from '../shared/sim';
@@ -20,6 +20,9 @@ import { TICK_DT, TICK_RATE, NADE_CHARGE_TIME, COLOR_TAGGER, HEAD_START, type Na
 import type { GameEvent, GameMode, LobbyPlayer, Phase, ServerMessage, Snapshot, Standing } from '../shared/protocol';
 
 type Mode = 'title' | 'lobby' | 'match' | 'end';
+
+const PRACTICE_BOTS = 5; // PLAY VS BOTS: the lobby starts with these
+const NO_INPUT = { mx: 0, mz: 0, b: 0 };
 
 /** One local player. */
 interface Seat {
@@ -55,6 +58,7 @@ export function startGame(): void {
   let roomId = '';
   let joining = false; // + PLAYER is waiting for the new player's device
   let joinFrom: InputSource = 'keys'; // the device that pressed + PLAYER: seat 1 keeps it
+  let menuSeat: Seat | null = null; // whose in-match menu is open (their player stands still)
   let lobbyPlayers: LobbyPlayer[] = [];
   let lastStandings: Standing[] | undefined;
   let lobbyInMatch = false;
@@ -102,6 +106,7 @@ export function startGame(): void {
 
   function dropSeat(seat: Seat): void {
     if (seat === p1 || !seats.includes(seat)) return;
+    if (menuSeat === seat) closeMenu();
     seat.net.onClose = null;
     seat.net.send({ type: 'leave' });
     seat.net.disconnect();
@@ -211,7 +216,7 @@ export function startGame(): void {
   function showTitle(): void {
     setInputEnabled(true);
     ui.showTitle({
-      practice: m => { sfx.ui(); net.send({ type: 'create_room', practice: true, mode: m }); ui.setStatus('Starting…'); },
+      practice: m => { sfx.ui(); net.send({ type: 'create_room', mode: m, bots: PRACTICE_BOTS }); ui.setStatus('Creating room…'); },
       create: m => { sfx.ui(); net.send({ type: 'create_room', mode: m }); ui.setStatus('Creating room…'); },
       join: code => { sfx.ui(); net.send({ type: 'join_room', roomId: code }); ui.setStatus('Joining…'); },
     });
@@ -241,6 +246,49 @@ export function startGame(): void {
     mode = 'title';
     history.replaceState(null, '', location.pathname + location.search);
     showTitle();
+  }
+
+  // ── In-match menu (Esc / Start) ─────────────────────────────────────────
+  function openMenu(seat: Seat): void {
+    if (mode !== 'match') return;
+    menuSeat = seat;
+    setMenuOwner(seat.src); // that player's pad drives it
+    ui.showMenu({
+      resume: closeMenu,
+      controls: () => ui.showControls(seat.src, () => { ui.showHud(); openMenu(seat); }),
+      toggleSound: () => { setMuted(!isMuted()); return isMuted(); },
+      dropOut: seat !== p1 ? () => { closeMenu(); dropSeat(seat); } : undefined,
+      leave: () => { closeMenu(); leave(); },
+    }, seats.length > 1 ? seat.n : null, isMuted());
+    if (!document.documentElement.classList.contains('pad')) ui.root.querySelector<HTMLElement>('.menu [data-a=back]')?.focus({ preventScroll: true });
+  }
+
+  function closeMenu(): void {
+    if (!menuSeat) return;
+    menuSeat = null;
+    setMenuOwner(null);
+    ui.hideMenu();
+    if (mode === 'match') ui.showHud(); // back from CONTROLS too
+  }
+
+  /** The seat a key press belongs to: the keyboard player, else P1. */
+  const keyboardSeat = () => seats.find(s => s.src === 'keys' || s.src === 'any') ?? p1;
+
+  window.addEventListener('keydown', e => {
+    if (e.code !== 'Escape' || mode !== 'match' || e.target instanceof HTMLInputElement) return;
+    if (ui.root.querySelector('.screen.sky.on')) return; // CONTROLS: Esc there cancels a capture, BACK leaves
+    if (menuSeat) closeMenu(); else openMenu(keyboardSeat());
+  });
+
+  onTouchMenu(() => openMenu(p1));
+
+  /** Start on a player's pad opens their menu (Start in the open menu is RESUME, handled by pad.ts). */
+  function menuPadButtons(): void {
+    for (const { pad, button } of padPresses()) {
+      if (button !== 9) continue;
+      const seat = seats.find(s => padsFor(s.src).some(p => p.index === pad.index));
+      if (seat) { openMenu(seat); return; }
+    }
   }
 
   // ── Messages ────────────────────────────────────────────────────────────
@@ -354,6 +402,7 @@ export function startGame(): void {
   }
 
   function cleanupMatch(): void {
+    closeMenu();
     // Back to the whole city for the menu backdrop
     setMap(world, FULL_MAP);
     fx.map = world.map;
@@ -431,7 +480,7 @@ export function startGame(): void {
   }
 
   function fixedStep(seat: Seat): void {
-    const input = readInput(seat.src, seats.length === 1);
+    const input = seat === menuSeat ? NO_INPUT : readInput(seat.src, seats.length === 1);
     const { cn } = seat;
     const step = cn.predict(input);
     if (!step) return;
@@ -627,8 +676,10 @@ export function startGame(): void {
     const now = performance.now();
     let dt = Math.min(0.1, (now - last) / 1000);
     last = now;
+    const menuWasOpen = menuSeat !== null; // so the Start that closes it doesn't reopen it
     pollPad();
     if (mode === 'lobby') seatPadButtons();
+    if (mode === 'match' && !menuWasOpen) menuPadButtons();
     fpsFrames++; fpsT += dt;
     adaptResolution(world, dt);
     if (fpsT >= 1) { fps = fpsFrames; fpsFrames = 0; fpsT = 0; }
@@ -836,7 +887,7 @@ export function startGame(): void {
           respawn: me.respawn,
         };
         seat.hud.updateHud(hud);
-        if (seat === p1) updateTouch(split ? null : { role: me.role, alive: me.alive, nades: me.nades, spectating: hud.spectating !== null });
+        if (seat === p1) updateTouch(split || menuSeat ? null : { role: me.role, alive: me.alive, nades: me.nades, spectating: hud.spectating !== null });
       } else if (seat === p1) updateTouch(null);
     }
     if (spare) {

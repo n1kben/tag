@@ -11,7 +11,7 @@ npm run build && npm start   # production: one server on :8080 for the page and 
 npm run check                # typecheck + map reachability + a headless bots-only match
 ```
 
-Press **PLAY VS BOTS** to practise, or **CREATE ROOM** and share the link (the room code is in the URL hash). Rooms hold 10 players, bots included; anyone can add bots in the lobby.
+Press **PLAY VS BOTS** for a lobby with 5 bots already in it, or **CREATE ROOM** and share the link (the room code is in the URL hash). Rooms hold 10 players, bots included; anyone can add bots in the lobby.
 
 ## Modes
 
@@ -39,11 +39,13 @@ Grenade, slash and jump numbers live in `src/shared/constants.ts`.
 | Slash (tagger) | J, K or Enter | X / Y / RT / bumpers | SLASH |
 | Flash / frost (runner: hold to aim, release to throw) | J or Enter / K | X or RT / Y or bumpers | FLASH / FROST |
 | Scoreboard · mute · debug HUD | Tab · M · P | hold Select | hold 🏆 · 🔊 |
+| Menu (in a match) | Esc | Start | ☰ |
 
 - **Jump**: tap for a hop, hold for full height. Jump again within 0.05s of landing to **bunny hop**: each hop adds 8% top speed, up to 1.4×. Stay on the ground and it's gone.
 - **Aiming**: no mouse aim. You throw where you face; while holding a grenade you stand still and the move keys turn you.
-- **Remap the pad**: title → **CONTROLS**, pick an action, press the button. Saved in the browser; RESET restores the defaults. Stick, d-pad, Select and the menu buttons stay fixed.
-- **Split screen (up to 4 on one screen)**: in a room's lobby press **+ PLAYER**, then a button on the new player's controller (or any key for the keyboard). Each player gets a card (P1–P4) and, in the match, their own slice of the screen: side by side for two, a 2×2 grid for three or four (with three, the scoreboard fills the spare quarter). Every player moves only with their own device. P1's pad (or the keyboard) runs the menus; the others' pads change character with the bumpers and drop out with B, and Start readies everyone. With two or more seated, Start on a free pad joins too. Couch players can share a room with online ones. For split screen vs bots, use **CREATE ROOM** and **+ BOT** (PLAY VS BOTS starts at once). An 8BitDo shows up in Chrome/Brave in X-input or macOS mode, not Switch mode.
+- **Remap**: lobby → **CONTROLS** (or click a player's device label, or the in-match menu). Pick the device (KEYBOARD, PAD 1, …), an action, then press the key or button. The table above is the default. Saved in the browser: the keyboard has one set, each controller model its own (two identical pads share). RESET restores that device's defaults. Moving, Tab / Select, Esc / Start, M and P stay fixed.
+- **Menu**: Esc, Start or ☰ in a match: RESUME, CONTROLS, SOUND, DROP OUT (split-screen players), LEAVE MATCH (press twice). The match keeps going while it's open; that player's character stands still. In split screen, whoever opened it drives it.
+- **Split screen (up to 4 on one screen)**: in a room's lobby press **+ PLAYER**, then a button on the new player's controller (or any key for the keyboard). Each player gets a card (P1–P4) and, in the match, their own slice of the screen: side by side for two, a 2×2 grid for three or four (with three, the scoreboard fills the spare quarter). Every player moves only with their own device. P1's pad (or the keyboard) runs the menus; the others' pads change character with the bumpers and drop out with B, and Start readies everyone. With two or more seated, Start on a free pad joins too. Couch players can share a room with online ones.  An 8BitDo shows up in Chrome/Brave in X-input or macOS mode, not Switch mode.
 - **Gamepad menus**: stick moves the focus ring, A presses, B leaves the lobby, Start readies up, bumpers change character. Hints switch to Nintendo labels for 8BitDo / Switch pads. Safari only sees a pad after you press one of its buttons.
 - **Touch**: controls appear after your first tap and hide on keyboard or pad input. Portrait and landscape both work. Tapping a menu button goes fullscreen on Android and iPad; on iPhone use Share → **Add to Home Screen**.
 

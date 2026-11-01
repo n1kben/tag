@@ -6,7 +6,7 @@ export type GameMode = 'tag' | 'dm'; // Tag (tag) or free-for-all Deathmatch
 
 // ── Client → Server ───────────────────────────────────────────────────────
 export type ClientMessage =
-  | { type: 'create_room'; practice?: boolean; mode?: GameMode }
+  | { type: 'create_room'; practice?: boolean; mode?: GameMode; bots?: number } // bots: the lobby starts with that many
   | { type: 'mode'; mode: GameMode }
   | { type: 'join_room'; roomId: string }
   | { type: 'profile'; name?: string; character?: number }
