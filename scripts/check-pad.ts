@@ -142,13 +142,14 @@ await press(p, 0);
 for (let i = 0; i < 20 && !(await shown('.screen.sky.on [data-a=practice]')); i++) await p.waitForTimeout(250);
 check(await shown('.screen.sky.on [data-a=practice]'), 'the second press leaves to the title');
 
-// Split screen on one page: P1 on the 8BitDo, P2 joins with the Xbox pad, P3 with the keyboard. Each
-// seat moves only with its own device, and the match draws a slice of the screen per seat.
+// Split screen on one page, Overcooked-style: A on a free pad or Enter joins, B / Esc drops out, a card's
+// device pill changes device, pads buzz to say whose they are. Each seat moves only with its own device.
 const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
 await ctx2.addInitScript(() => {
   const pads = ['8BitDo Pro 2 (STANDARD GAMEPAD Vendor: 2dc8)', 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e)'].map((id, index) => ({
     id, index, connected: true, mapping: 'standard', timestamp: 0,
-    axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })) }));
+    axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
+    rumbles: 0, vibrationActuator: { playEffect() { pads[index].rumbles++; return Promise.resolve('complete'); } } }));
   (window as unknown as { __pads: typeof pads }).__pads = pads;
   navigator.getGamepads = () => pads as unknown as Gamepad[];
 });
@@ -164,37 +165,53 @@ const tap = async (pad: number, i: number) => {
 };
 type SeatPos = { id: number; x: number; z: number; alive: boolean };
 const seatsNow = () => w.evaluate('window.__net.seats()') as Promise<SeatPos[]>;
-const localCards = () => w.evaluate(`[...document.querySelectorAll('.lobby.on .card.me')].map(c => (c.querySelector('.pn')?.textContent ?? '') + ' ' + (c.querySelector('.src')?.textContent ?? ''))`) as Promise<string[]>;
+const localCards = () => w.evaluate(`[...document.querySelectorAll('.lobby.on .card.me')].map(c => (c.querySelector('.pn')?.textContent ?? '') + ' ' + (c.querySelector('.src')?.textContent ?? '') + ' ' + (c.querySelector('.src')?.title ?? ''))`) as Promise<string[]>;
 
 await w.click('[data-a=create]');
 await w.waitForSelector('.lobby.on .room-code');
-await tap(0, 13); // P1 picks up the 8BitDo
-await w.evaluate(`document.querySelector('[data-a=addseat]').focus()`);
-await tap(0, 0); // A on + PLAYER
-check((await w.textContent('[data-a=addseat]'))!.includes('PRESS'), '+ PLAYER waits for a device');
-await tap(0, 0); // P1's own pad again: not a new player
-check((await localCards()).length === 1, 'P1 pressing again doesn\'t join');
-await tap(1, 0); // the Xbox pad joins
-for (let i = 0; i < 20 && (await localCards()).length < 2; i++) await w.waitForTimeout(150);
-let cardsNow = await localCards();
-check(cardsNow.length === 2 && cardsNow[0].includes('P1') && cardsNow[0].includes('8BitDo') && cardsNow[1].includes('P2') && cardsNow[1].includes('Xbox'), `P2 joins on the Xbox pad (${cardsNow.join(' | ')})`);
+const cardCount = async (n: number) => { for (let i = 0; i < 20 && (await localCards()).length !== n; i++) await w.waitForTimeout(150); return localCards(); };
+const rumbles = (pad: number) => w.evaluate(`window.__pads[${pad}].rumbles`) as Promise<number>;
+await tap(0, 13); // P1's first press (only the mouse so far): it's P1's pad, not a new player
+check((await localCards()).length === 1, 'P1\'s first pad press doesn\'t join');
+await w.evaluate(`document.querySelector('.lobby.on [data-m=tag]').focus()`); // A presses TAG (already on): harmless
+await tap(0, 0);
+check((await localCards()).length === 1, 'nor does A on it');
+await tap(1, 0); // A on the Xbox pad joins
+let cardsNow = await cardCount(2);
+check(cardsNow.length === 2 && cardsNow[0].includes('P1') && cardsNow[0].includes('8BitDo') && cardsNow[1].includes('P2') && cardsNow[1].includes('Xbox'), `A on another pad joins as P2 (${cardsNow.join(' | ')})`);
+check(await rumbles(1) > 0, 'the joining pad buzzes');
 const p2img = () => w.evaluate(`document.querySelectorAll('.lobby.on .card.me img')[1]?.src`);
 const p2img0 = await p2img();
 await tap(1, 5); // P2's RB
 await w.waitForTimeout(400);
 check(await p2img() !== p2img0, 'P2\'s bumper changes P2\'s character');
-await w.click('[data-a=addseat]');
-await w.keyboard.press('KeyL'); // the keyboard joins
-for (let i = 0; i < 20 && (await localCards()).length < 3; i++) await w.waitForTimeout(150);
-cardsNow = await localCards();
-check(cardsNow.length === 3 && cardsNow[2].includes('KEYBOARD'), `P3 joins on the keyboard (${cardsNow.join(' | ')})`);
+await w.keyboard.press('Enter'); // the keyboard joins
+cardsNow = await cardCount(3);
+check(cardsNow.length === 3 && cardsNow[2].includes('KEYBOARD'), `Enter joins the keyboard as P3 (${cardsNow.join(' | ')})`);
+await w.keyboard.press('Escape'); // …and Esc drops it
+cardsNow = await cardCount(2);
+check(cardsNow.length === 2, `Esc drops the keyboard player (${cardsNow.join(' | ')})`);
+// P1 changes device: someone else's pad is refused, the free keyboard is taken; then the freed 8BitDo joins
+await w.click('[data-a=seatdev-0]');
+check((await w.textContent('[data-a=seatdev-0]'))!.includes('PRESS'), 'P1\'s device pill waits for a press');
+await tap(1, 0);
+check((await w.textContent('[data-a=seatdev-0]'))!.includes('PRESS') && (await localCards()).length === 2, 'P2\'s pad is refused');
+await w.keyboard.press('KeyL');
+cardsNow = await cardCount(2);
+check(cardsNow[0].includes('KEYBOARD'), `P1 moves to the keyboard (${cardsNow.join(' | ')})`);
+const buzz0 = await rumbles(1);
+await w.hover('.lobby.on .card.me:nth-child(2)');
+await w.waitForTimeout(100);
+check(await rumbles(1) > buzz0, 'pointing at P2\'s card buzzes P2\'s pad');
+await tap(0, 0); // the 8BitDo is free now
+cardsNow = await cardCount(3);
+check(cardsNow.length === 3 && cardsNow[2].includes('8BitDo'), `the freed pad joins as P3 (${cardsNow.join(' | ')})`);
 if (out) await w.screenshot({ path: `${out}/split-lobby.png` });
 
 const wShown = (sel: string) => w.evaluate(`(() => { const e = document.querySelector('${sel}'); return !!e && getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0; })()`) as Promise<boolean>;
-await tap(0, 13); // the mouse clicks put the menus back on keyboard hints: wake P1's pad
-await tap(0, 9); // Start on P1: everyone ready
+await tap(0, 9); // Start on P3's pad: everyone ready
 for (let i = 0; i < 30 && !(await wShown('.hud.on')); i++) await w.waitForTimeout(200);
-check(await wShown('.hud.on'), 'Start readies all three and the match starts');
+check(await wShown('.hud.on'), 'Start on P3\'s pad readies all three and the match starts');
 await w.waitForTimeout(500);
 check(await w.evaluate(`document.querySelectorAll('.hud .seat.split').length`) === 3, 'three split-screen HUDs');
 check(await wShown('.board'), 'the spare quarter shows the board');
@@ -215,12 +232,15 @@ const only = (m: boolean[] & { dead?: boolean[] }, n: number, what: string) => {
   check(m.every((v, i) => v === (i === n) || m.dead?.[i]), what);
 };
 const stick = (pad: number, x: number) => w.evaluate(`window.__pads[${pad}].axes[0] = ${x}`).then(() => {});
-let m = await moved(() => stick(1, 1), () => stick(1, 0));
-only(m, 1, `P2's stick moves only P2 (${m})`);
-m = await moved(() => stick(0, -1), () => stick(0, 0));
-only(m, 0, `P1's stick moves only P1 (${m})`);
-m = await moved(() => w.keyboard.down('KeyD'), () => w.keyboard.up('KeyD'));
-only(m, 2, `the keyboard moves only P3 (${m})`);
+/** One way, and the other way if that one was blocked (a crate, a wall): did seat n move, and only it? */
+const both = async (n: number, what: string, there: [() => Promise<void>, () => Promise<void>], back: [() => Promise<void>, () => Promise<void>]) => {
+  let m = await moved(...there);
+  if (!m[n] && !m.dead[n]) m = await moved(...back);
+  only(m, n, `${what} (${m})`);
+};
+await both(1, 'P2\'s stick moves only P2', [() => stick(1, 1), () => stick(1, 0)], [() => stick(1, -1), () => stick(1, 0)]);
+await both(2, 'the 8BitDo moves only P3', [() => stick(0, -1), () => stick(0, 0)], [() => stick(0, 1), () => stick(0, 0)]);
+await both(0, 'the keyboard moves only P1', [() => w.keyboard.down('KeyD'), () => w.keyboard.up('KeyD')], [() => w.keyboard.down('KeyA'), () => w.keyboard.up('KeyA')]);
 if (out) await w.screenshot({ path: `${out}/split-match.png` });
 
 await browser.close();

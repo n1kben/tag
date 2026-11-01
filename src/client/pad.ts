@@ -23,6 +23,7 @@ let hintPad = ''; // id of the pad the menus last saw, for its button labels
 let pick: ((pad: Gamepad) => void) | null = null;
 let prevAll = new Map<number, boolean[]>(); // per pad index, for picking among every pad
 let presses: { pad: Gamepad; button: number }[] = [];
+let claim: ((pad: Gamepad, button: number) => boolean) | null = null;
 
 const html = document.documentElement;
 const setPad = (on: boolean) => html.classList.toggle('pad', on);
@@ -49,6 +50,11 @@ export function padPresses(): readonly { pad: Gamepad; button: number }[] {
   return presses;
 }
 
+/** game.ts: offered every fresh press first; true takes it (a free pad joining), so it doesn't press a menu button too. */
+export function onPadPress(cb: ((pad: Gamepad, button: number) => boolean) | null): void {
+  claim = cb;
+}
+
 /** The lobby's + PLAYER: the next fresh button press on any pad, even ones the menus ignore, picks it. null cancels. */
 export function pickPad(cb: ((pad: Gamepad) => void) | null): void {
   pick = cb;
@@ -62,8 +68,11 @@ export function pollPad(): void {
   prevAll = pressedOnAll;
   if (presses.length) noteDevice({ index: presses[0].pad.index, id: presses[0].pad.id });
   if (pick && presses.length) { const cb = pick, fresh = presses[0].pad; pick = null; prev = fresh.buttons.map(b => b.pressed); presses = []; cb(fresh); return; }
+  const claimed = new Set<number>();
+  for (const q of presses) if (!claimed.has(q.pad.index) && claim?.(q.pad, q.button)) claimed.add(q.pad.index);
+  presses = presses.filter(q => !claimed.has(q.pad.index));
 
-  const pads = padsFor(menuSource());
+  const pads = padsFor(menuSource()).filter(p => !claimed.has(p.index));
   const now: boolean[] = [];
   let ax = 0, ay = 0;
   for (const p of pads) {

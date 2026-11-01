@@ -70,13 +70,17 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .card .arrows button { width: 30px; height: 30px; border-radius: 50%; border: none; background: #fff; font-weight: 800; color: var(--ink); cursor: pointer; box-shadow: 0 3px 0 #c3b8e6; }
 .card .src { margin-top: 6px; max-width: 100%; font-family: 'Fredoka'; font-weight: 600; font-size: 13px; color: #8a7bb5; background: #fff; border: none; border-radius: 999px;
   padding: 3px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 0 #d9d0f5; }
+.card .dev { display: flex; gap: 4px; justify-content: center; align-items: center; margin-top: 6px; }
+.card .dev .src { margin-top: 0; }
+.card .src.listen { background: var(--yellow); color: var(--ink); }
+.card .gear { flex: none; border: none; background: #fff; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; box-shadow: 0 2px 0 #d9d0f5; font-size: 13px; padding: 0; color: var(--ink); font-weight: 800; }
+.card .dev .src { min-width: 0; padding: 3px 8px; }
 .screen.menu { background: rgba(59,42,92,0.35); }
 .screen.menu .btn { min-width: 300px; }
 /* CONTROLS shows one device's labels whatever the menus are using */
 .binds.nin .xb { display: none; } .binds.nin .nn { display: inline; }
 .binds.xbl .xb { display: inline; } .binds.xbl .nn { display: none; }
 .card .pn { position: absolute; top: 8px; left: 8px; font-family: 'Lilita One'; font-size: 14px; color: #fff; padding: 1px 8px; border-radius: 999px; }
-.card .drop { position: absolute; bottom: 8px; right: 8px; width: 26px; height: 26px; border-radius: 50%; border: none; background: #fff; font-weight: 800; color: var(--ink); cursor: pointer; box-shadow: 0 3px 0 #c3b8e6; }
 .couch { font-weight: 600; color: #8a7bb5; text-align: center; margin-top: -8px; margin-bottom: 14px; }
 .name-in { font-family: 'Fredoka'; font-weight: 600; font-size: 16px; border: 3px solid #d9d0f5; border-radius: 12px; padding: 4px 8px; width: 100%; text-align: center; outline: none; color: var(--ink); }
 .name-in:focus { border-color: var(--yellow); }
@@ -239,6 +243,8 @@ export interface LobbyHandlers {
   rename(name: string): void;
   character(delta: number, seat: number): void;
   addSeat(): void;
+  changeDevice(seat: number): void; // the next key or pad press becomes this player's device
+  identify(seat: number): void; // pointing at their card: buzz their pad
   dropSeat(seat: number): void;
   ready(): void;
   addBot(): void;
@@ -496,11 +502,11 @@ export class UI {
     const card = (p: LobbyPlayer) => {
       const n = seatOf(p.id);
       const chip = n >= 0 && local.length > 1 ? `<div class="pn" style="background:${SEAT_COLORS[n]}">P${n + 1}</div>` : '';
-      const src = n >= 0 && local.length > 1 ? `<button class="src" data-a="ctl-${n}" title="Controls for this device">${deviceLabel(local[n].device)}</button>` : '';
+      const src = n >= 0 ? `<div class="dev"><button class="src ${local[n].changing ? 'listen' : ''}" data-a="seatdev-${n}" title="${esc(deviceTitle(local[n].device))} · click, then press a button or key to change">${local[n].changing ? (n === 0 && local.length === 1 ? 'PRESS ONE… (Esc: any)' : 'PRESS A BUTTON OR KEY…') : deviceLabel(local[n].device)}</button><button class="gear" data-a="ctl-${n}" title="Controls for this device">⚙</button>${n > 0 ? `<button class="gear" data-a="drop-${n}" title="Remove this player">✕</button>` : ''}</div>` : '';
       if (n === 0) return `${chip}<div class="arrows"><button data-a="prev">‹</button><button data-a="next">›</button></div>
               <input class="name-in" maxlength="16" value="${esc(p.name)}" />${src}`;
       if (n > 0) return `${chip}<div class="arrows"><button data-a="prev-${n}">‹</button><button data-a="next-${n}">›</button></div>
-              <div class="nm">${esc(p.name)}</div>${src}<button class="drop" data-a="drop-${n}" title="Remove this player">✕</button>`;
+              <div class="nm">${esc(p.name)}</div>${src}`;
       return `<div class="nm">${esc(p.name)}</div>`;
     };
     const results = last?.length
@@ -522,7 +528,7 @@ export class UI {
             <img src="${portrait(p.character)}" alt="${CHARACTERS[p.character]}" />
             ${card(p)}
           </div>`).join('')}</div>
-        <div class="couch">${local.length < MAX_SEATS ? `Same screen: <b>+ PLAYER</b>, then press a button on their controller (or a key for the keyboard). Up to ${MAX_SEATS}, split screen.` : `${MAX_SEATS} players on this screen.`}${local.length > 1 ? ' Their pad: bumpers change character, B drops out.' : ''}</div>
+        <div class="couch">${local.length < MAX_SEATS ? `Same screen: press <b>A</b> on another controller, or <b>Enter</b> on the keyboard, to join (up to ${MAX_SEATS}, split screen). B / Esc drops out.` : `${MAX_SEATS} players on this screen.`}${local.length > 1 ? ' Their pad: bumpers change character.' : ''} Your device: click it, then press the one you want.</div>
         <div class="row">
           ${inMatch ? '<div class="status" style="color:#8a7bb5;text-shadow:none">Match in progress — you\'ll join next round</div>'
             : `<button class="btn ${me?.ready ? '' : 'pink'}" data-a="ready">${me?.ready ? 'CANCEL' : players.length < 2 ? 'ADD A BOT TO START' : "I'M READY!"}</button>`}
@@ -545,7 +551,18 @@ export class UI {
       if (this.lobbyArgs) this.updateLobby(...this.lobbyArgs);
     });
     q('controls')?.addEventListener('click', () => controls(0));
-    for (let n = 0; n < local.length; n++) q(`ctl-${n}`)?.addEventListener('click', () => controls(n));
+    for (let n = 0; n < local.length; n++) {
+      q(`ctl-${n}`)?.addEventListener('click', () => controls(n));
+      q(`seatdev-${n}`)?.addEventListener('click', () => h.changeDevice(n));
+    }
+    // Pointing at a local player's card (mouse, or the pad's focus ring) buzzes their pad
+    const cards = [...this.lobby.querySelectorAll<HTMLElement>('.card')];
+    players.forEach((p, i) => {
+      const n = seatOf(p.id);
+      if (n < 0 || !cards[i]) return;
+      cards[i].addEventListener('mouseenter', () => h.identify(n));
+      cards[i].addEventListener('focusin', () => h.identify(n));
+    });
     q('addseat')?.addEventListener('click', () => h.addSeat());
     q('ready')?.addEventListener('click', () => h.ready());
     q('prev')?.addEventListener('click', () => h.character(-1, 0));
@@ -635,7 +652,7 @@ export class UI {
 }
 
 export interface Rect { x: number; y: number; w: number; h: number }
-export interface LocalSeat { id: number; device: InputSource }
+export interface LocalSeat { id: number; device: InputSource; changing: boolean }
 export const MAX_SEATS = 4;
 /** P1–P4 on lobby cards and name tags. */
 export const SEAT_COLORS = ['#f0408f', '#3d8bff', '#ff8a3d', '#9b5cff'];
@@ -771,12 +788,19 @@ function keyAction(action: PadAction): string {
   return `<kbd>${k ? esc(keyName(k)) : '—'}</kbd>`;
 }
 
+/** A seat's device in full, for its card's tooltip. */
+function deviceTitle(src: InputSource): string {
+  if (src === 'any') return 'Keyboard and every controller';
+  if (src === 'keys') return 'Keyboard';
+  return padName(src.id);
+}
+
 /** A seat's device, for its lobby card. */
 function deviceLabel(src: InputSource): string {
   if (src === 'any') return 'ANY INPUT';
   if (src === 'keys') return '⌨ KEYBOARD';
   const pad = padsFor(src)[0];
-  return pad ? `🎮 PAD ${pad.index + 1} · ${esc(padName(pad.id))}` : `🎮 ${esc(padName(src.id))} · not connected`;
+  return pad ? `🎮 PAD ${pad.index + 1}` : '🎮 not connected';
 }
 
 /** "8BitDo Pro 2 (STANDARD GAMEPAD Vendor: 2dc8)" → "8BitDo Pro 2". */

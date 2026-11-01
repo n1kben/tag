@@ -101,7 +101,7 @@ function store(): void {
 // indexes can shift on reconnect, so a free pad with the same id takes over.
 export type InputSource = 'any' | 'keys' | { index: number; id: string };
 let seatSrcs: InputSource[] = ['any'];
-let lastUsed: InputSource = 'keys';
+let lastUsed: InputSource | null = null; // null: only the mouse so far
 
 /** game.ts: the devices of the seats, in seat order. */
 export function setSeatSources(list: InputSource[]): void {
@@ -128,9 +128,18 @@ export function sourceTaken(src: InputSource): boolean {
   return seatSrcs.some(s => s === 'any' || sameSource(s, src));
 }
 
-/** The device last pressed: a key, or a pad button (pad.ts reports those). */
-export function lastDevice(): InputSource {
+/** The device last pressed: a key (outside text fields), or a pad button (pad.ts reports those). */
+export function lastDevice(): InputSource | null {
   return lastUsed;
+}
+
+/** Buzz a pad (Chrome; a no-op where unsupported): the lobby shows whose pad is whose this way. */
+export function rumble(src: InputSource, ms = 160, strength = 0.6): void {
+  if (src === 'any' || src === 'keys') return;
+  for (const pad of padsFor(src)) {
+    const act = (pad as Gamepad & { vibrationActuator?: { playEffect?: (t: string, p: object) => Promise<unknown> } }).vibrationActuator;
+    act?.playEffect?.('dual-rumble', { startDelay: 0, duration: ms, weakMagnitude: strength, strongMagnitude: strength })?.catch(() => {});
+  }
 }
 
 export function noteDevice(src: InputSource): void {

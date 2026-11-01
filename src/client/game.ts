@@ -9,9 +9,9 @@ import { Character, SliceDeath, CHAR_DEFS } from './characters';
 import { Fx } from './fx';
 import { UI, esc, MAX_SEATS, SEAT_COLORS, type HudState, type Rect, type SeatHud } from './ui';
 import { Network } from './net';
-import { readInput, isHeld, setInputEnabled, setMenuOwner, setSeatSources, lastDevice, sameSource, sourceTaken, padsFor, type InputSource } from './input';
+import { readInput, isHeld, setInputEnabled, setMenuOwner, setSeatSources, lastDevice, sameSource, sourceTaken, padsFor, rumble, type InputSource } from './input';
 import { onTouchMenu, touchBoardHeld, updateTouch } from './touch';
-import { padBoardHeld, padPresses, pickPad, pollPad } from './pad';
+import { onPadPress, padBoardHeld, padPresses, pickPad, pollPad } from './pad';
 import { sfx, spatial, setMuted, isMuted } from './audio';
 import { BTN_ACTION, BTN_FLASH, BTN_FROST, type Role } from '../shared/sim';
 import { ClientNet, lerpAngle } from './netcode';
@@ -56,8 +56,6 @@ export function startGame(): void {
 
   let mode: Mode = 'title';
   let roomId = '';
-  let joining = false; // + PLAYER is waiting for the new player's device
-  let joinFrom: InputSource = 'keys'; // the device that pressed + PLAYER: seat 1 keeps it
   let menuSeat: Seat | null = null; // whose in-match menu is open (their player stands still)
   let lobbyPlayers: LobbyPlayer[] = [];
   let lastStandings: Standing[] | undefined;
@@ -120,69 +118,114 @@ export function startGame(): void {
 
   function dropExtraSeats(): void {
     for (const s of seats.slice(1)) dropSeat(s);
-    cancelJoin();
+    cancelWait();
   }
 
   const isLocal = (id: number) => seats.some(s => s.id === id);
 
-  /** + PLAYER: the next pad button or key that no seat has yet becomes a new seat. */
-  function startJoin(): void {
-    if (seats.length >= MAX_SEATS || !roomId) return;
-    if (joining) { cancelJoin(); return; }
-    joining = true;
-    joinFrom = lastDevice();
-    const take = (src: InputSource) => {
-      if (seats.length === 1 && typeof src === 'object' && sameSource(src, joinFrom)) return false; // P1 pressing on again
-      if (seats.length === 1) {
-        // Seat 1 stops listening to everything: it keeps the device that pressed + PLAYER, or another one
-        const other = (d: InputSource) => !sameSource(d, src);
-        const pad = padsFor('any').find(p => other({ index: p.index, id: p.id }));
-        const keep = other(joinFrom) ? joinFrom : src !== 'keys' ? 'keys' : pad ? { index: pad.index, id: pad.id } : null;
-        if (!keep) { ui.setStatus('Player 1 needs a controller'); return false; }
-        p1.src = keep;
-      } else if (sourceTaken(src)) return false;
-      cancelJoin();
-      const seat = addSeat(src);
-      seat.net.send({ type: 'join_room', roomId });
-      sfx.ui();
+  // Overcooked-style: A / Start on a free pad, or Enter / Space on a free keyboard, joins; B / Esc drops out.
+  // A lone P1 has every device, so a device other than the one they last used joins (P1 keeps theirs).
+  /** Who P1 is when alone: the device last used before this frame's presses (null: only the mouse so far). */
+  let p1Device: InputSource | null = null;
+
+  /** The device P1 keeps if `src` joins now, or false when it can't (taken, full, or P1's own). */
+  function canJoin(src: InputSource): InputSource | false {
+    if (mode !== 'lobby' || !roomId || seats.length >= MAX_SEATS || waiting) return false;
+    if (seats.length === 1) return p1Device && !sameSource(p1Device, src) ? p1Device : false;
+    return sourceTaken(src) ? false : p1.src;
+  }
+
+  function join(src: InputSource, p1Keeps: InputSource): void {
+    if (seats.length === 1) p1.src = p1Keeps;
+    cancelWait();
+    const seat = addSeat(src);
+    seat.net.send({ type: 'join_room', roomId });
+    rumble(src, 220);
+    sfx.ui();
+    refreshLobby();
+  }
+
+  onPadPress((pad, button) => {
+    if (button !== 0 && button !== 9) return false; // A or Start
+    const src = { index: pad.index, id: pad.id }, keep = canJoin(src);
+    if (!keep) return false;
+    join(src, keep);
+    return true;
+  });
+
+  /** Waiting for a device: + PLAYER (seat null) or a card's device pill (that seat changes device). */
+  let waiting: { seat: Seat | null } | null = null;
+  let stopWait = () => {};
+
+  function startWait(seat: Seat | null): void {
+    if (waiting) { const same = waiting.seat === seat; cancelWait(); if (same) return; }
+    if (!seat && (seats.length >= MAX_SEATS || !roomId)) return;
+    waiting = { seat };
+    const p1From = lastDevice(); // + PLAYER from a lone P1: P1 keeps the device that pressed it
+    const take = (src: InputSource): boolean => {
+      if (seat) {
+        if (seats.length > 1 && sourceTaken(src) && !sameSource(seat.src, src)) return false; // someone else's
+        seat.src = src;
+        setSeatSources(seats.map(s => s.src));
+        cancelWait();
+        rumble(src, 220);
+        sfx.ui();
+        return true;
+      }
+      if (seats.length > 1) {
+        if (sourceTaken(src)) return false;
+        join(src, p1.src);
+        return true;
+      }
+      if (p1From && typeof src === 'object' && sameSource(src, p1From)) return false; // P1 pressing on again
+      const pad = padsFor('any').find(p => !sameSource({ index: p.index, id: p.id }, src));
+      const keep = p1From && !sameSource(p1From, src) ? p1From : src !== 'keys' ? 'keys' : pad ? { index: pad.index, id: pad.id } : null;
+      if (!keep) { ui.setStatus('Player 1 needs a controller'); return false; }
+      join(src, keep);
       return true;
     };
+    // Capture phase: the key is this player's choice, not a lobby shortcut (Enter joining, Esc dropping out)
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.code === 'Tab') return;
-      if (e.code === 'Escape') cancelJoin();
-      else take('keys');
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.code !== 'Escape') { take('keys'); return; }
+      if (seat === p1 && seats.length === 1) { p1.src = 'any'; setSeatSources([p1.src]); } // alone: back to every device
+      cancelWait();
     };
     const listenPad = () => pickPad(pad => { if (!take({ index: pad.index, id: pad.id })) listenPad(); });
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, { capture: true });
     listenPad();
-    stopJoin = () => { window.removeEventListener('keydown', onKey); pickPad(null); };
-    refreshLobby();
-  }
-  let stopJoin = () => {};
-
-  function cancelJoin(): void {
-    stopJoin();
-    stopJoin = () => {};
-    if (!joining) return;
-    joining = false;
+    stopWait = () => { window.removeEventListener('keydown', onKey, { capture: true }); pickPad(null); };
     refreshLobby();
   }
 
-  /** The other seats' pads in the lobby: bumpers change character, B drops out, Start readies everyone.
-   *  With two or more seats, Start on a pad nobody has joins. */
+  function cancelWait(): void {
+    stopWait();
+    stopWait = () => {};
+    if (!waiting) return;
+    waiting = null;
+    refreshLobby();
+  }
+
+  /** The other seats' pads in the lobby: bumpers change character, B drops out, Start readies everyone. */
   function seatPadButtons(): void {
     for (const { pad, button } of padPresses()) {
       const seat = seats.find(s => s !== p1 && padsFor(s.src)[0]?.index === pad.index);
-      if (seat) {
-        if (button === 1) dropSeat(seat);
-        else if (button === 4 || button === 5) changeCharacter(seat, button === 4 ? -1 : 1);
-        else if (button === 9) readyAll();
-      } else if (button === 9 && seats.length > 1 && seats.length < MAX_SEATS && !sourceTaken({ index: pad.index, id: pad.id }) && !joining) {
-        const s = addSeat({ index: pad.index, id: pad.id });
-        s.net.send({ type: 'join_room', roomId });
-        sfx.ui();
-      }
+      if (!seat) continue;
+      if (button === 1) dropSeat(seat);
+      else if (button === 4 || button === 5) changeCharacter(seat, button === 4 ? -1 : 1);
+      else if (button === 9) readyAll();
     }
+  }
+
+  const buzzedAt = new Map<Seat, number>();
+  /** Pointing at a card buzzes that player's pad. */
+  function identify(seat: Seat): void {
+    const t = performance.now();
+    if (t - (buzzedAt.get(seat) ?? 0) < 400) return;
+    buzzedAt.set(seat, t);
+    rumble(seat.src, 120, 0.4);
   }
 
   function changeCharacter(seat: Seat, delta: number): void {
@@ -199,7 +242,7 @@ export function startGame(): void {
   }
 
   function refreshLobby(): void {
-    if (mode === 'lobby') ui.updateLobby(roomId, lobbyPlayers, seats.map(s => ({ id: s.id, device: s.src })), lobbyInMatch, lobbyMode, lastStandings, joining);
+    if (mode === 'lobby') ui.updateLobby(roomId, lobbyPlayers, seats.map(s => ({ id: s.id, device: s.src, changing: waiting?.seat === s })), lobbyInMatch, lobbyMode, lastStandings, !!waiting && !waiting.seat);
   }
 
   /** Split-screen layout in CSS px: full, side by side, or a 2×2 grid (three players leave the board a quarter). */
@@ -227,7 +270,9 @@ export function startGame(): void {
     ui.showLobby({
       rename: name => net.send({ type: 'profile', name }),
       character: (delta, n) => { if (seats[n]) changeCharacter(seats[n], delta); },
-      addSeat: startJoin,
+      addSeat: () => startWait(null),
+      changeDevice: n => { if (seats[n]) startWait(seats[n]); },
+      identify: n => { if (seats[n]) identify(seats[n]); },
       dropSeat: n => { if (seats[n]) dropSeat(seats[n]); },
       ready: readyAll,
       addBot: () => net.send({ type: 'add_bot' }),
@@ -275,9 +320,16 @@ export function startGame(): void {
   const keyboardSeat = () => seats.find(s => s.src === 'keys' || s.src === 'any') ?? p1;
 
   window.addEventListener('keydown', e => {
-    if (e.code !== 'Escape' || mode !== 'match' || e.target instanceof HTMLInputElement) return;
-    if (ui.root.querySelector('.screen.sky.on')) return; // CONTROLS: Esc there cancels a capture, BACK leaves
-    if (menuSeat) closeMenu(); else openMenu(keyboardSeat());
+    if (e.target instanceof HTMLInputElement || ui.root.querySelector('.screen.sky.on')) return; // CONTROLS has its own keys
+    if (mode === 'match' && e.code === 'Escape') {
+      if (menuSeat) closeMenu(); else openMenu(keyboardSeat());
+    } else if (mode === 'lobby' && (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space')) {
+      const keep = canJoin('keys');
+      if (keep) join('keys', keep);
+    } else if (mode === 'lobby' && e.code === 'Escape') {
+      const kb = seats.find(s => s !== p1 && s.src === 'keys');
+      if (kb) dropSeat(kb);
+    }
   });
 
   onTouchMenu(() => openMenu(p1));
@@ -382,7 +434,7 @@ export function startGame(): void {
   function startMatch(roster: LobbyPlayer[]): void {
     cleanupMatch();
     mode = 'match';
-    cancelJoin();
+    cancelWait();
     cn.stats.reset(); // the netgraph counts per match
     ui.showHud();
     for (const p of roster) ensureChar(p.id, p.character);
@@ -678,6 +730,7 @@ export function startGame(): void {
     last = now;
     const menuWasOpen = menuSeat !== null; // so the Start that closes it doesn't reopen it
     pollPad();
+    p1Device = lastDevice(); // after this frame's presses were judged against the old one
     if (mode === 'lobby') seatPadButtons();
     if (mode === 'match' && !menuWasOpen) menuPadButtons();
     fpsFrames++; fpsT += dt;
