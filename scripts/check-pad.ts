@@ -206,6 +206,13 @@ check(await rumbles(1) > buzz0, 'pointing at P2\'s card buzzes P2\'s pad');
 await tap(0, 0); // the 8BitDo is free now
 cardsNow = await cardCount(3);
 check(cardsNow.length === 3 && cardsNow[2].includes('8BitDo'), `the freed pad joins as P3 (${cardsNow.join(' | ')})`);
+const devTops = await w.evaluate(`[...document.querySelectorAll('.lobby.on .card.me .dev')].map(d => Math.round(d.getBoundingClientRect().top))`) as number[];
+check(devTops.length === 3 && devTops.every(t => t === devTops[0]), `the three device rows line up (${devTops})`);
+await w.fill('.lobby.on .name-in[data-n="1"]', 'Player Two');
+await w.press('.lobby.on .name-in[data-n="1"]', 'Enter');
+for (let i = 0; i < 20 && !(await w.evaluate(`[...document.querySelectorAll('.lobby.on .card')].some(c => c.querySelector('.name-in')?.value === 'Player Two')`)); i++) await w.waitForTimeout(150);
+check(await w.evaluate(`document.querySelector('.lobby.on .name-in[data-n="1"]').value === 'Player Two'`) as boolean, 'P2 renames from their own name box');
+check((await localCards()).length === 3, 'Enter in a name box doesn\'t join the keyboard');
 if (out) await w.screenshot({ path: `${out}/split-lobby.png` });
 
 const wShown = (sel: string) => w.evaluate(`(() => { const e = document.querySelector('${sel}'); return !!e && getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0; })()`) as Promise<boolean>;

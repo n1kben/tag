@@ -63,7 +63,7 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .card.me { border-color: var(--yellow); background: #fff8dc; }
 .card.ready { box-shadow: inset 0 0 0 3px var(--teal); }
 .card img { width: 110px; height: 110px; object-fit: contain; display: block; margin: 0 auto; }
-.card .nm { font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .nm { font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 3px solid transparent; padding: 4px 8px; line-height: normal; }
 .card .tag { position: absolute; top: 8px; right: 8px; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #fff; }
 .card .tag.rdy { background: var(--teal); }
 .card .arrows { display: flex; justify-content: space-between; position: absolute; top: 50px; left: 4px; right: 4px; }
@@ -74,7 +74,7 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .card .dev .src { margin-top: 0; }
 .card .src.listen { background: var(--yellow); color: var(--ink); }
 .card .gear { flex: none; border: none; background: #fff; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; box-shadow: 0 2px 0 #d9d0f5; font-size: 13px; padding: 0; color: var(--ink); font-weight: 800; }
-.card .dev .src { min-width: 0; padding: 3px 8px; }
+.card .dev .src { min-width: 0; height: 24px; padding: 0 8px; line-height: 24px; }
 .screen.menu { background: rgba(59,42,92,0.35); }
 .screen.menu .btn { min-width: 300px; }
 /* CONTROLS shows one device's labels whatever the menus are using */
@@ -240,7 +240,7 @@ export function portrait(character: number): string {
 export interface TitleHandlers { practice(mode: GameMode): void; create(mode: GameMode): void; join(code: string): void }
 export interface LobbyHandlers {
   mode(mode: GameMode): void;
-  rename(name: string): void;
+  rename(name: string, seat: number): void;
   character(delta: number, seat: number): void;
   addSeat(): void;
   changeDevice(seat: number): void; // the next key or pad press becomes this player's device
@@ -503,10 +503,9 @@ export class UI {
       const n = seatOf(p.id);
       const chip = n >= 0 && local.length > 1 ? `<div class="pn" style="background:${SEAT_COLORS[n]}">P${n + 1}</div>` : '';
       const src = n >= 0 ? `<div class="dev"><button class="src ${local[n].changing ? 'listen' : ''}" data-a="seatdev-${n}" title="${esc(deviceTitle(local[n].device))} · click, then press a button or key to change">${local[n].changing ? (n === 0 && local.length === 1 ? 'PRESS ONE… (Esc: any)' : 'PRESS A BUTTON OR KEY…') : deviceLabel(local[n].device)}</button><button class="gear" data-a="ctl-${n}" title="Controls for this device">⚙</button>${n > 0 ? `<button class="gear" data-a="drop-${n}" title="Remove this player">✕</button>` : ''}</div>` : '';
-      if (n === 0) return `${chip}<div class="arrows"><button data-a="prev">‹</button><button data-a="next">›</button></div>
-              <input class="name-in" maxlength="16" value="${esc(p.name)}" />${src}`;
-      if (n > 0) return `${chip}<div class="arrows"><button data-a="prev-${n}">‹</button><button data-a="next-${n}">›</button></div>
-              <div class="nm">${esc(p.name)}</div>${src}`;
+      // Every player on this screen can rename themselves; everyone else's name sits in a box of the same size
+      if (n >= 0) return `${chip}<div class="arrows"><button data-a="${n ? `prev-${n}` : 'prev'}">‹</button><button data-a="${n ? `next-${n}` : 'next'}">›</button></div>
+              <input class="name-in" data-n="${n}" maxlength="16" value="${esc(p.name)}" />${src}`;
       return `<div class="nm">${esc(p.name)}</div>`;
     };
     const results = last?.length
@@ -536,10 +535,10 @@ export class UI {
       </div>`;
     // Mid-edit, rebuild everything around the name input but keep that element attached, so the caret,
     // selection, IME composition and on-screen keyboard survive other players changing the lobby
-    const typing = this.lobby.querySelector<HTMLInputElement>('.name-in');
+    const typing = document.activeElement instanceof HTMLInputElement && this.lobby.contains(document.activeElement) ? document.activeElement : null;
     const next = el('div', '', html);
-    const fresh = next.querySelector<HTMLInputElement>('.name-in');
-    if (typing && fresh && document.activeElement === typing) keepAround(this.lobby, typing, fresh);
+    const fresh = typing && next.querySelector<HTMLInputElement>(`.name-in[data-n="${typing.dataset.n}"]`);
+    if (typing && fresh) keepAround(this.lobby, typing, fresh);
     else this.lobby.innerHTML = html;
     const q = (a: string) => this.lobby.querySelector(`[data-a=${a}]`);
     q('add')?.addEventListener('click', () => h.addBot());
@@ -579,14 +578,15 @@ export class UI {
     this.lobby.querySelector('.room-code')?.addEventListener('click', () => {
       void navigator.clipboard?.writeText(`${location.origin}${location.pathname}#${roomId}`);
     });
-    const nameIn = this.lobby.querySelector<HTMLInputElement>('.name-in');
-    if (nameIn && !nameIn.dataset.bound) {
+    for (const nameIn of this.lobby.querySelectorAll<HTMLInputElement>('.name-in')) {
+      if (nameIn.dataset.bound) continue;
       nameIn.dataset.bound = '1';
+      const n = Number(nameIn.dataset.n);
       // Rename once editing is done: renaming per keystroke would re-render the lobby under the user's fingers.
       // defaultValue is the server's name when this input was rendered, and only we rename ourselves.
       nameIn.addEventListener('blur', () => {
         const name = nameIn.value.trim();
-        if (name && name !== nameIn.defaultValue) h.rename(name);
+        if (name && name !== nameIn.defaultValue) h.rename(name, n);
       });
       nameIn.addEventListener('keydown', e => { if (e.key === 'Enter') nameIn.blur(); });
     }

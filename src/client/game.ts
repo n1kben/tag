@@ -268,7 +268,7 @@ export function startGame(): void {
   function showLobby(): void {
     mode = 'lobby';
     ui.showLobby({
-      rename: name => net.send({ type: 'profile', name }),
+      rename: (name, n) => seats[n]?.net.send({ type: 'profile', name }),
       character: (delta, n) => { if (seats[n]) changeCharacter(seats[n], delta); },
       addSeat: () => startWait(null),
       changeDevice: n => { if (seats[n]) startWait(seats[n]); },
