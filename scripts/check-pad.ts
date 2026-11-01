@@ -134,6 +134,14 @@ await p.keyboard.press('Escape'); await frames(p);
 check(await shown('.screen.menu.on'), 'Esc opens the menu');
 await p.keyboard.press('Escape'); await frames(p);
 check(!(await shown('.screen.menu.on')), 'Esc closes it');
+// The menu's DEVICE works like the lobby card's: click it, press the device you want
+await p.keyboard.press('Escape'); await frames(p);
+await p.click('.menu [data-a=device]');
+check((await p.textContent('.menu [data-a=device]'))!.includes('PRESS'), 'DEVICE waits for a press');
+await press(p, 0);
+check((await p.textContent('.menu [data-a=device]'))!.includes('PAD 1'), `pressing the pad makes it this player's (${await p.textContent('.menu [data-a=device]')})`);
+await p.keyboard.press('Escape'); await frames(p);
+check(!(await shown('.screen.menu.on')), 'Esc still closes it');
 await press(p, 9);
 await p.evaluate(`document.querySelector('.menu [data-a=quit]').focus()`);
 await press(p, 0);

@@ -254,6 +254,7 @@ export interface LobbyHandlers {
 
 export interface MenuHandlers {
   resume(): void;
+  changeDevice(): void; // as on the lobby card: the next key or pad press becomes this player's device
   controls(): void;
   toggleSound(): boolean; // → muted
   dropOut?: () => void;
@@ -452,8 +453,8 @@ export class UI {
     this.controls.classList.add('on');
   }
 
-  /** In a match (Esc / Start): RESUME, CONTROLS, SOUND, DROP OUT (split-screen seats), LEAVE MATCH (asks first). */
-  showMenu(h: MenuHandlers, seat: number | null, muted: boolean): void {
+  /** In a match (Esc / Start): RESUME, DEVICE and CONTROLS (as on the lobby card), SOUND, DROP OUT (split-screen seats), LEAVE MATCH (asks first). */
+  showMenu(h: MenuHandlers, seat: number | null, muted: boolean, device: InputSource, changing: boolean): void {
     let sure = false;
     const render = () => {
       const had = document.activeElement instanceof HTMLElement && this.menu.contains(document.activeElement) ? document.activeElement.dataset.a : 'back';
@@ -461,6 +462,7 @@ export class UI {
         <div class="panel col">
           <div class="display" style="font-size:44px;color:var(--yellow)">${seat !== null ? `<span style="color:${SEAT_COLORS[seat]}">P${seat + 1}</span> ` : ''}MENU</div>
           <button class="btn pink" data-a="back">RESUME</button>
+          <button class="btn ${changing ? 'yellow' : ''}" data-a="device" title="${esc(deviceTitle(device))}">${changing ? 'PRESS A BUTTON OR KEY…' : `DEVICE: ${deviceLabel(device)}`}</button>
           <button class="btn" data-a="controls">CONTROLS</button>
           <button class="btn" data-a="sound">SOUND: ${muted ? 'OFF' : 'ON'}</button>
           ${h.dropOut ? '<button class="btn" data-a="drop">DROP OUT</button>' : ''}
@@ -469,6 +471,7 @@ export class UI {
         </div>`;
       const on = (a: string, fn: () => void) => this.menu.querySelector(`[data-a=${a}]`)?.addEventListener('click', fn);
       on('back', h.resume);
+      on('device', h.changeDevice);
       on('controls', h.controls);
       on('sound', () => { muted = h.toggleSound(); render(); });
       on('drop', () => h.dropOut?.());

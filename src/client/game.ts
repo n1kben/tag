@@ -197,7 +197,13 @@ export function startGame(): void {
     window.addEventListener('keydown', onKey, { capture: true });
     listenPad();
     stopWait = () => { window.removeEventListener('keydown', onKey, { capture: true }); pickPad(null); };
+    refreshWaiting();
+  }
+
+  /** The lobby card or in-match menu showing a device wait (or its result). */
+  function refreshWaiting(): void {
     refreshLobby();
+    if (menuSeat) openMenu(menuSeat); // also hands the menu to the player's new device
   }
 
   function cancelWait(): void {
@@ -205,7 +211,7 @@ export function startGame(): void {
     stopWait = () => {};
     if (!waiting) return;
     waiting = null;
-    refreshLobby();
+    refreshWaiting();
   }
 
   /** The other seats' pads in the lobby: bumpers change character, B drops out, Start readies everyone. */
@@ -300,17 +306,20 @@ export function startGame(): void {
     setMenuOwner(seat.src); // that player's pad drives it
     ui.showMenu({
       resume: closeMenu,
+      changeDevice: () => startWait(seat),
       controls: () => ui.showControls(seat.src, () => { ui.showHud(); openMenu(seat); }),
       toggleSound: () => { setMuted(!isMuted()); return isMuted(); },
       dropOut: seat !== p1 ? () => { closeMenu(); dropSeat(seat); } : undefined,
       leave: () => { closeMenu(); leave(); },
-    }, seats.length > 1 ? seat.n : null, isMuted());
+    }, seats.length > 1 ? seat.n : null, isMuted(), seat.src, waiting?.seat === seat);
     if (!document.documentElement.classList.contains('pad')) ui.root.querySelector<HTMLElement>('.menu [data-a=back]')?.focus({ preventScroll: true });
   }
 
   function closeMenu(): void {
-    if (!menuSeat) return;
+    const seat = menuSeat;
+    if (!seat) return;
     menuSeat = null;
+    if (waiting?.seat === seat) cancelWait();
     setMenuOwner(null);
     ui.hideMenu();
     if (mode === 'match') ui.showHud(); // back from CONTROLS too
