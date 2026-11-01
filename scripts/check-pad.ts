@@ -64,11 +64,12 @@ await press(p, 5); // RB: next character
 await p.waitForTimeout(400);
 check(await p.evaluate(`document.querySelector('.card.me img').src`) !== img0, 'RB changes character');
 
-// CONTROLS from the lobby, on this pad: rebind jump to RB, which leaves frost; RESET brings the defaults back
+// CONTROLS from the lobby (P1's ⚙), on this pad: rebind jump to RB, which leaves frost; RESET brings the defaults back
 const PAD_ID = '8BitDo Pro 2 (STANDARD GAMEPAD Vendor: 2dc8)';
-await p.evaluate(`document.querySelector('[data-a=controls]').focus()`);
+check(!(await shown('.lobby.on [data-a=controls]')), 'no lobby-wide CONTROLS button');
+await p.evaluate(`document.querySelector('[data-a=ctl-0]').focus()`);
 await press(p, 0);
-check(await shown('.screen.on [data-a=bind-jump]'), 'A on CONTROLS opens the controls screen');
+check(await shown('.screen.on [data-a=bind-jump]'), 'A on P1\'s ⚙ opens the controls screen');
 check(await p.evaluate(`document.querySelector('[data-a=dev-0]').classList.contains('on')`) as boolean, 'it opens on the pad in use');
 await p.evaluate(`document.querySelector('[data-a=bind-jump]').focus()`);
 await press(p, 0); // pick Jump

@@ -514,7 +514,7 @@ export class UI {
       <div class="panel">
         <div class="row" style="justify-content:space-between">
           <div><div style="font-weight:700;color:#8a7bb5">ROOM CODE · click to copy link</div><div class="room-code" title="Copy invite link">${esc(roomId)}</div></div>
-          <div class="row"><button class="btn small" data-a="add">+ BOT</button><button class="btn small" data-a="rm">− BOT</button><button class="btn small ${joining ? 'yellow' : ''}" data-a="addseat">${joining ? 'PRESS A BUTTON OR KEY…' : '+ PLAYER'}</button><button class="btn small" data-a="controls">CONTROLS</button><button class="btn small" data-a="leave">LEAVE</button></div>
+          <div class="row"><button class="btn small" data-a="add">+ BOT</button><button class="btn small" data-a="rm">− BOT</button><button class="btn small ${joining ? 'yellow' : ''}" data-a="addseat">${joining ? 'PRESS A BUTTON OR KEY…' : '+ PLAYER'}</button><button class="btn small" data-a="leave">LEAVE</button></div>
         </div>
         <div class="row" style="justify-content:flex-start;margin-top:10px">
           <div class="seg" data-a="modes">${modeButtons(mode)}</div>
@@ -549,7 +549,6 @@ export class UI {
       this.lobby.classList.add('on');
       if (this.lobbyArgs) this.updateLobby(...this.lobbyArgs);
     });
-    q('controls')?.addEventListener('click', () => controls(0));
     for (let n = 0; n < local.length; n++) {
       q(`ctl-${n}`)?.addEventListener('click', () => controls(n));
       q(`seatdev-${n}`)?.addEventListener('click', () => h.changeDevice(n));
