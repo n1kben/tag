@@ -48,11 +48,17 @@ for (const dev of [{ name: 'phone portrait', w: 390, h: 844 }, { name: 'iPad lan
 
   const board = await center(p, '.tpad [data-b=board]');
   await touch(cdp, 'touchStart', [{ x: board.x, y: board.y, id: 3 }]);
-  await p.waitForTimeout(100);
-  const boardShown = await p.evaluate(`getComputedStyle(document.querySelector('.board')).display !== 'none'`) as boolean;
+  let boardShown = false; // within a second: software GL stalls for a frame or two now and then
+  for (let i = 0; i < 10 && !boardShown; i++) {
+    await p.waitForTimeout(100);
+    boardShown = await p.evaluate(`getComputedStyle(document.querySelector('.board')).display !== 'none'`) as boolean;
+  }
   await touch(cdp, 'touchEnd', []);
-  await p.waitForTimeout(100);
-  const boardGone = await p.evaluate(`getComputedStyle(document.querySelector('.board')).display === 'none'`) as boolean;
+  let boardGone = false;
+  for (let i = 0; i < 10 && !boardGone; i++) {
+    await p.waitForTimeout(100);
+    boardGone = await p.evaluate(`getComputedStyle(document.querySelector('.board')).display === 'none'`) as boolean;
+  }
   check(boardShown && boardGone, `${dev.name}: holding 🏆 shows the scoreboard`);
   await ctx.close();
 }

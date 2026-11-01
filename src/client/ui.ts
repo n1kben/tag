@@ -383,12 +383,10 @@ export class UI {
   }
 
   // ── Controls: pick a device and an action, press the key or button for it ──
-  /** Opens on `device` (the player who asked); 'any' starts on the pad the menus last saw, else the keyboard. */
+  /** Opens on `device`: the player who asked's. */
   showControls(device: InputSource, back: () => void): void {
     this.hideAll();
-    const padIndex = (src: InputSource) => typeof src === 'object' ? padsFor(src)[0]?.index ?? null
-      : src === 'any' ? connectedPads().find(p => p.id === hintPadId() && document.documentElement.classList.contains('pad'))?.index ?? null : null;
-    let pad: number | null = padIndex(device); // null: the keyboard
+    let pad: number | null = typeof device === 'object' ? padsFor(device)[0]?.index ?? null : null; // null: the keyboard
     let stopKey = () => {};
     const listen = (action: PadAction | null) => {
       stopKey();
@@ -511,7 +509,7 @@ export class UI {
     const card = (p: LobbyPlayer) => {
       const n = seatOf(p.id);
       const chip = n >= 0 && local.length > 1 ? `<div class="pn" style="background:${SEAT_COLORS[n]}">P${n + 1}</div>` : '';
-      const src = n >= 0 ? `<div class="dev"><button class="src ${local[n].changing ? 'listen' : ''}" data-a="seatdev-${n}" title="${esc(deviceTitle(local[n].device))} · click, then press a button or key to change">${local[n].changing ? (n === 0 && local.length === 1 ? 'PRESS ONE… (Esc: any)' : 'PRESS A BUTTON OR KEY…') : deviceLabel(local[n].device)}</button><button class="gear" data-a="ctl-${n}" title="Controls for this device">⚙</button>${n > 0 ? `<button class="gear" data-a="drop-${n}" title="Remove this player">✕</button>` : ''}</div>` : '';
+      const src = n >= 0 ? `<div class="dev"><button class="src ${local[n].changing ? 'listen' : ''}" data-a="seatdev-${n}" title="${esc(deviceTitle(local[n].device))} · click, then press a button or key to change">${local[n].changing ? 'PRESS A BUTTON OR KEY…' : deviceLabel(local[n].device)}</button><button class="gear" data-a="ctl-${n}" title="Controls for this device">⚙</button>${n > 0 ? `<button class="gear" data-a="drop-${n}" title="Remove this player">✕</button>` : ''}</div>` : '';
       // Every player on this screen can rename themselves; everyone else's name sits in a box of the same size
       if (n >= 0) return `${chip}<div class="arrows"><button data-a="${n ? `prev-${n}` : 'prev'}">‹</button><button data-a="${n ? `next-${n}` : 'next'}">›</button></div>
               <input class="name-in" data-n="${n}" maxlength="16" value="${esc(p.name)}" />${src}`;
@@ -553,7 +551,7 @@ export class UI {
     q('add')?.addEventListener('click', () => h.addBot());
     q('rm')?.addEventListener('click', () => h.removeBot());
     q('leave')?.addEventListener('click', () => h.leave());
-    const controls = (n: number) => { h.controlsFor(n); this.showControls(local[n]?.device ?? 'any', () => {
+    const controls = (n: number) => { h.controlsFor(n); this.showControls(local[n]?.device ?? 'keys', () => {
       h.controlsFor(null);
       this.hideAll();
       this.lobby.classList.add('on');
@@ -799,14 +797,12 @@ function keyAction(action: PadAction): string {
 
 /** A seat's device in full, for its card's tooltip. */
 function deviceTitle(src: InputSource): string {
-  if (src === 'any') return 'Keyboard and every controller';
   if (src === 'keys') return 'Keyboard';
   return padName(src.id);
 }
 
 /** A seat's device, for its lobby card. */
 function deviceLabel(src: InputSource): string {
-  if (src === 'any') return 'ANY INPUT';
   if (src === 'keys') return '⌨ KEYBOARD';
   const pad = padsFor(src)[0];
   return pad ? `🎮 PAD ${pad.index + 1}` : '🎮 not connected';

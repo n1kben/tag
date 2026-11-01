@@ -96,11 +96,10 @@ function store(): void {
   localStorage.setItem(BINDS_KEY, JSON.stringify(saved));
 }
 
-// Which device a local player (a split-screen seat, see game.ts) follows: any (keyboard, touch and
-// every pad, for one player alone), the keyboard only, or one pad. A pad is kept by index and id:
-// indexes can shift on reconnect, so a free pad with the same id takes over.
-export type InputSource = 'any' | 'keys' | { index: number; id: string };
-let seatSrcs: InputSource[] = ['any'];
+// Which device a local player (a split-screen seat, see game.ts) follows: the keyboard, or one pad.
+// A pad is kept by index and id: indexes can shift on reconnect, so a free pad with the same id takes over.
+export type InputSource = 'keys' | { index: number; id: string };
+let seatSrcs: InputSource[] = ['keys'];
 let lastUsed: InputSource | null = null; // null: only the mouse so far
 
 /** game.ts: the devices of the seats, in seat order. */
@@ -112,7 +111,7 @@ let menuOwner: InputSource | null = null;
 
 /** The device that drives the menus: whoever opened the in-match menu, else seat 1's. */
 export function menuSource(): InputSource {
-  return menuOwner ?? seatSrcs[0] ?? 'any';
+  return menuOwner ?? seatSrcs[0] ?? 'keys';
 }
 
 export function setMenuOwner(src: InputSource | null): void {
@@ -123,9 +122,9 @@ export function sameSource(a: InputSource, b: InputSource): boolean {
   return a === b || (typeof a === 'object' && typeof b === 'object' && a.index === b.index);
 }
 
-/** Some seat has this device (a lone 'any' seat has them all). */
+/** Some seat has this device. */
 export function sourceTaken(src: InputSource): boolean {
-  return seatSrcs.some(s => s === 'any' || sameSource(s, src));
+  return seatSrcs.some(s => sameSource(s, src));
 }
 
 /** The device last pressed: a key (outside text fields), or a pad button (pad.ts reports those). */
@@ -135,7 +134,7 @@ export function lastDevice(): InputSource | null {
 
 /** Buzz a pad (Chrome; a no-op where unsupported): the lobby shows whose pad is whose this way. */
 export function rumble(src: InputSource, ms = 160, strength = 0.6): void {
-  if (src === 'any' || src === 'keys') return;
+  if (src === 'keys') return;
   for (const pad of padsFor(src)) {
     const act = (pad as Gamepad & { vibrationActuator?: { playEffect?: (t: string, p: object) => Promise<unknown> } }).vibrationActuator;
     act?.playEffect?.('dual-rumble', { startDelay: 0, duration: ms, weakMagnitude: strength, strongMagnitude: strength })?.catch(() => {});
@@ -150,10 +149,9 @@ export function connectedPads(): Gamepad[] {
   return (navigator.getGamepads?.() ?? []).filter((p): p is Gamepad => !!p);
 }
 
-/** The pads a device means: every pad, none, or the one pad (following it to a new index). */
+/** The pads a device means: none for the keyboard, else the one pad (following it to a new index). */
 export function padsFor(src: InputSource): Gamepad[] {
   const all = connectedPads();
-  if (src === 'any') return all;
   if (src === 'keys') return [];
   const taken = (p: Gamepad) => seatSrcs.some(s => s !== src && typeof s === 'object' && s.index === p.index);
   const pad = all.find(p => p.index === src.index && p.id === src.id) ?? all.find(p => p.id === src.id && !taken(p));
@@ -183,11 +181,11 @@ export function isHeld(code: string): boolean {
   return keys.has(code);
 }
 
-/** One seat's input this tick; touch only for a lone player. */
+/** One seat's input this tick; touch too for a lone player. */
 export function readInput(src: InputSource, touch: boolean): Input {
   if (!enabled) return { mx: 0, mz: 0, b: 0 };
   let mx = 0, mz = 0, b = 0;
-  if (src === 'any' || src === 'keys') {
+  if (src === 'keys') {
     if (keys.has('KeyA') || keys.has('ArrowLeft')) mx -= 1;
     if (keys.has('KeyD') || keys.has('ArrowRight')) mx += 1;
     if (keys.has('KeyW') || keys.has('ArrowUp')) mz -= 1;
