@@ -25,20 +25,27 @@ export const NADE_COLORS: Record<NadeKind, number> = { flash: 0xfff2a8, frost: 0
 export class Fx {
   private parts: Particle[] = [];
   private projectiles = new Map<number, THREE.Object3D>();
-  private arc: THREE.Mesh[] = [];
+  private arcs: THREE.Mesh[][] = []; // one dotted arc per split-screen seat
   shake = 0;
   map: GameMap = FULL_MAP; // set by the game when a match's map loads
   hitstop = 0;
   zoomPunch = 0;
 
-  constructor(private scene: THREE.Scene) {
-    for (let i = 0; i < 18; i++) {
-      const dot = new THREE.Mesh(sphere, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false }));
-      dot.scale.setScalar(0.07);
-      dot.visible = false;
-      scene.add(dot);
-      this.arc.push(dot);
+  constructor(private scene: THREE.Scene) {}
+
+  private arc(seat: number): THREE.Mesh[] {
+    while (this.arcs.length <= seat) {
+      const arc: THREE.Mesh[] = [];
+      for (let i = 0; i < 18; i++) {
+        const dot = new THREE.Mesh(sphere, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false }));
+        dot.scale.setScalar(0.07);
+        dot.visible = false;
+        this.scene.add(dot);
+        arc.push(dot);
+      }
+      this.arcs.push(arc);
     }
+    return this.arcs[seat];
   }
 
   private spawn(color: number, pos: THREE.Vector3, vel: THREE.Vector3, size: number, life: number, opts: Partial<Pick<Particle, 'grow' | 'gravity' | 'fade'>> & { geo?: THREE.BufferGeometry; basic?: boolean } = {}): Particle {
@@ -139,28 +146,30 @@ export class Fx {
     }
   }
 
-  /** Dotted throw arc for a runner charging a grenade (local player only). */
-  showArc(x: number, y: number, z: number, facing: number, vx: number, vz: number, charge: number): void {
+  /** Dotted throw arc for a runner charging a grenade (local players only). */
+  showArc(seat: number, x: number, y: number, z: number, facing: number, vx: number, vz: number, charge: number): void {
+    const arc = this.arc(seat);
     const fx = Math.sin(facing), fz = Math.cos(facing);
     let px = x + fx * 0.4, py = y + 0.9, pz = z + fz * 0.4;
     let ux = fx * NADE_THROW_SPEED * charge + vx * 0.5, uz = fz * NADE_THROW_SPEED * charge + vz * 0.5, uy = NADE_THROW_UP * charge;
     const step = 0.05;
     let hidden = false;
-    for (let i = 0; i < this.arc.length; i++) {
+    for (let i = 0; i < arc.length; i++) {
       for (let k = 0; k < 2; k++) {
         uy -= NADE_GRAVITY * step;
         px += ux * step; py += uy * step; pz += uz * step;
       }
       if (py < this.map.heightAt(px, pz)) hidden = true;
-      const dot = this.arc[i];
+      const dot = arc[i];
       dot.visible = !hidden;
       dot.position.set(px, py, pz);
-      dot.scale.setScalar(0.07 * (1 - i / this.arc.length * 0.5));
+      dot.scale.setScalar(0.07 * (1 - i / arc.length * 0.5));
     }
   }
 
-  hideArc(): void {
-    for (const d of this.arc) d.visible = false;
+  /** One seat's arc, or (no seat) all of them. */
+  hideArc(seat?: number): void {
+    for (const [i, arc] of this.arcs.entries()) if (seat === undefined || seat === i) for (const d of arc) d.visible = false;
   }
 
   update(dt: number): void {

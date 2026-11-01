@@ -182,9 +182,8 @@ export function adaptResolution(world: World, dt: number): void {
   }
 }
 
-/** Point the camera at a ground target from the fixed Boomerang Fu-style angle. */
-export function aimCamera(world: World, tx: number, ty: number, tz: number, dist = CAMERA_DIST): void {
-  const { camera } = world;
+/** Point a camera (the world's, or a split-screen seat's) at a ground target from the fixed Boomerang Fu-style angle. */
+export function aimCamera(camera: THREE.PerspectiveCamera, tx: number, ty: number, tz: number, dist = CAMERA_DIST): void {
   // Portrait screens: back off until the view is as wide as a square one, so a phone held upright
   // sees the same width of roof (at the same character size) as one held sideways sees in height
   dist *= Math.max(1, 1 / camera.aspect);

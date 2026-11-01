@@ -42,44 +42,54 @@ export function resetPadBinds(): void {
   localStorage.removeItem(BINDS_KEY);
 }
 
-// Which input this window follows, so several windows on one machine can each have a player: any
-// (keyboard and every pad), the keyboard only, or one pad. Per window, so sessionStorage. A pad is kept
-// by index and id: indexes can shift on reconnect, so a pad with the same id elsewhere takes over.
+// Which device a local player (a split-screen seat, see game.ts) follows: any (keyboard, touch and
+// every pad, for one player alone), the keyboard only, or one pad. A pad is kept by index and id:
+// indexes can shift on reconnect, so a free pad with the same id takes over.
 export type InputSource = 'any' | 'keys' | { index: number; id: string };
-const SOURCE_KEY = 'inputSource';
-let source = loadSource();
+let seatSrcs: InputSource[] = ['any'];
+let lastUsed: InputSource = 'keys';
 
-function loadSource(): InputSource {
-  try {
-    const saved = JSON.parse(sessionStorage.getItem(SOURCE_KEY) ?? 'null');
-    if (saved === 'keys' || (typeof saved?.index === 'number' && typeof saved?.id === 'string')) return saved;
-  } catch { /* any */ }
-  return 'any';
+/** game.ts: the devices of the seats, in seat order. */
+export function setSeatSources(list: InputSource[]): void {
+  seatSrcs = list;
 }
 
-export function inputSource(): InputSource {
-  return source;
+/** Seat 1's device: the one that drives the menus. */
+export function menuSource(): InputSource {
+  return seatSrcs[0] ?? 'any';
 }
 
-export function setInputSource(s: InputSource): void {
-  source = s;
-  if (s === 'any') sessionStorage.removeItem(SOURCE_KEY);
-  else sessionStorage.setItem(SOURCE_KEY, JSON.stringify(s));
+export function sameSource(a: InputSource, b: InputSource): boolean {
+  return a === b || (typeof a === 'object' && typeof b === 'object' && a.index === b.index);
+}
+
+/** Some seat has this device (a lone 'any' seat has them all). */
+export function sourceTaken(src: InputSource): boolean {
+  return seatSrcs.some(s => s === 'any' || sameSource(s, src));
+}
+
+/** The device last pressed: a key, or a pad button (pad.ts reports those). */
+export function lastDevice(): InputSource {
+  return lastUsed;
+}
+
+export function noteDevice(src: InputSource): void {
+  lastUsed = src;
 }
 
 export function connectedPads(): Gamepad[] {
   return (navigator.getGamepads?.() ?? []).filter((p): p is Gamepad => !!p);
 }
 
-/** The pads this window listens to. */
-export function myPads(): Gamepad[] {
+/** The pads a device means: every pad, none, or the one pad (following it to a new index). */
+export function padsFor(src: InputSource): Gamepad[] {
   const all = connectedPads();
-  if (source === 'any') return all;
-  if (source === 'keys') return [];
-  const { index, id } = source;
-  const pad = all.find(p => p.index === index && p.id === id) ?? all.find(p => p.id === id);
+  if (src === 'any') return all;
+  if (src === 'keys') return [];
+  const taken = (p: Gamepad) => seatSrcs.some(s => s !== src && typeof s === 'object' && s.index === p.index);
+  const pad = all.find(p => p.index === src.index && p.id === src.id) ?? all.find(p => p.id === src.id && !taken(p));
   if (!pad) return [];
-  if (pad.index !== index) setInputSource({ index: pad.index, id });
+  src.index = pad.index;
   return [pad];
 }
 
@@ -89,6 +99,7 @@ let enabled = true;
 window.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement) return;
   keys.add(e.code);
+  lastUsed = 'keys';
   if (['Space', 'Enter', 'NumpadEnter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
 });
 window.addEventListener('keyup', e => keys.delete(e.code));
@@ -103,10 +114,11 @@ export function isHeld(code: string): boolean {
   return keys.has(code);
 }
 
-export function readInput(): Input {
+/** One seat's input this tick; touch only for a lone player. */
+export function readInput(src: InputSource, touch: boolean): Input {
   if (!enabled) return { mx: 0, mz: 0, b: 0 };
   let mx = 0, mz = 0, b = 0;
-  if (typeof source !== 'object') {
+  if (src === 'any' || src === 'keys') {
     if (keys.has('KeyA') || keys.has('ArrowLeft')) mx -= 1;
     if (keys.has('KeyD') || keys.has('ArrowRight')) mx += 1;
     if (keys.has('KeyW') || keys.has('ArrowUp')) mz -= 1;
@@ -116,7 +128,7 @@ export function readInput(): Input {
     if (keys.has('KeyK')) b |= BTN_ACTION | BTN_FROST;
   }
 
-  for (const pad of myPads()) {
+  for (const pad of padsFor(src)) {
     const ax = pad.axes[0] ?? 0, az = pad.axes[1] ?? 0;
     if (Math.hypot(ax, az) > 0.2) { mx = ax; mz = az; gamepadUsed(); }
     const btn = (i: number) => pad.buttons[i]?.pressed;
@@ -129,10 +141,10 @@ export function readInput(): Input {
     if (btn(14)) mx = -1;
     if (btn(15)) mx = 1;
   }
-  const touch = readTouch();
-  if (touch) {
-    if (touch.mx || touch.mz) { mx = touch.mx; mz = touch.mz; }
-    b |= touch.b;
+  const t = touch ? readTouch() : null;
+  if (t) {
+    if (t.mx || t.mz) { mx = t.mx; mz = t.mz; }
+    b |= t.b;
   }
   const len = Math.hypot(mx, mz);
   if (len > 1) { mx /= len; mz /= len; }

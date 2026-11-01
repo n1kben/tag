@@ -1,10 +1,14 @@
 // Gamepad in the menus: the stick / d-pad moves a focus ring between the buttons, A presses, B leaves
 // (or goes back), Start readies up, the bumpers flip your character. Also: holding Select shows the
 // scoreboard, and the `pad` class on <html> swaps the key hints for pad buttons (`nin` for
-// Nintendo-style labels, where A and B, X and Y trade places). In-match movement is input.ts. Only the
-// pads this window listens to count (myPads, the CONTROLS screen's input choice).
-import { connectedPads, inputSource, myPads } from './input';
+// Nintendo-style labels, where A and B, X and Y trade places). In-match movement is input.ts. With
+// several seats (split screen) only seat 1's pad drives the menus; padPresses() hands every pad's
+// presses to game.ts for the other seats' lobby buttons and for joining.
+import { connectedPads, menuSource, noteDevice, padsFor } from './input';
 import { gamepadUsed } from './touch';
+
+/** Pads that get Nintendo labels (A/B and X/Y swapped). */
+export const NINTENDO = /nintendo|pro controller|joy-con|switch|8bitdo/i;
 
 const A = 0, B = 1, LB = 4, RB = 5, SELECT = 8, START = 9, UP = 12, DOWN = 13, LEFT = 14, RIGHT = 15;
 const REPEAT_DELAY = 400, REPEAT_EVERY = 150; // ms, holding a direction
@@ -17,10 +21,11 @@ let selectHeld = false;
 let capture: ((button: number) => void) | null = null;
 let pick: ((pad: Gamepad) => void) | null = null;
 let prevAll = new Map<number, boolean[]>(); // per pad index, for picking among every pad
+let presses: { pad: Gamepad; button: number }[] = [];
 
 const html = document.documentElement;
 const setPad = (on: boolean) => html.classList.toggle('pad', on);
-window.addEventListener('keydown', () => { if (typeof inputSource() !== 'object') setPad(false); }, { capture: true });
+window.addEventListener('keydown', () => { if (typeof menuSource() !== 'object') setPad(false); }, { capture: true });
 window.addEventListener('pointerdown', () => setPad(false), { capture: true });
 
 /** Select (−) held: show the scoreboard. */
@@ -33,7 +38,12 @@ export function capturePad(cb: ((button: number) => void) | null): void {
   capture = cb;
 }
 
-/** The CONTROLS screen: the next fresh button press on any pad, even ones this window ignores, picks it. */
+/** Fresh button presses on every pad this frame. */
+export function padPresses(): readonly { pad: Gamepad; button: number }[] {
+  return presses;
+}
+
+/** The lobby's + PLAYER: the next fresh button press on any pad, even ones the menus ignore, picks it. null cancels. */
 export function pickPad(cb: ((pad: Gamepad) => void) | null): void {
   pick = cb;
 }
@@ -42,11 +52,12 @@ export function pickPad(cb: ((pad: Gamepad) => void) | null): void {
 export function pollPad(): void {
   const all = connectedPads();
   const pressedOnAll = new Map(all.map(p => [p.index, p.buttons.map(b => b.pressed)]));
-  const fresh = all.find(p => pressedOnAll.get(p.index)!.some((on, i) => on && !prevAll.get(p.index)?.[i]));
+  presses = all.flatMap(p => pressedOnAll.get(p.index)!.flatMap((on, i) => (on && !prevAll.get(p.index)?.[i] ? [{ pad: p, button: i }] : [])));
   prevAll = pressedOnAll;
-  if (pick && fresh) { const cb = pick; pick = null; prev = fresh.buttons.map(b => b.pressed); cb(fresh); return; }
+  if (presses.length) noteDevice({ index: presses[0].pad.index, id: presses[0].pad.id });
+  if (pick && presses.length) { const cb = pick, fresh = presses[0].pad; pick = null; prev = fresh.buttons.map(b => b.pressed); presses = []; cb(fresh); return; }
 
-  const pads = myPads();
+  const pads = padsFor(menuSource());
   const now: boolean[] = [];
   let ax = 0, ay = 0;
   for (const p of pads) {
@@ -54,7 +65,7 @@ export function pollPad(): void {
     if (Math.hypot(p.axes[0] ?? 0, p.axes[1] ?? 0) > Math.hypot(ax, ay)) { ax = p.axes[0]; ay = p.axes[1]; }
     if (p.buttons.some(b => b.pressed) || Math.hypot(p.axes[0] ?? 0, p.axes[1] ?? 0) > 0.5) {
       setPad(true);
-      html.classList.toggle('nin', /nintendo|pro controller|joy-con|switch|8bitdo/i.test(p.id));
+      html.classList.toggle('nin', NINTENDO.test(p.id));
       gamepadUsed();
     }
   }

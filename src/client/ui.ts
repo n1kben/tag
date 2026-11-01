@@ -4,8 +4,8 @@ import { Character } from './characters';
 import { CHARACTERS, NADE_KINDS, type NadeKind } from '../shared/constants';
 import type { GameMode, LobbyPlayer, Phase, Standing } from '../shared/protocol';
 import type { Role } from '../shared/sim';
-import { PAD_ACTIONS, PAD_BUTTONS, connectedPads, inputSource, myPads, padBinds, resetPadBinds, setInputSource, setPadBind, type InputSource, type PadAction } from './input';
-import { capturePad, pickPad } from './pad';
+import { PAD_ACTIONS, PAD_BUTTONS, padBinds, padsFor, resetPadBinds, setPadBind, type InputSource, type PadAction } from './input';
+import { NINTENDO, capturePad } from './pad';
 
 const CSS = `
 :root {
@@ -68,8 +68,10 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .card .tag.rdy { background: var(--teal); }
 .card .arrows { display: flex; justify-content: space-between; position: absolute; top: 50px; left: 4px; right: 4px; }
 .card .arrows button { width: 30px; height: 30px; border-radius: 50%; border: none; background: #fff; font-weight: 800; color: var(--ink); cursor: pointer; box-shadow: 0 3px 0 #c3b8e6; }
-.card .src { margin-top: 6px; max-width: 100%; font-family: 'Fredoka'; font-weight: 600; font-size: 13px; color: #8a7bb5; background: #fff; border: none; border-radius: 999px;
-  padding: 3px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 0 #d9d0f5; }
+.card .src { margin-top: 6px; font-weight: 600; font-size: 13px; color: #8a7bb5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .pn { position: absolute; top: 8px; left: 8px; font-family: 'Lilita One'; font-size: 14px; color: #fff; padding: 1px 8px; border-radius: 999px; }
+.card .drop { position: absolute; bottom: 8px; right: 8px; width: 26px; height: 26px; border-radius: 50%; border: none; background: #fff; font-weight: 800; color: var(--ink); cursor: pointer; box-shadow: 0 3px 0 #c3b8e6; }
+.couch { font-weight: 600; color: #8a7bb5; text-align: center; margin-top: -8px; margin-bottom: 14px; }
 .name-in { font-family: 'Fredoka'; font-weight: 600; font-size: 16px; border: 3px solid #d9d0f5; border-radius: 12px; padding: 4px 8px; width: 100%; text-align: center; outline: none; color: var(--ink); }
 .name-in:focus { border-color: var(--yellow); }
 .results { background: #fff8dc; border-radius: 16px; padding: 10px 16px; margin-top: 8px; font-weight: 600; }
@@ -77,6 +79,21 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .hud { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h); pointer-events: none; display: none; }
 .hud.on { display: block; }
 .hud * { pointer-events: none; }
+/* One per local player: its slice of the screen (split screen), clipping its HUD and name tags */
+.seat { position: absolute; overflow: hidden; }
+.seat.split { outline: 3px solid var(--ink); }
+.seat.split .timer { font-size: 24px; min-width: 90px; padding: 2px 16px 4px; }
+.seat.split .teams { width: min(520px, 80%); top: 16px; }
+.seat.split .banner .big { font-size: clamp(36px, 6vw, 72px); }
+.seat.split .banner .sub { font-size: 18px; }
+.seat.split .keys { font-size: 14px; }
+.seat.split .countdown .n { font-size: 72px; }
+.seat.split .inv { transform: translateX(-50%) scale(0.8); transform-origin: bottom center; }
+/* Each split-screen seat hints for its own device, whatever the menus are using */
+.seat.kb .kbh { display: inline; } .seat.kb .padh { display: none; }
+.seat.pad .padh { display: inline; } .seat.pad .kbh { display: none; }
+.seat.pad .xb { display: inline; } .seat.pad .nn { display: none; }
+.seat.pad.nin .xb { display: none; } .seat.pad.nin .nn { display: inline; }
 .timer { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: #fff; border-radius: 999px; padding: 4px 26px 6px;
   font-family: 'Lilita One'; font-size: 34px; box-shadow: 0 5px 0 #c3b8e6; min-width: 120px; text-align: center; }
 .timer.start { background: var(--yellow); box-shadow: 0 5px 0 #c99d12; }
@@ -215,7 +232,9 @@ export interface TitleHandlers { practice(mode: GameMode): void; create(mode: Ga
 export interface LobbyHandlers {
   mode(mode: GameMode): void;
   rename(name: string): void;
-  character(delta: number): void;
+  character(delta: number, seat: number): void;
+  addSeat(): void;
+  dropSeat(seat: number): void;
   ready(): void;
   addBot(): void;
   removeBot(): void;
@@ -243,32 +262,45 @@ export class UI {
   private end = el('div', 'screen');
   private controls = el('div', 'screen sky');
   private hud = el('div', 'hud');
-  private labels = el('div', 'pe-none');
   private debugEl = el('div', 'debug');
   private titleStatus!: HTMLDivElement;
   private feed = el('div', 'feed');
-  private bannerEl = el('div', 'pe-none');
-  private countdown = el('div', 'countdown', '<div class="n"></div><div class="t"></div>');
-  private whiteout = el('div', 'whiteout');
-  private frostout = el('div', 'frostout');
   private board = el('div', 'board panel');
+  private seats: SeatHud[] = [];
+  private boardRect: Rect | null = null; // three-way split: the board lives in the spare quarter
   private lobbyHandlers: LobbyHandlers | null = null;
   private lobbyArgs: Parameters<UI['updateLobby']> | null = null; // to redraw the lobby on the way back from CONTROLS
   private controlsOff: (() => void) | null = null;
-  private labelEls = new Map<number, HTMLDivElement>();
   private names = new Map<number, { name: string; character: number }>();
-  private lastHud = '';
   private titleMode: GameMode = 'tag';
 
   constructor() {
     const style = document.createElement('style');
     style.textContent = CSS;
     document.head.appendChild(style);
-    this.root.append(this.labels, this.hud, this.title, this.lobby, this.end, this.controls, this.debugEl);
+    this.root.append(this.hud, this.title, this.lobby, this.end, this.controls, this.debugEl);
     document.body.appendChild(this.root);
 
-    this.hud.append(this.countdown, this.whiteout, this.frostout, this.feed, this.bannerEl, this.board);
+    this.hud.append(this.feed, this.board);
     this.board.style.display = 'none';
+  }
+
+  /** Seat n's HUD (made on first use). Seat 1's role also lands on .hud, where tests read it. */
+  seat(n: number): SeatHud {
+    while (this.seats.length <= n) {
+      const first = this.seats.length === 0;
+      const h = new SeatHud(role => { if (first) this.hud.dataset.role = role; });
+      this.hud.insertBefore(h.root, this.feed);
+      this.seats.push(h);
+    }
+    return this.seats[n];
+  }
+
+  /** Lay the seats out (and drop the HUDs of seats that left). */
+  placeSeats(rects: Rect[], devices: (InputSource | null)[], boardRect: Rect | null): void {
+    while (this.seats.length > rects.length) this.seats.pop()!.root.remove();
+    rects.forEach((r, i) => this.seat(i).place(r, rects.length > 1 ? devices[i] : null));
+    this.boardRect = boardRect;
   }
 
   setNames(players: LobbyPlayer[]): void {
@@ -330,58 +362,34 @@ export class UI {
     if (this.titleStatus) this.titleStatus.textContent = text;
   }
 
-  // ── Controls: which input this window follows; pick an action, press the pad button for it ──
+  // ── Controls: pick an action, press the pad button for it ───────────────
   private showControls(back: () => void): void {
     this.hideAll();
-    let listening: PadAction | 'pick' | null = null;
-    const listen = (what: PadAction | 'pick' | null) => {
-      listening = what;
-      render();
-      capturePad(what && what !== 'pick' ? (i => {
-        if (i in PAD_BUTTONS) { setPadBind(what, i); listen(null); }
-        else listen(what); // d-pad, Select: fixed, keep waiting
-      }) : null);
-      pickPad(what === 'pick' ? (pad => { setInputSource({ index: pad.index, id: pad.id }); listen(null); }) : null);
+    const listen = (action: PadAction | null) => {
+      render(action);
+      capturePad(action && (i => {
+        if (i in PAD_BUTTONS) { setPadBind(action, i); listen(null); }
+        else listen(action); // d-pad, Select: fixed, keep waiting
+      }));
     };
-    const choose = (src: InputSource) => { setInputSource(src); listen(null); };
-    const render = () => {
+    const render = (listening: PadAction | null) => {
       const had = document.activeElement instanceof HTMLElement && this.controls.contains(document.activeElement) ? document.activeElement.dataset.a : 'bind-jump';
-      const src = inputSource(), pads = connectedPads();
-      const mine = typeof src === 'object' ? pads.find(p => p.id === src.id && p.index === src.index) ?? pads.find(p => p.id === src.id) : undefined;
-      const srcInfo = src === 'any' ? 'Keyboard and every controller.' : src === 'keys' ? 'Keyboard only, controllers are ignored.'
-        : mine ? `Only ${esc(padName(mine.id))}.` : `Only ${esc(padName(src.id))}, not connected.`;
       this.controls.innerHTML = `
         <div class="panel col">
           <div class="display" style="font-size:48px;color:var(--yellow)">CONTROLS</div>
-          <div class="binds">
-            <div>This window</div>
-            <div class="seg">
-              <button data-a="src-any" class="${src === 'any' ? 'on' : ''}">ANY</button>
-              <button data-a="src-keys" class="${src === 'keys' ? 'on' : ''}">KEYBOARD</button>
-              ${pads.map(p => `<button data-a="src-pad${p.index}" class="${p === mine ? 'on' : ''}" title="${esc(p.id)}">PAD ${p.index + 1}</button>`).join('')}
-            </div>
-            <div></div>
-            <button class="btn ${listening === 'pick' ? 'listen' : ''}" data-a="pick">${listening === 'pick' ? 'PRESS A BUTTON ON IT…' : 'PICK A CONTROLLER'}</button>
-            <div style="grid-column:1/-1;text-align:center;font-size:16px;font-weight:600;color:#8a7bb5;margin-bottom:8px">${srcInfo} One window per player to play side by side.</div>${PAD_ACTIONS.map(a => `
+          <div class="binds">${PAD_ACTIONS.map(a => `
             <div>${ACTION_LABEL[a]}</div>
             <button class="btn ${a === listening ? 'listen' : ''}" data-a="bind-${a}">${a === listening ? 'PRESS A BUTTON…' : padActionAll(a)}</button>`).join('')}
           </div>
           <div style="font-weight:600;color:#8a7bb5">Pick an action, then press the controller button for it. Stick, d-pad and Select stay as they are.</div>
           <div class="row"><button class="btn small" data-a="reset">RESET</button><button class="btn pink" data-a="back">BACK</button></div>
         </div>`;
-      const on = (a: string, fn: () => void) => this.controls.querySelector(`[data-a=${a}]`)!.addEventListener('click', fn);
-      on('src-any', () => choose('any'));
-      on('src-keys', () => choose('keys'));
-      for (const p of pads) on(`src-pad${p.index}`, () => choose({ index: p.index, id: p.id }));
-      on('pick', () => listen(listening === 'pick' ? null : 'pick'));
-      for (const a of PAD_ACTIONS) on(`bind-${a}`, () => listen(a === listening ? null : a));
-      on('reset', () => { resetPadBinds(); listen(null); });
-      on('back', back);
+      for (const a of PAD_ACTIONS) this.controls.querySelector(`[data-a=bind-${a}]`)!.addEventListener('click', () => listen(a === listening ? null : a));
+      this.controls.querySelector('[data-a=reset]')!.addEventListener('click', () => { resetPadBinds(); listen(null); });
+      this.controls.querySelector('[data-a=back]')!.addEventListener('click', back);
       this.controls.querySelector<HTMLElement>(`[data-a=${had}]`)?.focus({ preventScroll: true }); // the pad's ring stays put
     };
-    addEventListener('gamepadconnected', render);
-    addEventListener('gamepaddisconnected', render);
-    this.controlsOff = () => { capturePad(null); pickPad(null); removeEventListener('gamepadconnected', render); removeEventListener('gamepaddisconnected', render); };
+    this.controlsOff = () => capturePad(null);
     listen(null);
     this.controls.classList.add('on');
   }
@@ -393,19 +401,32 @@ export class UI {
     this.lobby.classList.add('on');
   }
 
-  updateLobby(roomId: string, players: LobbyPlayer[], myId: number, inMatch: boolean, mode: GameMode, last?: Standing[]): void {
-    this.lobbyArgs = [roomId, players, myId, inMatch, mode, last];
+  /** `local`: this screen's players (split-screen seats), seat 1 first. `joining`: + PLAYER is waiting for a device. */
+  updateLobby(roomId: string, players: LobbyPlayer[], local: LocalSeat[], inMatch: boolean, mode: GameMode, last: Standing[] | undefined, joining: boolean): void {
+    this.lobbyArgs = [roomId, players, local, inMatch, mode, last, joining];
     this.setNames(players);
     if (!this.lobby.classList.contains('on') || !this.lobbyHandlers) return;
     const h = this.lobbyHandlers;
+    const myId = local[0]?.id ?? -1;
     const me = players.find(p => p.id === myId);
+    const seatOf = (id: number) => local.findIndex(l => l.id === id);
+    const card = (p: LobbyPlayer) => {
+      const n = seatOf(p.id);
+      const chip = n >= 0 && local.length > 1 ? `<div class="pn" style="background:${SEAT_COLORS[n]}">P${n + 1}</div>` : '';
+      const src = n >= 0 && local.length > 1 ? `<div class="src">${deviceLabel(local[n].device)}</div>` : '';
+      if (n === 0) return `${chip}<div class="arrows"><button data-a="prev">‹</button><button data-a="next">›</button></div>
+              <input class="name-in" maxlength="16" value="${esc(p.name)}" />${src}`;
+      if (n > 0) return `${chip}<div class="arrows"><button data-a="prev-${n}">‹</button><button data-a="next-${n}">›</button></div>
+              <div class="nm">${esc(p.name)}</div>${src}<button class="drop" data-a="drop-${n}" title="Remove this player">✕</button>`;
+      return `<div class="nm">${esc(p.name)}</div>`;
+    };
     const results = last?.length
       ? `<div class="results">🏆 Last match: <b>${esc(last[0].name)}</b> won with ${last[0].score} pts</div>` : '';
     const html = `
       <div class="panel">
         <div class="row" style="justify-content:space-between">
           <div><div style="font-weight:700;color:#8a7bb5">ROOM CODE · click to copy link</div><div class="room-code" title="Copy invite link">${esc(roomId)}</div></div>
-          <div class="row"><button class="btn small" data-a="add">+ BOT</button><button class="btn small" data-a="rm">− BOT</button><button class="btn small" data-a="controls">CONTROLS</button><button class="btn small" data-a="leave">LEAVE</button></div>
+          <div class="row"><button class="btn small" data-a="add">+ BOT</button><button class="btn small" data-a="rm">− BOT</button><button class="btn small ${joining ? 'yellow' : ''}" data-a="addseat">${joining ? 'PRESS A BUTTON OR KEY…' : '+ PLAYER'}</button><button class="btn small" data-a="controls">CONTROLS</button><button class="btn small" data-a="leave">LEAVE</button></div>
         </div>
         <div class="row" style="justify-content:flex-start;margin-top:10px">
           <div class="seg" data-a="modes">${modeButtons(mode)}</div>
@@ -413,13 +434,12 @@ export class UI {
         </div>
         ${results}
         <div class="cards">${players.map(p => `
-          <div class="card ${p.id === myId ? 'me' : ''} ${p.ready ? 'ready' : ''}">
+          <div class="card ${seatOf(p.id) >= 0 ? 'me' : ''} ${p.ready ? 'ready' : ''}">
             ${p.bot ? '<div class="tag">BOT</div>' : p.ready ? '<div class="tag rdy">READY</div>' : ''}
             <img src="${portrait(p.character)}" alt="${CHARACTERS[p.character]}" />
-            ${p.id === myId ? `<div class="arrows"><button data-a="prev">‹</button><button data-a="next">›</button></div>
-              <input class="name-in" maxlength="16" value="${esc(p.name)}" />
-              <button class="src" data-a="input" title="Which input this window follows">${inputLabel()}</button>` : `<div class="nm">${esc(p.name)}</div>`}
+            ${card(p)}
           </div>`).join('')}</div>
+        <div class="couch">${local.length < MAX_SEATS ? `Same screen: <b>+ PLAYER</b>, then press a button on their controller (or a key for the keyboard). Up to ${MAX_SEATS}, split screen.` : `${MAX_SEATS} players on this screen.`}${local.length > 1 ? ' Their pad: bumpers change character, B drops out.' : ''}</div>
         <div class="row">
           ${inMatch ? '<div class="status" style="color:#8a7bb5;text-shadow:none">Match in progress — you\'ll join next round</div>'
             : `<button class="btn ${me?.ready ? '' : 'pink'}" data-a="ready">${me?.ready ? 'CANCEL' : players.length < 2 ? 'ADD A BOT TO START' : "I'M READY!"}</button>`}
@@ -436,16 +456,20 @@ export class UI {
     q('add')?.addEventListener('click', () => h.addBot());
     q('rm')?.addEventListener('click', () => h.removeBot());
     q('leave')?.addEventListener('click', () => h.leave());
-    const controls = () => this.showControls(() => {
+    q('controls')?.addEventListener('click', () => this.showControls(() => {
       this.hideAll();
       this.lobby.classList.add('on');
       if (this.lobbyArgs) this.updateLobby(...this.lobbyArgs);
-    });
-    q('controls')?.addEventListener('click', controls);
-    q('input')?.addEventListener('click', controls);
+    }));
+    q('addseat')?.addEventListener('click', () => h.addSeat());
     q('ready')?.addEventListener('click', () => h.ready());
-    q('prev')?.addEventListener('click', () => h.character(-1));
-    q('next')?.addEventListener('click', () => h.character(1));
+    q('prev')?.addEventListener('click', () => h.character(-1, 0));
+    q('next')?.addEventListener('click', () => h.character(1, 0));
+    for (let n = 1; n < local.length; n++) {
+      q(`prev-${n}`)?.addEventListener('click', () => h.character(-1, n));
+      q(`next-${n}`)?.addEventListener('click', () => h.character(1, n));
+      q(`drop-${n}`)?.addEventListener('click', () => h.dropSeat(n));
+    }
     q('modes')?.addEventListener('click', e => {
       const m = (e.target as HTMLElement).dataset.m as GameMode | undefined;
       if (m && !inMatch && m !== mode) h.mode(m);
@@ -472,52 +496,6 @@ export class UI {
     this.hud.classList.add('on');
   }
 
-  updateHud(s: HudState): void {
-    const key = JSON.stringify({ ...s, timeLeft: Math.ceil(s.timeLeft), frozen: s.frozen > 0, blind: 0, respawn: Math.ceil(s.respawn * 10) });
-    // Overlays update every frame; the rest only when something visible changed
-    const taggerWaiting = s.phase === 'start' && s.role === 'tagger' && s.alive;
-    this.countdown.classList.toggle('on', taggerWaiting);
-    if (taggerWaiting) {
-      (this.countdown.firstChild as HTMLElement).textContent = String(Math.max(1, Math.ceil(s.timeLeft)));
-      (this.countdown.lastChild as HTMLElement).textContent = 'FROZEN… GET READY';
-    }
-    this.whiteout.style.opacity = String(Math.min(1, s.blind / 1.6));
-    this.frostout.style.opacity = s.frozen > 0 ? '1' : '0';
-    if (key === this.lastHud) return;
-    this.lastHud = key;
-
-    for (const old of this.hud.querySelectorAll('.dyn')) old.remove();
-    const t = Math.ceil(s.timeLeft);
-    const timeStr = s.phase === 'start' ? `RUN ${t}` : s.phase === 'end' ? '—' : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
-    const timer = el('div', `dyn timer ${s.phase === 'start' ? 'start' : ''} ${s.phase === 'chase' && t <= 15 ? 'low' : ''}`, timeStr);
-    const pips = (role: Role) => s.teams.filter(p => p.role === role)
-      .map(p => `<div class="pip ${p.alive ? '' : 'dead'}" style="background:${role === 'runner' ? 'var(--teal)' : 'var(--red)'}"></div>`).join('');
-    this.hud.dataset.role = s.role.toUpperCase(); // no badge (the YOU tag is team-coloured); tests read this
-    this.hud.append(timer);
-    this.hud.append(el('div', 'dyn teams', `<div class="team">${pips('runner')}</div><div class="team">${pips('tagger')}</div>`));
-    if (s.mode === 'dm') {
-      if (!s.alive && s.respawn > 0) this.hud.append(el('div', 'dyn respawn', `Back in ${s.respawn.toFixed(1)}…`));
-    }
-    if (s.alive && s.role === 'runner') {
-      const inv = el('div', 'dyn inv', NADE_KINDS.map(k => `
-        <div class="slot ${s.nades[k] ? '' : 'empty'}">${hint(`<kbd>${NADE_KEY[k]}</kbd>`, padAction(k))}
-          <div class="ic" style="background:${NADE_CSS[k]}"></div><div class="lb">${NADE_LABEL[k]} ×${s.nades[k]}</div></div>`).join(''));
-      this.hud.append(inv);
-      this.hud.append(el('div', 'dyn keys outlined', hint('<kbd>J</kbd> flash · <kbd>K</kbd> frost (hold, let go to throw)<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores',
-        `${padAction('flash')} flash · ${padAction('frost')} frost (hold, let go to throw)<br>${padAction('jump')} jump · ${PAD_SCORES} scores`)));
-    } else if (s.alive && s.role === 'tagger') {
-      this.hud.append(el('div', 'dyn keys outlined', hint('<kbd>J</kbd> slash<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores', `${padAction('flash')} slash<br>${padAction('jump')} jump · ${PAD_SCORES} scores`)));
-    }
-    if (s.spectating) this.hud.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)}<span class="kb"> · ${hint('<kbd>J</kbd>', padAction('flash'))} next</span>`));
-  }
-
-  banner(big: string, sub = '', color = '#ffd23f', ms = 1800): void {
-    const b = el('div', 'banner', `<div class="display big" style="color:${color}">${esc(big)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}`);
-    this.bannerEl.innerHTML = '';
-    this.bannerEl.appendChild(b);
-    setTimeout(() => { if (b.parentElement) b.remove(); }, ms);
-  }
-
   killfeed(html: string): void {
     const d = el('div', '', html);
     this.feed.prepend(d);
@@ -525,14 +503,18 @@ export class UI {
     setTimeout(() => d.remove(), 5000);
   }
 
-  showBoard(show: boolean, standings: Standing[], myId: number): void {
+  /** The scores (Tab / Select held), or always in the spare quarter of a three-way split. `mine`: this screen's players. */
+  showBoard(show: boolean, standings: Standing[], mine: number[]): void {
+    const r = this.boardRect;
+    show ||= !!r;
     this.board.style.display = show ? 'block' : 'none';
+    Object.assign(this.board.style, r ? { left: `${r.x + r.w / 2}px`, top: `${r.y + r.h / 2}px` } : { left: '', top: '' });
     if (!show) return;
     this.board.innerHTML = `<table><tr><th></th><th>PLAYER</th><th>PTS</th><th>KILLS</th><th>SURVIVED</th></tr>${[...standings].sort((a, b) => b.score - a.score).map(s => `
-      <tr class="${s.id === myId ? 'me' : ''}"><td><img src="${portrait(s.character)}" /></td><td>${esc(s.name)}</td><td>${s.score}</td><td>${s.kills}</td><td>${s.survived}</td></tr>`).join('')}</table>`;
+      <tr class="${mine.includes(s.id) ? 'me' : ''}"><td><img src="${portrait(s.character)}" /></td><td>${esc(s.name)}</td><td>${s.score}</td><td>${s.kills}</td><td>${s.survived}</td></tr>`).join('')}</table>`;
   }
 
-  showMatchEnd(standings: Standing[], myId: number, back: () => void): void {
+  showMatchEnd(standings: Standing[], mine: number[], back: () => void): void {
     this.hideAll();
     const top = standings.slice(0, 3);
     const order = [1, 0, 2].filter(i => top[i]);
@@ -544,30 +526,11 @@ export class UI {
         <div class="podium">${order.map(i => `
           <div class="p"><img src="${portrait(top[i].character)}" /><div style="font-weight:700">${esc(top[i].name)}</div>
             <div class="block" style="height:${heights[i]}px;background:${colors[i]}">${i + 1}</div><div style="font-weight:700">${top[i].score} pts</div></div>`).join('')}</div>
-        <div style="font-weight:600;color:#8a7bb5">${[...standings].sort((a, b) => b.score - a.score).map(s => `${s.id === myId ? '<b style="color:var(--pink)">' : ''}${esc(s.name)} ${s.score}${s.id === myId ? '</b>' : ''}`).join(' · ')}</div>
+        <div style="font-weight:600;color:#8a7bb5">${[...standings].sort((a, b) => b.score - a.score).map(s => `${mine.includes(s.id) ? '<b style="color:var(--pink)">' : ''}${esc(s.name)} ${s.score}${mine.includes(s.id) ? '</b>' : ''}`).join(' · ')}</div>
         <button class="btn pink" data-a="back">BACK TO LOBBY</button>
       </div>`;
     this.end.querySelector('[data-a=back]')!.addEventListener('click', back);
     this.end.classList.add('on');
-  }
-
-  // ── Floating name labels ────────────────────────────────────────────────
-  label(id: number, x: number, y: number, text: string, color: string): void {
-    let e = this.labelEls.get(id);
-    if (!e) {
-      e = el('div', 'label');
-      this.labels.appendChild(e);
-      this.labelEls.set(id, e);
-    }
-    const html = `<span class="tagp" style="background:${color};border-color:${color}">${esc(text)}</span>`;
-    if (e.dataset.h !== html) { e.innerHTML = html; e.dataset.h = html; }
-    e.style.left = `${x}px`;
-    e.style.top = `${y}px`;
-    e.style.display = 'block';
-  }
-
-  hideLabelsExcept(ids: Set<number>): void {
-    for (const [id, e] of this.labelEls) if (!ids.has(id)) e.style.display = 'none';
   }
 
   debug(text: string | null): void {
@@ -582,9 +545,107 @@ export class UI {
     this.controlsOff = null;
     this.hud.classList.remove('on');
     this.board.style.display = 'none';
-    this.hideLabelsExcept(new Set());
+    for (const h of this.seats) h.hideLabelsExcept(new Set());
   }
 }
+
+export interface Rect { x: number; y: number; w: number; h: number }
+export interface LocalSeat { id: number; device: InputSource }
+export const MAX_SEATS = 4;
+/** P1–P4 on lobby cards and name tags. */
+export const SEAT_COLORS = ['#f0408f', '#3d8bff', '#ff8a3d', '#9b5cff'];
+
+/** One local player's slice of the screen in a match: their HUD, banners, overlays and the name tags their camera sees. */
+export class SeatHud {
+  readonly root = el('div', 'seat');
+  private labels = el('div', 'pe-none');
+  private bannerEl = el('div', 'pe-none');
+  private countdown = el('div', 'countdown', '<div class="n"></div><div class="t"></div>');
+  private whiteout = el('div', 'whiteout');
+  private frostout = el('div', 'frostout');
+  private labelEls = new Map<number, HTMLDivElement>();
+  private lastHud = '';
+
+  constructor(private onRole: (role: string) => void) {
+    this.root.append(this.labels, this.countdown, this.whiteout, this.frostout, this.bannerEl);
+  }
+
+  /** Where it sits; a device means split screen, hinting for that device. */
+  place(r: Rect, device: InputSource | null): void {
+    Object.assign(this.root.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+    const pad = typeof device === 'object' && device ? padsFor(device)[0] : undefined;
+    const cls = `seat${device ? ' split' : ''}${device === 'keys' ? ' kb' : ''}${typeof device === 'object' && device ? ' pad' : ''}${pad && NINTENDO.test(pad.id) ? ' nin' : ''}`;
+    if (this.root.className !== cls) { this.root.className = cls; this.lastHud = ''; }
+  }
+
+  updateHud(s: HudState): void {
+    const key = JSON.stringify({ ...s, timeLeft: Math.ceil(s.timeLeft), frozen: s.frozen > 0, blind: 0, respawn: Math.ceil(s.respawn * 10) });
+    // Overlays update every frame; the rest only when something visible changed
+    const taggerWaiting = s.phase === 'start' && s.role === 'tagger' && s.alive;
+    this.countdown.classList.toggle('on', taggerWaiting);
+    if (taggerWaiting) {
+      (this.countdown.firstChild as HTMLElement).textContent = String(Math.max(1, Math.ceil(s.timeLeft)));
+      (this.countdown.lastChild as HTMLElement).textContent = 'FROZEN… GET READY';
+    }
+    this.whiteout.style.opacity = String(Math.min(1, s.blind / 1.6));
+    this.frostout.style.opacity = s.frozen > 0 ? '1' : '0';
+    if (key === this.lastHud) return;
+    this.lastHud = key;
+
+    for (const old of this.root.querySelectorAll('.dyn')) old.remove();
+    const t = Math.ceil(s.timeLeft);
+    const timeStr = s.phase === 'start' ? `RUN ${t}` : s.phase === 'end' ? '—' : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    const timer = el('div', `dyn timer ${s.phase === 'start' ? 'start' : ''} ${s.phase === 'chase' && t <= 15 ? 'low' : ''}`, timeStr);
+    const pips = (role: Role) => s.teams.filter(p => p.role === role)
+      .map(p => `<div class="pip ${p.alive ? '' : 'dead'}" style="background:${role === 'runner' ? 'var(--teal)' : 'var(--red)'}"></div>`).join('');
+    this.onRole(s.role.toUpperCase()); // no badge (the YOU tag is team-coloured); tests read this
+    this.root.append(timer);
+    this.root.append(el('div', 'dyn teams', `<div class="team">${pips('runner')}</div><div class="team">${pips('tagger')}</div>`));
+    if (s.mode === 'dm') {
+      if (!s.alive && s.respawn > 0) this.root.append(el('div', 'dyn respawn', `Back in ${s.respawn.toFixed(1)}…`));
+    }
+    if (s.alive && s.role === 'runner') {
+      const inv = el('div', 'dyn inv', NADE_KINDS.map(k => `
+        <div class="slot ${s.nades[k] ? '' : 'empty'}">${hint(`<kbd>${NADE_KEY[k]}</kbd>`, padAction(k))}
+          <div class="ic" style="background:${NADE_CSS[k]}"></div><div class="lb">${NADE_LABEL[k]} ×${s.nades[k]}</div></div>`).join(''));
+      this.root.append(inv);
+      this.root.append(el('div', 'dyn keys outlined', hint('<kbd>J</kbd> flash · <kbd>K</kbd> frost (hold, let go to throw)<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores',
+        `${padAction('flash')} flash · ${padAction('frost')} frost (hold, let go to throw)<br>${padAction('jump')} jump · ${PAD_SCORES} scores`)));
+    } else if (s.alive && s.role === 'tagger') {
+      this.root.append(el('div', 'dyn keys outlined', hint('<kbd>J</kbd> slash<br><kbd>Space</kbd> jump · <kbd>Tab</kbd> scores', `${padAction('flash')} slash<br>${padAction('jump')} jump · ${PAD_SCORES} scores`)));
+    }
+    if (s.spectating) this.root.append(el('div', 'dyn spect', `Watching ${esc(s.spectating)}<span class="kb"> · ${hint('<kbd>J</kbd>', padAction('flash'))} next</span>`));
+  }
+
+  banner(big: string, sub = '', color = '#ffd23f', ms = 1800): void {
+    const b = el('div', 'banner', `<div class="display big" style="color:${color}">${esc(big)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}`);
+    this.bannerEl.innerHTML = '';
+    this.bannerEl.appendChild(b);
+    setTimeout(() => { if (b.parentElement) b.remove(); }, ms);
+  }
+
+  // Floating name labels, in this seat's coordinates
+  /** `ring`: a split-screen seat's P colour around the tag. */
+  label(id: number, x: number, y: number, text: string, color: string, ring?: string): void {
+    let e = this.labelEls.get(id);
+    if (!e) {
+      e = el('div', 'label');
+      this.labels.appendChild(e);
+      this.labelEls.set(id, e);
+    }
+    const html = `<span class="tagp" style="background:${color};border-color:${color}${ring ? `;outline:3px solid ${ring}` : ''}">${esc(text)}</span>`;
+    if (e.dataset.h !== html) { e.innerHTML = html; e.dataset.h = html; }
+    e.style.left = `${x}px`;
+    e.style.top = `${y}px`;
+    e.style.display = 'block';
+  }
+
+  hideLabelsExcept(ids: Set<number>): void {
+    for (const [id, e] of this.labelEls) if (!ids.has(id)) e.style.display = 'none';
+  }
+
+}
+
 
 function modeButtons(mode: GameMode): string {
   return `<button data-m="tag" class="${mode === 'tag' ? 'on' : ''}">TAG</button>`
@@ -608,13 +669,11 @@ function padAction(action: PadAction): string {
   return i === undefined ? '<kbd>—</kbd>' : padKey(...PAD_BUTTONS[i]);
 }
 
-/** Every button bound to an action, for the CONTROLS screen. */
-/** What this window listens to, for its lobby card. */
-function inputLabel(): string {
-  const src = inputSource();
+/** A seat's device, for its lobby card. */
+function deviceLabel(src: InputSource): string {
   if (src === 'any') return 'ANY INPUT';
   if (src === 'keys') return '⌨ KEYBOARD';
-  const pad = myPads()[0];
+  const pad = padsFor(src)[0];
   return pad ? `🎮 PAD ${pad.index + 1} · ${esc(padName(pad.id))}` : `🎮 ${esc(padName(src.id))} · not connected`;
 }
 
@@ -623,6 +682,7 @@ function padName(id: string): string {
   return id.replace(/\s*\(.*$/, '').trim() || id;
 }
 
+/** Every button bound to an action, for the CONTROLS screen. */
 function padActionAll(action: PadAction): string {
   return padBinds(action).map(i => padKey(...PAD_BUTTONS[i])).join(' ') || '<kbd>—</kbd>';
 }

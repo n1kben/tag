@@ -1,8 +1,7 @@
 // Gamepad menus with a fake 8BitDo: a press shows the focus ring and pad hints (Nintendo labels),
 // the d-pad moves between buttons, A presses, B leaves the lobby, Start readies up, Select holds
-// the scoreboard, and a key press brings the keyboard hints back. Then two pads: each window follows the
-// input picked on CONTROLS (one pad, or the keyboard only), kept per window and across a reconnect, and
-// pickable from the lobby too, for a window that joined by link.
+// the scoreboard, and a key press brings the keyboard hints back. Then split screen: two pads and the
+// keyboard join one lobby as three players, and each moves only its own player.
 // Usage: npx tsx scripts/check-pad.ts <baseUrl> [outDir]
 import { chromium, type Page } from 'playwright-core';
 
@@ -98,17 +97,18 @@ await p.waitForTimeout(500);
 check(await shown('.hud .keys .padh') && !(await shown('.hud .keys .kbh')), 'HUD shows pad hints');
 check(await p.evaluate(`[...document.querySelectorAll('.hud .keys .nn')].some(e => getComputedStyle(e).display !== 'none')`) as boolean, 'HUD uses Nintendo labels');
 await p.evaluate(`window.__pad.buttons[8].pressed = true`);
-await p.waitForTimeout(150);
+await p.waitForTimeout(150); await frames(p);
 check(await shown('.board'), 'holding Select shows the scoreboard');
 if (out) await p.screenshot({ path: `${out}/pad-hud.png` });
 await p.evaluate(`window.__pad.buttons[8].pressed = false`);
-await p.waitForTimeout(150);
+await p.waitForTimeout(150); await frames(p);
 check(!(await shown('.board')), 'letting go hides it');
 await p.keyboard.press('KeyW');
 await p.waitForTimeout(300);
 check(await shown('.hud .keys .kbh') && !(await shown('.hud .keys .padh')), 'a key press brings keyboard hints back');
 
-// Two pads, two windows: one follows pad 2 only, one the keyboard only
+// Split screen on one page: P1 on the 8BitDo, P2 joins with the Xbox pad, P3 with the keyboard. Each
+// seat moves only with its own device, and the match draws a slice of the screen per seat.
 const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
 await ctx2.addInitScript(() => {
   const pads = ['8BitDo Pro 2 (STANDARD GAMEPAD Vendor: 2dc8)', 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e)'].map((id, index) => ({
@@ -117,85 +117,76 @@ await ctx2.addInitScript(() => {
   (window as unknown as { __pads: typeof pads }).__pads = pads;
   navigator.getGamepads = () => pads as unknown as Gamepad[];
 });
-const w1 = await ctx2.newPage(), w2 = await ctx2.newPage();
-for (const w of [w1, w2]) { w.on('pageerror', e => console.log('PAGEERROR', e.message)); await w.goto(`${base}/?lite`); }
-await w1.waitForTimeout(800);
-// Focus checks below only ask "did it move": a stall mid-hold can auto-repeat a direction
-const tap = async (pg: Page, pad: number, i: number) => {
-  await pg.evaluate(`window.__pads[${pad}].buttons[${i}].pressed = true`);
-  await pg.waitForTimeout(120); await frames(pg);
-  await pg.evaluate(`window.__pads[${pad}].buttons[${i}].pressed = false`);
-  await pg.waitForTimeout(150); await frames(pg);
+const w = await ctx2.newPage();
+w.on('pageerror', e => console.log('PAGEERROR', e.message));
+await w.goto(`${base}/?lite`);
+await w.waitForTimeout(800);
+const tap = async (pad: number, i: number) => {
+  await w.evaluate(`window.__pads[${pad}].buttons[${i}].pressed = true`);
+  await w.waitForTimeout(120); await frames(w);
+  await w.evaluate(`window.__pads[${pad}].buttons[${i}].pressed = false`);
+  await w.waitForTimeout(150); await frames(w);
 };
-const focusIn = (pg: Page) => pg.evaluate(`document.activeElement?.dataset?.a ?? document.activeElement?.tagName`) as Promise<string>;
-const source = (pg: Page) => pg.evaluate(`sessionStorage.getItem('inputSource')`) as Promise<string | null>;
-const isPad = (pg: Page) => pg.evaluate(`document.documentElement.classList.contains('pad')`) as Promise<boolean>;
+type SeatPos = { id: number; x: number; z: number; alive: boolean };
+const seatsNow = () => w.evaluate('window.__net.seats()') as Promise<SeatPos[]>;
+const localCards = () => w.evaluate(`[...document.querySelectorAll('.lobby.on .card.me')].map(c => (c.querySelector('.pn')?.textContent ?? '') + ' ' + (c.querySelector('.src')?.textContent ?? ''))`) as Promise<string[]>;
 
-await w1.bringToFront();
-await w1.click('[data-a=controls]');
-check(await w1.evaluate(`!!document.querySelector('[data-a=src-pad0]') && !!document.querySelector('[data-a=src-pad1]')`) as boolean, 'CONTROLS lists both pads');
-await w1.click('[data-a=pick]');
-await tap(w1, 1, 0); // A on the Xbox pad picks it
-check(JSON.parse(await source(w1) ?? 'null')?.index === 1, `pressing on pad 2 picks it (${await source(w1)})`);
-check(await w1.evaluate(`document.querySelector('[data-a=src-pad1]').classList.contains('on')`) as boolean, 'PAD 2 shows as chosen');
-if (out) await w1.screenshot({ path: `${out}/pad-source.png` });
-await w1.click('[data-a=back]'); // the click drops pad mode, so the next press only wakes it
-check(!(await isPad(w1)), 'window 1 back in keyboard hints');
-await tap(w1, 0, 13);
-check(!(await isPad(w1)), 'window 1 ignores pad 1');
-await tap(w1, 1, 13);
-check(await isPad(w1) && await focusIn(w1) === 'practice', `window 1 wakes on pad 2 (${await focusIn(w1)})`);
-await tap(w1, 0, 13);
-check(await focusIn(w1) === 'practice', `pad 1 doesn't move window 1's focus (${await focusIn(w1)})`);
-await tap(w1, 1, 13);
-check(await focusIn(w1) !== 'practice', `pad 2 does (${await focusIn(w1)})`);
+await w.click('[data-a=create]');
+await w.waitForSelector('.lobby.on .room-code');
+await tap(0, 13); // P1 picks up the 8BitDo
+await w.evaluate(`document.querySelector('[data-a=addseat]').focus()`);
+await tap(0, 0); // A on + PLAYER
+check((await w.textContent('[data-a=addseat]'))!.includes('PRESS'), '+ PLAYER waits for a device');
+await tap(0, 0); // P1's own pad again: not a new player
+check((await localCards()).length === 1, 'P1 pressing again doesn\'t join');
+await tap(1, 0); // the Xbox pad joins
+for (let i = 0; i < 20 && (await localCards()).length < 2; i++) await w.waitForTimeout(150);
+let cardsNow = await localCards();
+check(cardsNow.length === 2 && cardsNow[0].includes('P1') && cardsNow[0].includes('8BitDo') && cardsNow[1].includes('P2') && cardsNow[1].includes('Xbox'), `P2 joins on the Xbox pad (${cardsNow.join(' | ')})`);
+const p2img = () => w.evaluate(`document.querySelectorAll('.lobby.on .card.me img')[1]?.src`);
+const p2img0 = await p2img();
+await tap(1, 5); // P2's RB
+await w.waitForTimeout(400);
+check(await p2img() !== p2img0, 'P2\'s bumper changes P2\'s character');
+await w.click('[data-a=addseat]');
+await w.keyboard.press('KeyL'); // the keyboard joins
+for (let i = 0; i < 20 && (await localCards()).length < 3; i++) await w.waitForTimeout(150);
+cardsNow = await localCards();
+check(cardsNow.length === 3 && cardsNow[2].includes('KEYBOARD'), `P3 joins on the keyboard (${cardsNow.join(' | ')})`);
+if (out) await w.screenshot({ path: `${out}/split-lobby.png` });
 
-await w2.bringToFront();
-check(await source(w2) === null, 'window 2 has its own choice (default ANY)');
-await w2.click('[data-a=controls]');
-await w2.click('[data-a=src-keys]');
-check(await source(w2) === '"keys"', 'window 2 picks KEYBOARD');
-await w2.click('[data-a=back]');
-await tap(w2, 0, 13); await tap(w2, 1, 13); await tap(w2, 1, 0);
-check(!(await isPad(w2)) && await w2.evaluate(`document.querySelector('.screen.sky.on')`) !== null, 'keyboard window ignores both pads');
+const wShown = (sel: string) => w.evaluate(`(() => { const e = document.querySelector('${sel}'); return !!e && getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0; })()`) as Promise<boolean>;
+await tap(0, 13); // the mouse clicks put the menus back on keyboard hints: wake P1's pad
+await tap(0, 9); // Start on P1: everyone ready
+for (let i = 0; i < 30 && !(await wShown('.hud.on')); i++) await w.waitForTimeout(200);
+check(await wShown('.hud.on'), 'Start readies all three and the match starts');
+await w.waitForTimeout(500);
+check(await w.evaluate(`document.querySelectorAll('.hud .seat.split').length`) === 3, 'three split-screen HUDs');
+check(await wShown('.board'), 'the spare quarter shows the board');
+for (let i = 0; i < 40 && (await w.evaluate('window.__net.server().phase')) !== 'chase'; i++) await w.waitForTimeout(250);
+await w.waitForTimeout(300);
 
-// Reconnect with the indexes swapped: window 1 follows the Xbox pad to index 0
-await w1.evaluate(`(() => { const [a, b] = window.__pads; a.index = 1; b.index = 0; window.__pads.reverse(); })()`);
-const before = await focusIn(w1);
-await tap(w1, 1, 12); // the 8BitDo, now index 1
-check(await focusIn(w1) === before, `after the swap pad 1 still ignored (${await focusIn(w1)})`);
-await tap(w1, 0, 12); // the Xbox, now index 0
-check(await focusIn(w1) !== before, `after the swap the Xbox pad still drives window 1 (${await focusIn(w1)})`);
-check(JSON.parse(await source(w1) ?? 'null')?.index === 0, `stored index follows it (${await source(w1)})`);
-
-// From the lobby: window 1 makes a room, window 2 joins by link (never sees the title). Each card shows
-// its window's input, CONTROLS opens from the lobby, and BACK redraws a lobby that changed meanwhile.
-const cards = (pg: Page) => pg.evaluate(`document.querySelectorAll('.lobby.on .card').length`) as Promise<number>;
-const srcLabel = (pg: Page) => pg.evaluate(`document.querySelector('.lobby.on .card.me [data-a=input]')?.textContent ?? ''`) as Promise<string>;
-await w1.bringToFront();
-await w1.click('[data-a=create]');
-await w1.waitForSelector('.lobby.on .room-code');
-check((await srcLabel(w1)).includes('PAD 1 · Xbox Wireless Controller'), `window 1's card shows its pad (${await srcLabel(w1)})`);
-const room = (await w1.textContent('.lobby.on .room-code'))!.trim();
-await w1.click('.lobby.on [data-a=controls]');
-check(await w1.evaluate(`!!document.querySelector('.screen.on [data-a=src-any]')`) as boolean, 'CONTROLS opens from the lobby');
-await w2.goto('about:blank'); // a bare hash change wouldn't reload
-await w2.goto(`${base}/?lite#${room}`);
-await w2.waitForSelector('.lobby.on .card.me');
-check((await srcLabel(w2)).includes('KEYBOARD'), `window 2 kept KEYBOARD across the reload (${await srcLabel(w2)})`);
-await w2.click('.lobby.on .card.me [data-a=input]');
-await w2.click('[data-a=pick]');
-await tap(w2, 0, 0); // the 8BitDo (the reload put the fake pads back in order)
-await w2.click('[data-a=back]');
-await w2.waitForSelector('.lobby.on');
-check((await srcLabel(w2)).includes('PAD 1 · 8BitDo'), `window 2 picked its pad from the lobby (${await srcLabel(w2)})`);
-await w1.bringToFront();
-await w1.click('[data-a=src-keys]');
-await w1.click('[data-a=back]');
-await w1.waitForSelector('.lobby.on');
-check(await cards(w1) === 2, `window 1's lobby caught up with the join (${await cards(w1)} cards)`);
-check((await srcLabel(w1)).includes('KEYBOARD'), `window 1's card shows KEYBOARD (${await srcLabel(w1)})`);
-if (out) await w1.screenshot({ path: `${out}/pad-lobby.png` });
+/** Hold a device for a while and see which seats moved. */
+const moved = async (hold: () => Promise<void>, release: () => Promise<void>) => {
+  const a = await seatsNow();
+  await hold(); await w.waitForTimeout(700); await release(); await w.waitForTimeout(300);
+  const b = await seatsNow();
+  const r = a.map((s, i) => s.alive && b[i].alive && Math.hypot(b[i].x - s.x, b[i].z - s.z) > 1);
+  return Object.assign(r, { dead: a.map((s, i) => !s.alive || !b[i].alive), toString: () => r.join() + ' · ' + a.map((s, i) => `${s.alive ? '' : 'dead '}${Math.hypot(b[i].x - s.x, b[i].z - s.z).toFixed(1)}m`).join(' ') });
+};
+/** Seat n moved and no other did; a seat that died meanwhile (fell off, got tagged) can't tell us, so skip. */
+const only = (m: boolean[] & { dead?: boolean[] }, n: number, what: string) => {
+  if (m.dead?.[n]) { console.log(`SKIP ${what}`); return; }
+  check(m.every((v, i) => v === (i === n) || m.dead?.[i]), what);
+};
+const stick = (pad: number, x: number) => w.evaluate(`window.__pads[${pad}].axes[0] = ${x}`).then(() => {});
+let m = await moved(() => stick(1, 1), () => stick(1, 0));
+only(m, 1, `P2's stick moves only P2 (${m})`);
+m = await moved(() => stick(0, -1), () => stick(0, 0));
+only(m, 0, `P1's stick moves only P1 (${m})`);
+m = await moved(() => w.keyboard.down('KeyD'), () => w.keyboard.up('KeyD'));
+only(m, 2, `the keyboard moves only P3 (${m})`);
+if (out) await w.screenshot({ path: `${out}/split-match.png` });
 
 await browser.close();
 console.log(failures ? `${failures} FAILURE(S)` : 'ALL PASS');
