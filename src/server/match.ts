@@ -7,7 +7,7 @@ import {
   TICK_DT, SNAPSHOT_EVERY, PLAYER_RADIUS, EYE_HEIGHT, SAFE_FALL_SPEED, FATAL_FALL_SPEED, KILL_Y, MAX_HP,
   STAB_RANGE, STAB_ARC_COS, STAB_DAMAGE, STAB_HEIGHT, UNLAG_MAX_TICKS, UNLAG_NOW_SLACK,
   NADE_KINDS, NADE_LOADOUT, NADE_REFILL_EVERY, NADE_FUSE, NADE_THROW_SPEED, NADE_THROW_UP, NADE_GRAVITY,
-  NADE_MIN_CHARGE, NADE_CHARGE_TIME, FROST_RADIUS, FROST_TIME, CHILL_RADIUS, CHILL_TIME, FLASH_RADIUS,
+  NADE_CHARGE_TIME, FROST_RADIUS, FROST_TIME, CHILL_RADIUS, CHILL_TIME, FLASH_RADIUS,
   FLASH_TIME,
   HEAD_START, ROUND_END_TIME, ROUNDS_PER_MATCH, DM_TIME, RESPAWN_TIME, SPAWN_PROTECTION, SWAP_PROTECTION, SURVIVE_POINT_EVERY,
   STOMP_STUN, PLANK_CRACK_TIME, PLANK_FIX_TIME, type NadeKind,
@@ -415,7 +415,7 @@ export class Match {
         if (!canAct) p.aimT = -1;
         else if (input.b & BTN_ACTION) p.aimT += TICK_DT;
         else {
-          this.throwNade(p, Math.min(1, NADE_MIN_CHARGE + (p.aimT / NADE_CHARGE_TIME) * (1 - NADE_MIN_CHARGE)));
+          this.throwNade(p, Math.min(1, p.aimT / NADE_CHARGE_TIME));
           p.aimT = -1;
         }
       }
@@ -459,7 +459,7 @@ export class Match {
       id: this.nextId++, kind, owner: p.id,
       x: p.body.x + fx * 0.4, y: p.body.y + 0.9, z: p.body.z + fz * 0.4,
       vx: fx * NADE_THROW_SPEED * charge + p.body.vx * 0.5,
-      vy: NADE_THROW_UP * (0.6 + 0.4 * charge) + Math.max(0, p.body.vy) * 0.5,
+      vy: NADE_THROW_UP * charge + Math.max(0, p.body.vy) * 0.5,
       vz: fz * NADE_THROW_SPEED * charge + p.body.vz * 0.5,
       t: 0,
     });

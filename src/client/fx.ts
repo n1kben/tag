@@ -1,7 +1,7 @@
 // Juice: puffs, swooshes, juice splats, grenade blasts, screen shake + hitstop.
 import * as THREE from 'three';
 import {
-  FROST_RADIUS, NADE_THROW_SPEED, NADE_THROW_UP, NADE_MIN_CHARGE, NADE_GRAVITY, type NadeKind,
+  FROST_RADIUS, NADE_THROW_SPEED, NADE_THROW_UP, NADE_GRAVITY, type NadeKind,
 } from '../shared/constants';
 import { FULL_MAP, type GameMap } from '../shared/map';
 import { mat } from './world';
@@ -142,9 +142,8 @@ export class Fx {
   /** Dotted throw arc for a runner charging a grenade (local player only). */
   showArc(x: number, y: number, z: number, facing: number, vx: number, vz: number, charge: number): void {
     const fx = Math.sin(facing), fz = Math.cos(facing);
-    const c = NADE_MIN_CHARGE + charge * (1 - NADE_MIN_CHARGE);
     let px = x + fx * 0.4, py = y + 0.9, pz = z + fz * 0.4;
-    let ux = fx * NADE_THROW_SPEED * c + vx * 0.5, uz = fz * NADE_THROW_SPEED * c + vz * 0.5, uy = NADE_THROW_UP * (0.6 + 0.4 * c);
+    let ux = fx * NADE_THROW_SPEED * charge + vx * 0.5, uz = fz * NADE_THROW_SPEED * charge + vz * 0.5, uy = NADE_THROW_UP * charge;
     const step = 0.05;
     let hidden = false;
     for (let i = 0; i < this.arc.length; i++) {
