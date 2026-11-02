@@ -6,6 +6,7 @@ import type { GameMode, LobbyPlayer, Phase, Standing } from '../shared/protocol'
 import type { Role } from '../shared/sim';
 import { PAD_ACTIONS, PAD_BUTTONS, bindsVersion, connectedPads, keyBindable, keyBinds, keyName, padBinds, padsFor, resetBinds, setBind, type InputSource, type PadAction } from './input';
 import { NINTENDO, capturePad, hintPadId } from './pad';
+import { LEVEL_NAMES, setVolume, sfx, volumes, type Level } from './audio';
 
 const CSS = `
 :root {
@@ -160,6 +161,7 @@ kbd { background: #fff; color: var(--ink); border-radius: 7px; padding: 1px 8px;
 .respawn { position: absolute; left: 0; right: 0; top: 58%; text-align: center; font-family: 'Lilita One'; font-size: 28px; color: #fff; text-shadow: 0 3px 0 var(--ink); }
 .debug { position: fixed; top: 8px; right: 8px; background: rgba(0,0,0,0.6); color: #9f9; font: 12px monospace; padding: 6px 10px; border-radius: 6px; display: none; z-index: 30; pointer-events: none; white-space: pre; }
 .mute { position: fixed; bottom: 14px; right: 14px; z-index: 20; }
+.corner { position: absolute; top: calc(16px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); }
 /* Touch: the on-screen buttons (touch.ts) carry the labels and grenade counts */
 .touch .keys, .touch .kb, .touch .inv { display: none; }
 .touch .spect { bottom: 140px; }
@@ -257,7 +259,6 @@ export interface MenuHandlers {
   resume(): void;
   changeDevice(): void; // as on the lobby card: the next key or pad press becomes this player's device
   controls(): void;
-  toggleSound(): boolean; // → muted
   dropOut?: () => void;
   leave(): void;
 }
@@ -282,6 +283,7 @@ export class UI {
   private lobby = el('div', 'screen lobby');
   private end = el('div', 'screen');
   private controls = el('div', 'screen sky');
+  private settings = el('div', 'screen sky');
   private menu = el('div', 'screen menu');
   private hud = el('div', 'hud');
   private debugEl = el('div', 'debug');
@@ -300,7 +302,7 @@ export class UI {
     const style = document.createElement('style');
     style.textContent = CSS;
     document.head.appendChild(style);
-    this.root.append(this.hud, this.title, this.lobby, this.end, this.controls, this.menu, this.debugEl);
+    this.root.append(this.hud, this.title, this.lobby, this.end, this.controls, this.settings, this.menu, this.debugEl);
     document.body.appendChild(this.root);
 
     this.hud.append(this.feed, this.board);
@@ -374,12 +376,43 @@ export class UI {
     box.querySelector('[data-a=join]')!.addEventListener('click', join);
     code.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
     const hint = el('div', 'hint outlined', titleHint(this.titleMode));
-    this.title.append(clouds, box, hint);
+    const settings = el('button', 'btn small corner', '⚙ SETTINGS');
+    settings.dataset.a = 'settings';
+    settings.addEventListener('click', () => this.showSettings());
+    this.title.append(clouds, box, hint, settings);
     this.title.classList.add('on');
   }
 
   setStatus(text: string): void {
     if (this.titleStatus) this.titleStatus.textContent = text;
+  }
+
+  // ── Settings: Music and Sound volume, over the title or the lobby (the in-match menu has the same rows) ──
+  showSettings(): void {
+    const from = this.lobby.classList.contains('on') ? this.lobby : this.title;
+    this.hideAll();
+    const back = () => {
+      this.hideAll();
+      from.classList.add('on');
+      if (from === this.lobby && this.lobbyArgs) this.updateLobby(...this.lobbyArgs);
+      from.querySelector<HTMLElement>('[data-a=settings]')?.focus({ preventScroll: true });
+    };
+    const render = () => {
+      const had = document.activeElement instanceof HTMLElement && this.settings.contains(document.activeElement) ? document.activeElement.dataset.a : 'back';
+      this.settings.innerHTML = `
+        <div class="panel col">
+          <div class="display" style="font-size:48px;color:var(--yellow)">SETTINGS</div>
+          ${volumeRows()}
+          <div style="font-weight:600;color:#8a7bb5"><kbd>M</kbd> turns the music off and on anywhere.</div>
+          <button class="btn pink" data-a="back">BACK</button>
+        </div>`;
+      bindVolume(this.settings, render);
+      this.settings.querySelector('[data-a=back]')!.addEventListener('click', back);
+      this.settings.querySelector<HTMLElement>(`[data-a=${had}]`)?.focus({ preventScroll: true });
+    };
+    this.settings.onkeydown = e => { if (e.code === 'Escape') back(); };
+    render();
+    this.settings.classList.add('on');
   }
 
   // ── Controls: pick a device and an action, press the key or button for it ──
@@ -452,8 +485,8 @@ export class UI {
     this.controls.classList.add('on');
   }
 
-  /** In a match (Esc / Start): RESUME, DEVICE and CONTROLS (as on the lobby card), SOUND, DROP OUT (split-screen seats), LEAVE MATCH (asks first). */
-  showMenu(h: MenuHandlers, seat: number | null, muted: boolean, device: InputSource, changing: boolean): void {
+  /** In a match (Esc / Start): RESUME, DEVICE and CONTROLS (as on the lobby card), MUSIC and SOUND, DROP OUT (split-screen seats), LEAVE MATCH (asks first). */
+  showMenu(h: MenuHandlers, seat: number | null, device: InputSource, changing: boolean): void {
     let sure = false;
     const render = () => {
       const had = document.activeElement instanceof HTMLElement && this.menu.contains(document.activeElement) ? document.activeElement.dataset.a : 'back';
@@ -463,7 +496,7 @@ export class UI {
           <button class="btn pink" data-a="back">RESUME</button>
           <button class="btn ${changing ? 'yellow' : ''}" data-a="device" title="${esc(deviceTitle(device))}">${changing ? 'PRESS A BUTTON OR KEY…' : `DEVICE: ${deviceLabel(device)}`}</button>
           <button class="btn" data-a="controls">CONTROLS</button>
-          <button class="btn" data-a="sound">SOUND: ${muted ? 'OFF' : 'ON'}</button>
+          ${volumeRows()}
           ${h.dropOut ? '<button class="btn" data-a="drop">DROP OUT</button>' : ''}
           <button class="btn ${sure ? 'yellow' : ''}" data-a="quit">${sure ? 'SURE? LEAVE THE ROOM' : 'LEAVE MATCH'}</button>
           <div style="font-weight:600;color:#8a7bb5">The match keeps going${seat !== null ? ' for the others' : ''} while this is open.</div>
@@ -472,7 +505,7 @@ export class UI {
       on('back', h.resume);
       on('device', h.changeDevice);
       on('controls', h.controls);
-      on('sound', () => { muted = h.toggleSound(); render(); });
+      bindVolume(this.menu, render);
       on('drop', () => h.dropOut?.());
       on('quit', () => { if (sure) h.leave(); else { sure = true; render(); } });
       this.menu.querySelector<HTMLElement>(`[data-a=${had}]`)?.focus({ preventScroll: true });
@@ -521,7 +554,7 @@ export class UI {
       <div class="panel">
         <div class="row" style="justify-content:space-between">
           <div><div style="font-weight:700;color:#8a7bb5">ROOM CODE · click to copy link</div><div class="room-code" title="Copy invite link">${esc(roomId)}</div></div>
-          <div class="row"><button class="btn small" data-a="add">+ BOT</button><button class="btn small" data-a="rm">− BOT</button><button class="btn small ${joining ? 'yellow' : ''}" data-a="addseat">${joining ? 'PRESS A BUTTON OR KEY…' : '+ PLAYER'}</button><button class="btn small" data-a="leave">LEAVE</button></div>
+          <div class="row"><button class="btn small" data-a="add">+ BOT</button><button class="btn small" data-a="rm">− BOT</button><button class="btn small ${joining ? 'yellow' : ''}" data-a="addseat">${joining ? 'PRESS A BUTTON OR KEY…' : '+ PLAYER'}</button><button class="btn small" data-a="settings" title="Settings: music and sound">⚙</button><button class="btn small" data-a="leave">LEAVE</button></div>
         </div>
         <div class="row" style="justify-content:flex-start;margin-top:10px">
           <div class="seg" data-a="modes">${modeButtons(mode)}</div>
@@ -551,6 +584,7 @@ export class UI {
     q('add')?.addEventListener('click', () => h.addBot());
     q('rm')?.addEventListener('click', () => h.removeBot());
     q('leave')?.addEventListener('click', () => h.leave());
+    q('settings')?.addEventListener('click', () => this.showSettings());
     const controls = (n: number) => { h.controlsFor(n); this.showControls(local[n]?.device ?? 'keys', () => {
       h.controlsFor(null);
       this.hideAll();
@@ -648,7 +682,7 @@ export class UI {
   }
 
   hideAll(): void {
-    for (const s of [this.title, this.lobby, this.end, this.controls, this.menu]) s.classList.remove('on');
+    for (const s of [this.title, this.lobby, this.end, this.controls, this.settings, this.menu]) s.classList.remove('on');
     capturePad(null);
     this.controlsOff?.(); // leaving CONTROLS by any route (BACK, or a match starting under it)
     this.controlsOff = null;
@@ -765,6 +799,26 @@ export class SeatHud {
 
 }
 
+
+/** MUSIC and SOUND rows: OFF / LOW / MED / HIGH. */
+function volumeRows(): string {
+  const v = volumes();
+  const row = (kind: 'music' | 'sound') => `<div>${kind.toUpperCase()}</div>
+    <div class="seg">${LEVEL_NAMES.map((n, i) => `<button data-a="${kind}-${i}" class="${v[kind] === i ? 'on' : ''}">${n}</button>`).join('')}</div>`;
+  return `<div class="binds">${row('music')}${row('sound')}</div>`;
+}
+
+function bindVolume(root: HTMLElement, rerender: () => void): void {
+  for (const kind of ['music', 'sound'] as const) {
+    for (let i = 0; i < LEVEL_NAMES.length; i++) {
+      root.querySelector(`[data-a=${kind}-${i}]`)?.addEventListener('click', () => {
+        setVolume(kind, i as Level);
+        if (kind === 'sound') sfx.ui(); // hear the new level
+        rerender();
+      });
+    }
+  }
+}
 
 function modeButtons(mode: GameMode): string {
   return `<button data-m="tag" class="${mode === 'tag' ? 'on' : ''}">TAG</button>`

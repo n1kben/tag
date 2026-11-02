@@ -1,17 +1,68 @@
 // Tiny WebAudio synth: Boomerang Fu-ish "pings, zaps and kung fu punch effects", no assets.
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+let sfxBus: GainNode | null = null;
+let musicBus: GainNode | null = null;
 let noiseBuf: AudioBuffer | null = null;
-let muted = false;
+
+// ── Volume: Music and Sound in four steps, kept in localStorage ──
+export type Level = 0 | 1 | 2 | 3;
+export const LEVEL_NAMES = ['OFF', 'LOW', 'MED', 'HIGH'] as const;
+const LEVEL_GAIN = [0, 0.3, 0.6, 1];
+const VOLUME_KEY = 'volume';
+type Volumes = { music: Level; sound: Level };
+const vol: Volumes = loadVolumes();
+let loud: Volumes = { ...vol }; // the levels M and the touch speaker bring back
+
+function loadVolumes(): Volumes {
+  const ok = (v: unknown): v is Level => v === 0 || v === 1 || v === 2 || v === 3;
+  try {
+    const s = JSON.parse(localStorage.getItem(VOLUME_KEY) ?? 'null');
+    if (ok(s?.music) && ok(s?.sound)) return { music: s.music, sound: s.sound };
+  } catch { /* fall back to the defaults */ }
+  return { music: 3, sound: 3 };
+}
+
+export function volumes(): Readonly<Volumes> { return vol; }
+
+export function setVolume(kind: keyof Volumes, level: Level): void {
+  vol[kind] = level;
+  if (level) loud[kind] = level;
+  try { localStorage.setItem(VOLUME_KEY, JSON.stringify(vol)); } catch { /* private mode: this visit only */ }
+  if (ctx && sfxBus && musicBus) {
+    sfxBus.gain.setTargetAtTime(LEVEL_GAIN[vol.sound], ctx.currentTime, 0.03);
+    musicBus.gain.setTargetAtTime(MUSIC_VOL * LEVEL_GAIN[vol.music], ctx.currentTime, 0.03);
+  }
+  applyMusic();
+}
+
+/** M: music off, or back on at its old level. */
+export function toggleMusic(): void {
+  setVolume('music', vol.music ? 0 : loud.music);
+}
+
+/** The touch speaker: everything on → music off → everything off → on again. Returns its icon. */
+export function cycleQuiet(): string {
+  if (vol.music && vol.sound) setVolume('music', 0);
+  else if (vol.sound) setVolume('sound', 0);
+  else { setVolume('sound', loud.sound); setVolume('music', loud.music); }
+  return quietIcon();
+}
+export function quietIcon(): string { return vol.sound ? (vol.music ? '🔊' : '🔈') : '🔇'; }
 
 function ac(): AudioContext | null {
-  if (muted) return null;
   if (!ctx) {
     try {
       ctx = new AudioContext();
       master = ctx.createGain();
       master.gain.value = 0.5;
       master.connect(ctx.destination);
+      sfxBus = ctx.createGain();
+      sfxBus.gain.value = LEVEL_GAIN[vol.sound];
+      sfxBus.connect(master);
+      musicBus = ctx.createGain();
+      musicBus.gain.value = MUSIC_VOL * LEVEL_GAIN[vol.music];
+      musicBus.connect(master);
       noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
       const d = noiseBuf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -20,24 +71,67 @@ function ac(): AudioContext | null {
     }
   }
   if (ctx.state === 'suspended') void ctx.resume();
+  applyMusic();
   return ctx;
 }
 
-// Browsers only allow audio after a gesture
-window.addEventListener('pointerdown', () => ac(), { once: true });
-window.addEventListener('keydown', () => ac(), { once: true });
+// ── Music: streamed <audio> loops on the music bus, crossfaded on screen changes ──
+export type Track = 'lobby' | 'match';
+const MUSIC_VOL = 0.4; // at HIGH, against the synth effects at HIGH
+const MUSIC_FADE = 1.5; // seconds of crossfade between songs
+const tracks = new Map<Track, { el: HTMLAudioElement; gain: GainNode }>();
+let wanted: Track | null = null;
+let playing: Track | null = null;
+let fadeIn = MUSIC_FADE;
 
-export function setMuted(v: boolean): void {
-  muted = v;
-  if (master) master.gain.value = v ? 0 : 0.5;
+function applyMusic(): void {
+  const target = vol.music ? wanted : null; // music OFF: nothing streams
+  if (!ctx || !musicBus || target === playing) return;
+  const c = ctx;
+  const t = c.currentTime;
+  const old = playing ? tracks.get(playing) : undefined;
+  if (old) {
+    old.gain.gain.cancelScheduledValues(t);
+    old.gain.gain.setValueAtTime(old.gain.gain.value, t);
+    old.gain.gain.linearRampToValueAtTime(0, t + MUSIC_FADE);
+    const el = old.el;
+    setTimeout(() => { if (tracks.get(playing!)?.el !== el) el.pause(); }, MUSIC_FADE * 1000 + 100);
+  }
+  const want = playing = target;
+  if (!want) return;
+  let tr = tracks.get(want);
+  if (!tr) {
+    const el = new Audio(`/music/${want}.ogg`);
+    el.loop = true;
+    const gain = c.createGain();
+    gain.gain.value = 0;
+    c.createMediaElementSource(el).connect(gain).connect(musicBus);
+    tr = { el, gain };
+    tracks.set(want, tr);
+  }
+  tr.el.currentTime = 0;
+  void tr.el.play().catch(() => { if (playing === want) playing = null; }); // retried on the next gesture/sound
+  tr.gain.gain.cancelScheduledValues(t);
+  tr.gain.gain.setValueAtTime(0, t);
+  tr.gain.gain.linearRampToValueAtTime(1, t + fadeIn);
 }
-export function isMuted(): boolean { return muted; }
+
+/** Which song should be playing (null = silence). Starts once the browser allows audio; the old one fades out. */
+export function music(track: Track | null, fade = MUSIC_FADE): void {
+  wanted = track;
+  fadeIn = fade;
+  ac();
+}
+
+// Browsers only allow audio after a gesture
+window.addEventListener('pointerdown', () => ac());
+window.addEventListener('keydown', () => ac());
 
 function tone(freq: number, to: number, dur: number, type: OscillatorType, vol: number, delay = 0, pan = 0): void {
   // Exponential ramps can't target 0, and inaudible sounds aren't worth scheduling
-  if (!(vol > 0.002)) return;
+  if (!(vol > 0.002) || !volumes().sound) return;
   const c = ac();
-  if (!c || !master) return;
+  if (!c || !sfxBus) return;
   const t = c.currentTime + delay;
   const o = c.createOscillator();
   const g = c.createGain();
@@ -49,15 +143,15 @@ function tone(freq: number, to: number, dur: number, type: OscillatorType, vol: 
   g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   p.pan.value = pan;
-  o.connect(g).connect(p).connect(master);
+  o.connect(g).connect(p).connect(sfxBus);
   o.start(t);
   o.stop(t + dur + 0.05);
 }
 
 function noise(dur: number, vol: number, f0: number, f1: number, q = 1, delay = 0, type: BiquadFilterType = 'bandpass', pan = 0): void {
-  if (!(vol > 0.002)) return;
+  if (!(vol > 0.002) || !volumes().sound) return;
   const c = ac();
-  if (!c || !master || !noiseBuf) return;
+  if (!c || !sfxBus || !noiseBuf) return;
   const t = c.currentTime + delay;
   const s = c.createBufferSource();
   s.buffer = noiseBuf;
@@ -72,7 +166,7 @@ function noise(dur: number, vol: number, f0: number, f1: number, q = 1, delay = 
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   const p = c.createStereoPanner();
   p.pan.value = pan;
-  s.connect(f).connect(g).connect(p).connect(master);
+  s.connect(f).connect(g).connect(p).connect(sfxBus);
   s.start(t, Math.random() * 0.5);
   s.stop(t + dur + 0.05);
 }

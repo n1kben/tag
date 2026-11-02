@@ -22,6 +22,7 @@ const MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.webmanifest': 'application/manifest+json',
   '.woff2': 'font/woff2',
+  '.ogg': 'audio/ogg',
 };
 
 function serveStatic(req: IncomingMessage, res: ServerResponse): void {
@@ -36,8 +37,24 @@ function serveStatic(req: IncomingMessage, res: ServerResponse): void {
     filePath = join(DIST_DIR, 'index.html');
   }
   try {
-    res.writeHead(200, { 'Content-Type': MIME_TYPES[extname(filePath)] || 'application/octet-stream' });
-    res.end(readFileSync(filePath));
+    const type = MIME_TYPES[extname(filePath)] || 'application/octet-stream';
+    const body = readFileSync(filePath);
+    // Safari won't stream <audio> without byte ranges
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+    if (range && (range[1] || range[2])) {
+      const start = range[1] ? +range[1] : Math.max(0, body.length - +range[2]);
+      const end = range[1] && range[2] ? Math.min(+range[2], body.length - 1) : body.length - 1;
+      if (start > end) {
+        res.writeHead(416, { 'Content-Range': `bytes */${body.length}` });
+        res.end();
+        return;
+      }
+      res.writeHead(206, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${body.length}` });
+      res.end(body.subarray(start, end + 1));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes' });
+    res.end(body);
   } catch {
     res.writeHead(404);
     res.end('Not found');

@@ -12,7 +12,7 @@ import { Network } from './net';
 import { readInput, isHeld, setInputEnabled, setMenuOwner, setSeatSources, lastDevice, sameSource, sourceTaken, padsFor, rumble, type InputSource } from './input';
 import { onTouchMenu, touchBoardHeld, updateTouch } from './touch';
 import { onPadPress, padBoardHeld, padPresses, pickPad, pollPad } from './pad';
-import { sfx, spatial, setMuted, isMuted } from './audio';
+import { sfx, spatial, toggleMusic, music } from './audio';
 import { BTN_ACTION, BTN_FLASH, BTN_FROST, type Role } from '../shared/sim';
 import { ClientNet, lerpAngle } from './netcode';
 import { FULL_MAP, mapFor, roofsForPlayers } from '../shared/map';
@@ -259,6 +259,7 @@ export function startGame(): void {
 
   // ── Screens ─────────────────────────────────────────────────────────────
   function showTitle(): void {
+    music('lobby');
     setInputEnabled(true);
     ui.showTitle({
       practice: m => { sfx.ui(); net.send({ type: 'create_room', mode: m, bots: PRACTICE_BOTS }); ui.setStatus('Creating room…'); },
@@ -269,6 +270,7 @@ export function startGame(): void {
 
   function showLobby(): void {
     mode = 'lobby';
+    music('lobby');
     setMenuOwner(null);
     ui.showLobby({
       rename: (name, n) => seats[n]?.net.send({ type: 'profile', name }),
@@ -306,10 +308,9 @@ export function startGame(): void {
       resume: closeMenu,
       changeDevice: () => startWait(seat),
       controls: () => ui.showControls(seat.src, () => { ui.showHud(); openMenu(seat); }),
-      toggleSound: () => { setMuted(!isMuted()); return isMuted(); },
       dropOut: seat !== p1 ? () => { closeMenu(); dropSeat(seat); } : undefined,
       leave: () => { closeMenu(); leave(); },
-    }, seats.length > 1 ? seat.n : null, isMuted(), seat.src, waiting?.seat === seat);
+    }, seats.length > 1 ? seat.n : null, seat.src, waiting?.seat === seat);
     if (!document.documentElement.classList.contains('pad')) ui.root.querySelector<HTMLElement>('.menu [data-a=back]')?.focus({ preventScroll: true });
   }
 
@@ -390,6 +391,7 @@ export function startGame(): void {
         standings = msg.standings;
         cleanupMatch();
         mode = 'end';
+        music('lobby');
         const mine = seats.map(s => s.id);
         ui.showMatchEnd(msg.standings, mine, () => showLobby());
         (mine.includes(msg.standings[0]?.id) ? sfx.win : sfx.lose)();
@@ -442,6 +444,7 @@ export function startGame(): void {
   function startMatch(roster: LobbyPlayer[]): void {
     cleanupMatch();
     mode = 'match';
+    music(null); // the lobby song fades to silence; the match song comes in with the gong
     cancelWait();
     setMenuOwner(null);
     cn.stats.reset(); // the netgraph counts per match
@@ -536,6 +539,7 @@ export function startGame(): void {
     if (prevPhase === 'start' && phase === 'chase') {
       for (const st of seats) st.hud.banner('READY OR NOT!', roles[st.id] === 'tagger' ? 'Go get them' : 'Here they come…', '#ffd23f', 1800);
       sfx.gong();
+      music('match', 0.15);
     }
     if (phase === 'start' && timeLeft <= 3.05 && Math.ceil(timeLeft) !== Math.ceil(timeLeft + 2 * TICK_DT)) sfx.beep();
   }
@@ -730,7 +734,7 @@ export function startGame(): void {
   window.addEventListener('keydown', e => {
     if (e.target instanceof HTMLInputElement) return;
     if (e.code === 'KeyP') debugOn = !debugOn;
-    if (e.code === 'KeyM') setMuted(!isMuted());
+    if (e.code === 'KeyM') toggleMusic();
   });
 
   function frame(): void {
